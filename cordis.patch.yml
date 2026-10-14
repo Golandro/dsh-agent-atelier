@@ -1,0 +1,7 @@
+# agents-manager bundle 层：插入 Agents Manager 宿主插件条目。
+# 由 `dsh plugin add` / plugin_manager install_bundle 自动装配（包声明 dsh.bundle.patch），
+# 无需手动编辑 profile 的任何文件；remove_bundle 时自动移除。
+- insert:
+    - id: dsh-plugin-agents-manager
+      name: 'dsh-plugin-agents-manager'
+      config: {}

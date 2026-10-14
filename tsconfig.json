@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    // Mirrors the DSH monorepo base config so ticket 01 can copy source-level
+    // conventions (`./x.ts` imports rewritten to `./x.js` on emit).
+    "target": "es2024",
+    "lib": ["es2024"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": true,
+    "declaration": true,
+    "sourceMap": false,
+    "declarationMap": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noEmit": true,
+    "rootDir": ".",
+    "outDir": "lib"
+  },
+  "include": ["src", "test"]
+}
