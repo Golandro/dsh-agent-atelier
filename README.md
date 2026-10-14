@@ -27,6 +27,10 @@ npm test           # vitest run
 npm run typecheck  # tsc --noEmit over src + test
 ```
 
+The installed plugin loads `lib/`, so **after any change under `src/` run
+`npm run build` again** — the profile links this directory, it does not rebuild
+it for you.
+
 ## Installing into the profile
 
 Never edit the profile's `package.json` or `cordis.patch.yml` by hand and never
