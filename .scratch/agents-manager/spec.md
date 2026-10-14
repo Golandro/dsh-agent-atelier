@@ -18,8 +18,8 @@ DSH 没有面向用户的「Agent（专家）」层：子代理不带预设人�
 
 ### 2.1 认知修正（grilling 确立的事实）
 
-1. **AGENTS.md**：不是"子代理有、队友没有"——`context/agent-instructions` 无父子守卫，**两者都注入**且 unfiltered（候选 `['AGENTS.md','CLAUDE.md']`，`config.ts:12`；`$DSH_HOME/AGENTS.md`，`render.ts:98`）。插件不加核心补丁改不了 → 接受现状，上游 issue 记录（§12）。
-2. **"8 段一条线性字符串"**：system 是**命名节 + 数字 order 的注册表**（`core/system-prompt/src/index.ts:405`，`SECTION_ORDERS :125-159`），渲染成一条 system 消息；工具定义走**独立 tools 字段**（`core/tools/src/index.ts:854`）；AGENTS.md / skills catalog / runtime 快照是**user 消息通道**（change/digest 门控）；首消息再一条 user 消息。自由度 = 给**自己的节**选 order + 选通道。
+1. **AGENTS.md**：不是"子代理有、队友没有"——`context/agent-instructions` 无父子守卫，**两者都注入**且 unfiltered（候选 `['AGENTS.md','CLAUDE.md']`，`context/agent-instructions/src/config.ts:12`；`$DSH_HOME/AGENTS.md`，`context/agent-instructions/src/render.ts:98`）。插件不加核心补丁改不了 → 接受现状，上游 issue 记录（§12）。
+2. **"8 段一条线性字符串"**：system 是**命名节 + 数字 order 的注册表**（`core/system-prompt/src/index.ts:405`，`SECTION_ORDERS` 见同一文件 `:131`），渲染成一条 system 消息；工具定义走**独立 tools 字段**（`core/tools/src/index.ts:854`）；AGENTS.md / skills catalog / runtime 快照是**user 消息通道**（change/digest 门控）；首消息再一条 user 消息。自由度 = 给**自己的节**选 order + 选通道。
 3. **"DSH 无 Agent 层"**：半错。core 已有 per-child persona（order-0 `deployment:persona-prefix` 节）、per-child `toolFilter`、agent presets、GUI picker；Agency 外部包是"命名人设+召唤工具"的参考实现。本插件真正增量：**用户自写 agent.md、别名+modelOrder、requiredTools 警告、缓存感知组装、UI**。
 4. **fork 缓存直觉陷阱**：fork = 父前缀消息史重放，但**子 system 头重组装** → 请求头部与父不同 → 前缀缓存从头部断。demo 级认知，写进 UI 顾问面板的知识库。
 

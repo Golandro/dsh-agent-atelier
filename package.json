@@ -23,7 +23,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:static": "node scripts/check.mjs",
+    "check": "node scripts/check.mjs && npm run typecheck && npm test"
   },
   "engines": {
     "node": ">=24"

@@ -1,0 +1,9 @@
+#!/bin/sh
+# 本仓无 CI（无远端），守卫挂在 pre-commit 上。
+# 一次性接线：git config core.hooksPath .githooks
+set -e
+if [ ! -d node_modules ]; then
+  echo "pre-commit: node_modules 缺失，先跑 npm install --cache \"\$PWD/.npm-cache\"" >&2
+  exit 1
+fi
+npm run --silent check

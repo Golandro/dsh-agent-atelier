@@ -6,6 +6,7 @@
 - 插件产品边界：**只管、且深度管会话启动参数**（persona / 模型链 / 工具过滤 / prompt 组装 / 首条消息）；运行时工作流委托 DSH 原生。
 - deck 闸恢复后可由 deck 接管本目录票据管理（文件已按 `docs/agents/issue-tracker.md` 约定落盘）。
 - 原型 `agent-control-prototype.html` 保留在仓库根，其纯逻辑模块是 M3 解析引擎的规格参照。
+- 仓库守卫与事实文档（2026-10-14 retro 落地）：`npm run check`（`scripts/check.mjs`：探针残留 / `lib/` 陈旧 / 运行时依赖 / 未装 devDeps / 票面 `path:line` 锚点漂移，会先自测每条判定）+ `.githooks/pre-commit`（每 clone 接线一次：`git config core.hooksPath .githooks`）；harness 事实与实施期约定见 `docs/agents/harness-facts.md`。
 
 ## Decisions-so-far
 
