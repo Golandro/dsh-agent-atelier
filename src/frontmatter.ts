@@ -74,10 +74,10 @@ type Fence =
   | { readonly kind: 'unterminated' }
 
 /**
- * Read one document into typed frontmatter plus persona body.
+ * Read one document into typed frontmatter plus the document body.
  *
  * A document without a frontmatter block is valid: every field defaults (D19),
- * and the whole text is the persona.
+ * and the whole text is the body.
  */
 export function parseAgentDocument(text: string): AgentDocument {
   const fence = splitFence(text)
