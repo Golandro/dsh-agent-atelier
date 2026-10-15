@@ -1,9 +1,10 @@
-# Agents Manager (scaffold — ticket 10)
+# Agents Manager
 
-Installable Cordis bundle for the DeepSeek Harness profile that will manage
-`agent.md` definitions. This package is the **scaffold only**: toolchain,
-bundle manifest and one empty registration point. All discovery, parsing,
-resolution, UI and tool behaviour belongs to tickets 01–07.
+Installable Cordis bundle for the DeepSeek Harness profile that manages
+`agent.md` definitions. Delivered so far: **ticket 01** — lazy agent discovery
+(four user/workspace roots plus the bundled root), the minimal frontmatter
+reader, and the read-only `agentRegistry` service. Model resolution, UI, tool
+filtering and prompt assembly belong to tickets 02–07.
 
 ## What it provides
 
@@ -13,11 +14,15 @@ resolution, UI and tool behaviour belongs to tickets 01–07.
 | Bundle patch | `cordis.patch.yml` (`insert:` one Host row) |
 | Host entry | `apply(ctx)` in `src/index.ts` |
 | Service key | `agentRegistry` |
+| Service face | `list(options)` / `get(agentName, options)` / `diagnostics(options)` / `invalidate()` |
+| Document layout | `<root>/<agent-name>/<agent-name>.agent.md` (ADR-0002) |
+| Discovery roots | `.dsh/agents`, `.agents/agents` (project), `$DSH_HOME/agents`, `$DSH_AGENTS_HOME/agents` (user), bundled (rank 600) |
 | Build output | `lib/` (ESM + `.d.ts`, loaded by the Harness) |
 
 `agentRegistry` is deliberately **not** named `agents`: the host already owns
 `ctx.agents` (the live Agent registry), and a bundle must not shadow a native
-service.
+service. Nothing is registered into `ctx.skills` either — agents mirror the
+native skill *shape* structurally instead (ADR-0001).
 
 ## Commands
 

@@ -1,29 +1,35 @@
 import { describe, expect, it } from 'vitest'
 
-import { createAgentRegistry, type AgentDefinition } from '../src/registry.ts'
+import { createAgentRegistry } from '../src/registry.ts'
+import type { AgentDefinition } from '../src/types.ts'
 
-const planAgent: AgentDefinition = {
-  id: 'plan',
-  description: 'Plans work before it is delegated',
-  source: 'workspace:.dsh/agents',
+function definition(agentName: string, overrides: Partial<AgentDefinition> = {}): AgentDefinition {
+  return {
+    agentName,
+    name: agentName,
+    description: `${agentName} agent`,
+    body: `${agentName} body`,
+    source: 'user-dsh',
+    origin: 'user',
+    extra: {},
+    path: `/agents/${agentName}/${agentName}.agent.md`,
+    ...overrides,
+  }
 }
 
-const reviewAgent: AgentDefinition = {
-  id: 'review',
-  description: 'Reviews finished work',
-  source: 'user:~/.dsh/agents',
-}
+const planAgent = definition('plan', { description: 'Plans work before it is delegated' })
+const reviewAgent = definition('review', { description: 'Reviews finished work', source: 'user-agents' })
 
 describe('agent registry container', () => {
-  it('starts empty, so the scaffold ships an empty registration point', () => {
+  it('starts empty', () => {
     const registry = createAgentRegistry()
 
     expect(registry.size).toBe(0)
     expect(registry.list()).toEqual([])
-    expect(registry.get('default')).toBeUndefined()
+    expect(registry.get('plan')).toBeUndefined()
   })
 
-  it('serves a registered definition by id', () => {
+  it('serves a registered definition by agent name', () => {
     const registry = createAgentRegistry()
 
     registry.register(planAgent)
@@ -33,12 +39,12 @@ describe('agent registry container', () => {
     expect(registry.list()).toEqual([planAgent])
   })
 
-  it('keeps the first-registration position and lets the last registration win by id', () => {
+  it('keeps the first-registration position and lets the last registration win by agent name', () => {
     const registry = createAgentRegistry()
     registry.register(planAgent)
     registry.register(reviewAgent)
 
-    const redefined: AgentDefinition = { ...planAgent, description: 'Plans and delegates work' }
+    const redefined = definition('plan', { description: 'Plans and delegates work' })
     registry.register(redefined)
 
     expect(registry.list()).toEqual([redefined, reviewAgent])

@@ -1,6 +1,7 @@
 # Agents Manager — 设计 Roadmap（spec）
 
 > 状态：grilling 已收敛（四轮问答 + 4 个源码探员），共识已确认。本文件 = spec + roadmap；分模块票据在 `issues/`；wayfinding map 在 `map.md`。
+> 2026-10-14 二轮 grilling（01 票，/triage /grill-with-docs）增补 D19–D24，修订 §5.1/§5.3/§6/§8；裁决记录见票 01 的二轮评论。
 > 原型参照：`agent-control-prototype.html`（其纯逻辑模块提升为解析引擎的规格参照，保留于仓库根）。
 
 ## 1. 背景与目标
@@ -45,6 +46,12 @@ DSH 没有面向用户的「Agent（专家）」层：子代理不带预设人�
 | D16 | 与 Agency 正交共存；`source` 字段预留（built-in/user），v2 给 Agency 专家接模型选择 | Q10′ |
 | D17 | M3/M4 为纯函数 + 单测（原型纯模块 = 规格参照）；测试是验收标准而非独立票 | Q1 附带 |
 | D18 | 两个研究 spike 入票：R1 别名↔provider/model 关联方案；R2 别名内部负载控制（约束：不均衡、只故障转移、429 默认不转移） | 用户最终轮 |
+| D19 | agent 布局 = 目录制：`<发现根>/<agent-name>/<agent-name>.agent.md`；身份 = 目录名（小写 kebab，保留字 `default`）；显示名 `name` 缺省回退目录名；frontmatter `id` 废弃（仍写 ⇒ `unexpected-id` 诊断，值进 extra）；平铺 `*.md` 不再是 agent 位置 | 01 票二轮 grilling Q3/Q12；修订 D3 的 id 必填与平铺布局；ADR-0002 |
+| D20 | `includes` 重义并改名 `skills`：预置技能名数组（按名引用原生 skills 注册表），召唤时预置以省发现/加载轮次；存在性 06 警告（只警告不保证）；投递方式（内容预注入 vs 目录标记）= 04/07 设计题 | Q9/Q13；旧义「相对路径引用 markdown 资源」废弃 |
+| D21 | 错误面 = 软诊断：发现/解析期跳过 + `diagnostics()` + 日志，不阻断启动；坏 agent 不可见即不可用；UI（05）后补呈现。唯一硬错：受信 bundled 根（自家资产）解析失败 | Q5/Q6；与 D9 警告哲学同构 |
+| D22 | 「尽量委托」条件裁决 = 结构照抄（ADR-0001）：运行时 import 原生包不可达（软链 realpath 解析链 + 零依赖守卫）+ locator 硬编码 `SKILL.md` + `ctx.skills` 注册 = 类型 launder 与读面污染 ⇒ `src/discovery.ts` 镜像原生形状（根表/rank/`{cwd,signal}` 查询/invalidate），不注册进 `ctx.skills` | Q2/Q11；把当日上午的「尽量委托」裁决落定为条件式并关闭 |
+| D23 | frontmatter 解析 = 自写最小 YAML 子集（`---` 围栏；已知键类型化：标量/引号串/字符串数组/`{provider, model}` 流式映射；未知键原文进 `extra`）；不加运行时依赖 | Q14「用最小化轮子（只是yaml解析器）」 |
+| D24 | 注册表契约冻结：`AgentRegistry { list/get({cwd, signal}), diagnostics({cwd}), invalidate() }`，首次查询按项目根记忆化（无 watcher）；哑容器保留为内部类型；跨根覆盖不诊断（胜者 `source` 记录出处） | Q1/Q15；03/05/06 消费面 |
 
 ## 3. 事实基础（关键代码事实速查）
 
@@ -69,14 +76,18 @@ DSH 没有面向用户的「Agent（专家）」层：子代理不带预设人�
 | preset 读取 | `ctx.agentPresets.composedPreset(ctx)`；交集只在 `ToolRuntime.view()` | `preset/agent-preset-registry/src/index.ts:290` |
 | per-model 变量 | 唯一内置机制：`installModelSelection` 注入 `{{provider}}/{{model}}` | `core/agent/src/model-selection.ts:67` |
 | Agency 先例 | `startSubagentRun` = `ctx.subagents.start/startActivation`；请求带 persona+toolFilter+maxDepth；能力门控 `capabilities.persona/.toolFilter/.depthLimit`；332 personas，frontmatter{name,description,descriptionEn,color,emoji,vibe} | AGENCY `lib/src-DhS1geoQ.js:3356-3368/:3383-3401` |
+| 运行时 import 边界 | 本包 realpath（软链回 workspace）解析不到 profile 的 node_modules：`@deepseek-ai/dsh-skill` / `@deepseek-ai/dsh-skill-filesystem` / `yaml` 动态导入全 `ERR_MODULE_NOT_FOUND`；零运行时依赖守卫（ADR-0001） | 探针 2026-10-14；`scripts/check.mjs:188` |
+| 查询选项先例 | `SkillLookupOptions {cwd?, signal?}`——agent 注册表读接口与之同构（D24） | `skill/skill/src/index.ts:103-108` |
+| 发现小助手 | `resolveDshHome`/`resolveAgentsHome`、`findProjectRoot` 上溯、`optionalFileSystem`（ctx fs 优先读法）——语义照抄，不可 import | `util/home-paths/src/index.ts:151`；`skill/skill-filesystem/src/index.ts:952/:849` |
+| 原生 frontmatter | `---` 围栏切分 + `yaml` 包 parse（`yaml@^2.4.2`，本包不可用 ⇒ 自写子集，D23） | `skill/skill-filesystem/src/index.ts:812/:924` |
 
 ## 4. 架构总览
 
 ```
-$DSH_HOME/agents/*.md ─┐
-$DSH_AGENTS_HOME/agents/*.md ─┤
-$WORKSPACE/.dsh/agents/*.md ─┤→ M1 注册发现 ──→ M6 目录注入（<available_agents>，digest 门控）
-$WORKSPACE/.agents/agents/*.md ─┘（4 根，rank 100/200/300/400/500，低 rank 胜）
+$DSH_HOME/agents/<agent-name>/ ─┐
+$DSH_AGENTS_HOME/agents/<agent-name>/ ─┤
+$WORKSPACE/.dsh/agents/<agent-name>/ ─┤→ M1 注册发现 ──→ M6 目录注入（<available_agents>，digest 门控）
+$WORKSPACE/.agents/agents/<agent-name>/ ─┘（4 根 + bundled，rank 100/200/300/400/500/600，低 rank 胜）
                         │        │                    ↑警告：requiredTools × ctx.tools.schemas()
 registry.yaml（models+aliases）┤→ M2 别名注册表 ──→ M3 解析引擎（纯函数）→ M4 组装规划（纯函数）
                         │                                    ↓                     ↓
@@ -89,27 +100,30 @@ registry.yaml（models+aliases）┤→ M2 别名注册表 ──→ M3 解析�
 
 ## 5. 数据模型
 
-### 5.1 agent.md（frontmatter + 正文=人设）
+### 5.1 agent 文档（目录制布局，D19/D20）
+
+合法形状：`<发现根>/<agent-name>/<agent-name>.agent.md`——一个目录一个 agent；agent-name 为小写 kebab `[a-z0-9]+(-[a-z0-9]+)*`，保留字 `default`；身份 = 目录名，frontmatter `id` 已废弃（ADR-0002）。frontmatter 与正文：
 
 ```yaml
 ---
-id: reviewer                    # 必填，kebab-case，跨层唯一（冲突时 workspace 胜）
-name: 代码审查专家               # 显示名（Agency 兼容）
-description: 按 DL 能够列风险的 reviewer   # 注入目录用一句话
+name: 代码审查专家               # 显示名（Agency 兼容）；缺省回退 agent-name
+description: 按 DL 能够列风险的 reviewer   # 注入目录用一句话；缺省 ''
 color: "#4f46e5"                # 可选（Agency 兼容）
 emoji: "🔍"                    # 可选
 modelOrder: [smart, fast]      # 别名优先（正道，推荐）
-# —— 传统 model 数组兜底（显式逃逸口，lint 警告）——
-# model:
-#   - { provider: deepseek, model: deepseek-chat }
+model:                         # 传统 raw 数组兜底（显式逃逸口，lint 警告，D5）
+  - { provider: deepseek, model: deepseek-chat }
 requiredTools: [read, grep]     # 真实工具名；只警告不保证（D9）
-includes: [review-checklist.md]  # 相对本 agent 目录或 .dsh/agents/
+skills: [code-review-checklist] # 预置技能名（D20）：召唤时预置以省轮次；存在性 06 警告
 spawn: spawn                   # 默认 flavor：spawn | fork（调用点可覆盖）
 reasoningEffort: high          # 可选 agent 级默认；modelOrder 条目级可覆盖（D7）
-source: user                   # 预留：built-in | user（D16 v2 统一 Agency 用）
 ---
 正文 = 人设提示词（persona，恒 system 侧，D11）
 ```
+
+- `source`（发现根标签）与 `origin`（built-in|user）由发现层派生，不进 frontmatter（D16 的 v2 统一走 origin）。
+- 未知 frontmatter 键按原文保留进 `extra`，UI 回写不丢（D14）。
+- 无 frontmatter 块的合规命名文档 = 合法 agent，全字段默认（D19）。
 
 ### 5.2 registry.yaml（`$DSH_HOME/agents/registry.yaml`，workspace `.dsh/agents/registry.yaml` 覆盖合并）
 
@@ -129,7 +143,7 @@ aliases:                       # 纯指针（意图层）：v1 单目标数组�
 
 ### 5.3 解析语义（M3 纯函数）
 
-1. 遍历 `modelOrder`：条目为别名 → 展开池（v1 单目标）跳过 `available:false`；条目为 raw `{provider,model}` → 直连（lint 警告）。
+1. 遍历 `modelOrder`（别名名数组）：展开池（v1 单目标）跳过 `available:false`；`modelOrder` 耗尽后接 `model` raw 数组直连（显式逃逸口，lint 警告）。
 2. 每个候选过 `assertAllowedModelSelection` 白名单（policy.routes）；全链被拦 ⇒ 与不可用同等处理。
 3. 命中即返回 `{provider, model, reasoningEffort, persona, toolFilter, flavor}`；**链耗尽 = 硬错误，回显整条链**（isError 哲学）。
 4. effort 取值顺序：链项覆盖 > agent 级默认 > 无。
@@ -139,7 +153,8 @@ aliases:                       # 纯指针（意图层）：v1 单目标数组�
 | 内容 | 通道 | 机制 | 缓存动力学 |
 |------|------|------|-----------|
 | per-model 系统提示词 | ① system 节 | `systemPrompt.section`，order 低于 persona（在 persona **之前**） | 轮间稳定；切模型在此断 |
-| persona / includes | ① system 节 | persona→`deployment:persona-prefix`(order 0)；includes 紧随 | 切 Agent 在此断 |
+| persona | ① system 节 | persona→`deployment:persona-prefix`(order 0) | 切 Agent 在此断 |
+| 预置技能（`skills`） | 待定（04/07：内容预注入或目录标记） | 按技能名引用原生 skills 注册表（D20） | 目标：召唤即用，省发现/加载轮次 |
 | mode 工具集 | ④ tools 字段 | toolFilter → `ctx.tools.restrict` | 随 preset/过滤变化 |
 | agent/别名目录 | ② digest 门控 user 消息 | 照抄 tool-skill sha256 pre-step 模式 | **注册表不变 ⇒ 不发新消息 ⇒ 主 Agent 前缀不断**（注入名稳定的机制化） |
 | AGENTS.md | ②（DSH 原生，不可控） | unfiltered，change 门控 | DSH 行为 |
@@ -163,7 +178,8 @@ aliases:                       # 纯指针（意图层）：v1 单目标数组�
 |------|------|------|
 | requiredTools 超界 | `requiredTools ⊄ ctx.tools.schemas(agent)` | 目录内紧凑标注（缺什么）+ UI；**不隐藏、不阻断召唤** |
 | 链耗尽 | modelOrder 全不可用/全被白名单拦 | **硬错误**（isError 回显链）——唯一例外，因其修复是人级的 |
-| 逃逸口 | modelOrder 含 raw model 条目 | lint 警告："建议改用别名" |
+| 逃逸口 | 解析走到 `model` raw 数组 | lint 警告："建议改用别名" |
+| 预置技能缺失 | `skills` ⊄ 原生 skills 注册表 | 目录内紧凑标注 + UI（同 requiredTools 模式，D20） |
 | 多对一 | 多别名同指一模型 | lint 提示（无害但提示意图重叠） |
 | 顺序反模式 | 易变节（③通道）被排到稳定节之前 / cacheIsolated 未声明 | UI 顾问面板缓存断点可视化 |
 

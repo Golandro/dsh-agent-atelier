@@ -1,37 +1,38 @@
 /**
- * One agent definition exactly as the registry stores it.
+ * The in-memory definition container behind the registry service.
  *
- * Ticket 01 owns discovery, parsing and the error surface for malformed
- * definitions; this container validates nothing and adds no discovery logic.
+ * Ticket 01 keeps this as the internal storage of a scan: pure data, no
+ * filesystem access, no parsing, no host state. Discovery does the validating
+ * and rank-deciding, then hands finished definitions to `register()`; the
+ * service wraps it with the lazy per-project-root memoisation.
+ *
+ * `createAgentRegistry` (this container) is deliberately distinct from
+ * `createAgentRegistryService` (the `ctx.agentRegistry` service in
+ * `./discovery.ts`): the container keeps its synchronous `size`/`register`
+ * surface for focused unit tests, while the service face is the frozen
+ * `AgentRegistry` contract and has no `size`.
  */
-export interface AgentDefinition {
-  /** Stable id the definition is addressed by. */
-  readonly id: string
-  /** One-line summary shown in lists and pickers. */
-  readonly description: string
-  /** Discovery root the definition came from, e.g. `workspace:.dsh/agents`. */
-  readonly source: string
-}
+import type { AgentDefinition } from './types.ts'
 
 /**
- * The registration point ticket 01 fills and tickets 03/05/06 later consume.
+ * Storage for discovered definitions, addressable by agent name.
  */
-export interface AgentRegistry {
-  /** Number of distinct ids currently registered. */
+export interface AgentDefinitionContainer {
+  /** Number of distinct agent names currently held. */
   readonly size: number
-  /** Registered definitions in first-registration order. */
+  /** Held definitions in first-registration order. */
   list(): readonly AgentDefinition[]
-  /** The definition registered under `id`, if any. */
-  get(id: string): AgentDefinition | undefined
-  /** Register `definition`; a later definition for the same id replaces it in place. */
+  /** The definition registered under `agentName`, if any. */
+  get(agentName: string): AgentDefinition | undefined
+  /** Store `definition`; a later definition for the same agent name replaces it in place. */
   register(definition: AgentDefinition): void
 }
 
 /**
- * Create the in-memory definition container. Pure data: no filesystem access,
- * no parsing, no host state.
+ * Create the definition container. Pure data: no filesystem access, no parsing,
+ * no host state.
  */
-export function createAgentRegistry(): AgentRegistry {
+export function createAgentRegistry(): AgentDefinitionContainer {
   const definitions = new Map<string, AgentDefinition>()
 
   return {
@@ -39,9 +40,9 @@ export function createAgentRegistry(): AgentRegistry {
       return definitions.size
     },
     list: () => [...definitions.values()],
-    get: (id) => definitions.get(id),
+    get: (agentName) => definitions.get(agentName),
     register: (definition) => {
-      definitions.set(definition.id, definition)
+      definitions.set(definition.agentName, definition)
     },
   }
 }

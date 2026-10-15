@@ -30,6 +30,7 @@ Provider（host）：`Service.listService` / `Event.listEvents` / `Config.listCo
 
 - 沙箱只允许写本 workspace，所以包管理器的 cache/store 必须落在 workspace 内：`.npmrc` 已设 `cache=.npm-cache` 与 `store-dir=.pnpm-store`。
 - 测试 = vitest（`npm test`）；类型 = `npm run typecheck`；构建 = `npm run build`（tsc → `lib/`）。
+- Node 内置模块（`node:fs/promises`、`node:path`、`node:os`、`node:url`）的类型来自 devDependency `@types/node`（`^24`）；运行时依赖仍必须为空（守卫只管 `dependencies`）。
 - **守卫**：`npm run check`（静态卫生 + typecheck + 单测）。本仓无 CI、无远端，守卫挂在 `.githooks/pre-commit` 上，一次性接线：`git config core.hooksPath .githooks`。
 
 ## 实施期约定（本仓特化）

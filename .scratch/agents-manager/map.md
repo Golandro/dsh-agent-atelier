@@ -6,6 +6,7 @@
 - 插件产品边界：**只管、且深度管会话启动参数**（persona / 模型链 / 工具过滤 / prompt 组装 / 首条消息）；运行时工作流委托 DSH 原生。
 - deck 闸恢复后可由 deck 接管本目录票据管理（文件已按 `docs/agents/issue-tracker.md` 约定落盘）。
 - 原型 `agent-control-prototype.html` 保留在仓库根，其纯逻辑模块是 M3 解析引擎的规格参照。
+- 领域文档已起步：`CONTEXT.md`（词汇表，随 grilling 增补）+ `docs/adr/`（0001 结构照抄、0002 目录制布局）。
 - 仓库守卫与事实文档（2026-10-14 retro 落地）：`npm run check`（`scripts/check.mjs`：探针残留 / `lib/` 陈旧 / 运行时依赖 / 未装 devDeps / 票面 `path:line` 锚点漂移，会先自测每条判定）+ `.githooks/pre-commit`（每 clone 接线一次：`git config core.hooksPath .githooks`）；harness 事实与实施期约定见 `docs/agents/harness-facts.md`。
 
 ## Decisions-so-far
@@ -14,8 +15,12 @@
 - 两个研究方向已立票：R1 别名↔provider/model 关联（池化、两级故障结构）；R2 别名内部负载控制（约束：不均衡、只故障转移、429 默认不转移、与 llm-retry 叠加语义待研究）。
 - reasoningEffort 暂挂 agent.md；链内 pin 移 v2（Q5/Q8 张力裁决：v1 优先标准策略）。
 - 脚手架（01 票 triage Q1）：新开 `10-scaffold`＝可安装 Cordis bundle（`dsh.bundle.patch` + `cordis.patch.yml`）+ TS/vitest 工具链 + 一个空壳注册点；安装只走 `plugin_manager install_bundle`（不手改 profile 的 `package.json`/`cordis.patch.yml`），作为 01–07 的前置。
-- 发现机制（01 票 triage Q2）：agent.md 根集与原生 skills 对齐（4 根 + rank 表 `100/200/300/400/500/BUNDLED`，低 rank 胜），**尽量委托 `ctx.skills` 机制**，不另立平行发现设施；原生只认 `SKILL.md`/`<name>/SKILL.md`，agent 解析必须自有。
+- 发现机制（01 票 triage Q2）：agent.md 根集与原生 skills 对齐（4 根 + rank 表 `100/200/300/400/500/BUNDLED`，低 rank 胜），**尽量委托 `ctx.skills` 机制**，不另立平行发现设施；原生只认 `SKILL.md`/`<name>/SKILL.md`，agent 解析必须自有。→ **已被 D22 修订**（2026-10-14 二轮：委托条件经探针裁决不成立，改结构照抄，见下条）。
 - ✅ 脚手架落地（票 `10` **resolved**，2026-10-14）：`dsh-plugin-agents-manager` 已装进本 profile（`install_bundle` → `application: applied`；`remove_bundle` 回退 → 干净移除，均已实测）。**注册点 key = `agentRegistry`**——票面建议的 `agents` 已被原生 `ctx.agents` 占用（实现期关键修正，勿再改回）。工具链 = TS + vitest，但用 **npm + workspace 本地 cache**（沙箱不允许写 workspace 之外，pnpm 全局 store 会 EROFS）；构建只用 tsc，`lib/` 运行时零依赖。详见 `issues/10-plugin-scaffold.md` 的 `## Answer`。
+- ✅ 01 票二轮 grilling 落地（2026-10-14，/triage /grill-with-docs）：D19 目录制布局 + 路径身份（`<agent-name>/<agent-name>.agent.md`，保留字 `default`；ADR-0002）；D20 `includes`→`skills` 预置技能；D21 软诊断（UI 05 后补）；D22 委托条件不成立 ⇒ 结构照抄（ADR-0001）；D23 自写最小 YAML 子集；D24 契约冻结（懒发现 + `{cwd,signal}` + `invalidate()`）。`CONTEXT.md` 12 术语、spec D19–D24 与 §5.1/§5.3/§6/§8 已同步；agent brief 已挂票 01。
+- ✅ 01 票落地（2026-10-15，`/implement`，**resolved**，见 `issues/01-agent-registry.md` 的 `## Answer`）：四根 + bundled 懒发现（rank 100/200/400/500/600、低 rank 胜、`invalidate()` 重扫、无 watcher）、目录制布局与路径身份、自写最小 YAML 子集（零运行时依赖）、软诊断 + 受信根硬错、内置默认 agent 走同一管线。契约落在 `src/types.ts`，服务面 = `ctx.agentRegistry`；单测 40 例 / 44 锚点（交付快照首跑 `npm run check` 曾卡在 `build 不新鲜`，见下条修复轮）。
+- ⚠️ 01 实现期细化（下游需要知道）：受信 bundled 根**绕过**注入的 fs 端口（原生 `trustedHost` 同构）；无 frontmatter / `modelOrder: []` 这类「合法但无链」的 agent 会得到 advisory `no-model-order`（仍注册）；未闭合围栏按 `unparseable-frontmatter` 处理；新增 devDependency `@types/node`（运行时依赖仍为空）。
+- ✅ 01 修复轮（2026-10-15，`/code-review` 两轴 + `/implement`）：Standards 8 条 + Spec 9 条 → 修 4 项 Spec 缺陷（ctx `fs` 端口改**按用时解析**、`extra` 值改公共缩进去缩、受信根 advisory 行为补测、Answer 计数更正）+ 4 项 Standards（契约成员改名 `id`→`agentName`、`persona`→`body`；每查询只解析一次 `findProjectRoot`；根 `README.md`/`package.json` 契约陈述更新；plugin 测试改封闭不再读真实 home），其余记为债务或接受偏差（详见 01 票「修复轮」节）。**唯一破坏性变更 = 契约成员改名**，形状/语义不变，03/05/06 用新名。
 
 ## Fog
 
@@ -24,8 +29,10 @@
 - v1 无链内 pin ⇒ 替换原生入口后，主 Agent 暂失原生 subagent 的条件性 per-call 模型参数——已知限制，v2 解决。
 - UI「智能」的缓存可视化深度（断点图 vs 数字）——05 票内先做最小顾问面板。
 - 脚手架不再阻塞任何票（票 `10` 已 resolved、已装入本 profile）。遗留限制：Host `Service` 目录只收录**声明式契约** service，空壳 `agentRegistry` 无法 service 级读回；现证据 = loader entry 命中 + `application: applied` + 真实 Cordis 单测。若日后需要 service 级读回，另开小票给注册点补契约。
-- 01 号票「service 接口 + frontmatter 报错面」契约暂缓（Q4），实施中由 03/05/06 消费点反推；现成的落点 = `ctx.agentRegistry`。
+- 03 票面「modelOrder 条目为 raw」旧读法待同步：新契约 = 链先 `modelOrder` 别名、耗尽后 `model` raw 兜底（spec §5.3 已改，03 票正文动工前修订）。
+- 预置技能（`skills`）投递方式未定（内容预注入 vs 目录标记）——04/07 设计题，不阻塞 01（01 只解析名字）。
+- deck 闸本轮仍 defer（`deck_*` 返回 `{"reason":"gate-defer"}`）：01 票二轮处理与本次修复轮都按 `docs/agents/issue-tracker.md` 的 markdown 约定直接改票（`issues/01-agent-registry.md`、本文件），未走 deck 上报；闸恢复后补报。
 
 ## Children
 
-见 `issues/`。frontier 扫描（open + unblocked + unclaimed，小号优先）：**01、02、08、09** 可立即开工（`10` 已 resolved，01/02 的 `Blocked by: 10` 随之解除）；03 待 01/02；04 待 03；05/06 待 01/02；07 待 03/04/06。
+见 `issues/`。frontier 扫描（open + unblocked + unclaimed，小号优先）：**02、08、09** 可立即开工（`01` 已 resolved ⇒ 05/06 的 `Blocked by: 10, 01` 只剩 02；03 待 02）；03 待 02；04 待 03；07 待 03/04/06。
