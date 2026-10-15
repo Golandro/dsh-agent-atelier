@@ -149,8 +149,12 @@ function parseEntries(lines: readonly string[], problems: string[]): Map<string,
       blockLines.push(next)
       index += 1
     }
-    if (entries.has(key) && KNOWN_KEYS.has(key)) problems.push(`key "${key}" is declared more than once`)
-    entries.set(key, classifyValue(key, inline, blockLines, problems))
+    // Only a *known* key can make a document unreadable (spec §5.1): an unknown
+    // key is kept as raw text whatever its value looks like, so the problems its
+    // classification would report are discarded (D14 write-back).
+    const known = KNOWN_KEYS.has(key)
+    if (entries.has(key) && known) problems.push(`key "${key}" is declared more than once`)
+    entries.set(key, classifyValue(key, inline, blockLines, known ? problems : []))
   }
   return entries
 }

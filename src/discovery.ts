@@ -324,8 +324,8 @@ export function createAgentRegistryService(
     async list(options) {
       return (await scanFor(options?.cwd, options?.signal)).container.list()
     },
-    async get(id, options) {
-      return (await scanFor(options?.cwd, options?.signal)).container.get(id)
+    async get(agentName, options) {
+      return (await scanFor(options?.cwd, options?.signal)).container.get(agentName)
     },
     async diagnostics(options) {
       return (await scanFor(options?.cwd, undefined)).diagnostics

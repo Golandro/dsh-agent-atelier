@@ -327,6 +327,16 @@ describe('bundled root trust', () => {
     await expect(test.registry.list({ cwd: test.project })).rejects.toBeInstanceOf(AgentDocumentError)
   })
 
+  it('still fails on a broken bundled document that a user root shadowed', async () => {
+    const test = harness()
+    writeAgent(join(test.project, '.dsh', 'agents'), 'alpha')
+    writeAgent(test.bundled, 'alpha', 'modelOrder: { fast: 1 }')
+
+    // A broken trusted asset is a packaging bug: the rank-100 workspace copy
+    // must not be able to hide it by winning the name first.
+    await expect(test.registry.list({ cwd: test.project })).rejects.toBeInstanceOf(AgentDocumentError)
+  })
+
   it('turns a bundled directory without its document into a hard error', async () => {
     const test = harness()
     mkdirSync(join(test.bundled, 'default'), { recursive: true })

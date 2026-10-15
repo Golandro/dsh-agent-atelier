@@ -8,5 +8,5 @@ same directory layout as user agents, lowest discovery priority (rank 600)
 after every user and workspace root, and a trusted root: a parse failure here
 is a hard error, not a soft diagnostic.
 
-Nothing here is business logic: the scaffold only reserves the directory so the
-bundle layout is fixed before 01 starts.
+Nothing here is business logic: the directory holds shipped assets only, and the
+discovery rules that read them live in `src/discovery.ts`.

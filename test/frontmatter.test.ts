@@ -83,6 +83,18 @@ describe('minimal frontmatter reader', () => {
     expect(parsed.frontmatter.extra['notes']).toBe('keep: me\n  deeper: me')
   })
 
+  it('does not let an unknown key make the document unreadable', () => {
+    const parsed = parseAgentDocument(document([
+      'modelOrder: [fast]',
+      'vibe: "未闭合',
+      'tag: *alias',
+    ].join('\n')))
+
+    expect(parsed.frontmatter.problems).toEqual([])
+    expect(parsed.frontmatter.modelOrder).toEqual(['fast'])
+    expect(parsed.frontmatter.extra).toEqual({ vibe: '"未闭合', tag: '*alias' })
+  })
+
   it('reports constructs the subset cannot express', () => {
     const cases: readonly string[] = [
       'modelOrder: { smart: 1 }',
