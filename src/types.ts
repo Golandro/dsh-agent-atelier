@@ -129,10 +129,16 @@ export interface AgentRegistry {
  */
 
 /** Registry layer a model entry or alias was declared in, highest precedence first. */
-export type AliasRegistrySource = 'project-dsh' | 'user-dsh' | 'builtin'
+export type AliasRegistrySource = 'project-dsh' | 'user-dsh' | 'built-in'
 
-/** One real model entry, as the alias registry hands it to consumers. */
-export interface ModelDefinition {
+/**
+ * One real model entry as a layer declares it (spec §5.2).
+ *
+ * Provider and model stay flat, exactly as the YAML and the legacy
+ * `AgentModelTarget` escape hatch write them, so consumers never walk a nested
+ * pair the spec does not have.
+ */
+export interface ModelDeclaration {
   /** Key under `models:`; what an alias points at. */
   readonly modelName: string
   readonly provider: string
@@ -141,6 +147,10 @@ export interface ModelDefinition {
   readonly sysPrompt?: string | undefined
   /** v1 manual availability switch; a false entry is skipped during resolution (D6). */
   readonly available: boolean
+}
+
+/** One real model entry, as the alias registry hands it to consumers. */
+export interface ModelDefinition extends ModelDeclaration {
   readonly source: AliasRegistrySource
   /** True only for the implicit entry synthesised for an unmatched default pair (triage Q2). */
   readonly synthesized?: boolean | undefined
@@ -148,11 +158,15 @@ export interface ModelDefinition {
   readonly path?: string | undefined
 }
 
-/** One alias pointer: the name an agent's `modelOrder` uses (D5/D18). */
-export interface AliasDefinition {
+/** One alias pointer as a layer declares it (spec §5.2). */
+export interface AliasDeclaration {
   readonly alias: string
-  /** v1 holds exactly one model entry name; the pool form is R1/R2 work. */
+  /** v1 holds exactly one model entry name; the pool form is R1/R2 work (D18). */
   readonly targets: readonly string[]
+}
+
+/** One alias pointer: the name an agent's `modelOrder` uses (D5/D18). */
+export interface AliasDefinition extends AliasDeclaration {
   readonly source: AliasRegistrySource
   /** Layer file this alias was declared in; absent for the built-in pointer. */
   readonly path?: string | undefined

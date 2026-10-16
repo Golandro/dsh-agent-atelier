@@ -84,7 +84,8 @@ the workspace directory as a bundle through the harness tool:
 plugin_manager { action: "install_bundle", target: "/home/gg/dsh-plugin/agents-manager" }
 ```
 
-`application: applied` means the row is live. Verify the registration points with
-`cordis_inspect_query` (Host `Service.listService`, `service: "agentRegistry"`
-and `service: "aliasRegistry"`). Rollback is
+`application: applied` means the row is live. Both services are plain objects, so
+they do **not** appear in the Host service directory — prove the registration
+point with the loader entry plus `test/plugin.test.ts`, not by searching
+`Service.listService` (`docs/agents/harness-facts.md`). Rollback is
 `plugin_manager { action: "remove_bundle", target: "dsh-plugin-agents-manager" }`.

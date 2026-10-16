@@ -7,8 +7,9 @@
  * `<project>/.dsh/agents/registry.yaml` and the global
  * `$DSH_HOME/agents/registry.yaml`, workspace winning on a shared name — the
  * same precedence rule, and the same rank-order listing, as the discovery roots
- * in `./discovery.ts` (whose project-root and home helpers this module reuses
- * rather than copying).
+ * in `./discovery.ts`. The parts both registries share live in one place rather
+ * than being copied: the project-root walk and home resolution in `./roots.ts`,
+ * the lazy per-project-root memoisation in `./lazy-load.ts`.
  *
  * A layer is read whole or dropped whole with diagnostics (triage Q4), the
  * built-in alias follows the DSH default pair as a load-time snapshot (Q1) and
@@ -19,9 +20,10 @@
  */
 import { join, resolve } from 'node:path'
 
-import { findProjectRoot, resolveDshHome } from './discovery.ts'
 import { createNodeFileSystem, type AgentFileSystem } from './file-system.ts'
+import { createLazyLoad } from './lazy-load.ts'
 import { DEFAULT_ALIAS_NAME, readRegistryLayer } from './registry-file.ts'
+import { findProjectRoot, resolveDshHome } from './roots.ts'
 
 import type {
   AgentChainInput,
@@ -37,9 +39,6 @@ import type {
 
 /** File name of a registry layer inside an agents directory (spec §5.2). */
 export const REGISTRY_FILE_NAME = 'registry.yaml'
-
-/** Cache key for loads that have no project root (only the global layer). */
-const NO_PROJECT_ROOT_KEY = ''
 
 /** Host-side access injected into the service. */
 export interface AliasRegistryDependencies {
@@ -97,7 +96,6 @@ export function createAliasRegistryService(
   const readDefaultPair = dependencies.readDefaultPair
   const warn = dependencies.warn ?? (() => {})
   const env = options.env ?? process.env
-  const cache = new Map<string, Promise<AliasLoad>>()
 
   /** Every layer is user content, so all of them may go through the host `fs` service. */
   function fileSystem(): AgentFileSystem {
@@ -150,49 +148,30 @@ export function createAliasRegistryService(
   }
 
   /**
-   * The memoised load for one query.
-   *
-   * The load itself is started without the caller's signal on purpose: the
-   * cached result must not depend on which caller happened to arrive first, and
-   * a caller-owned abort must not poison the shared in-flight load. Each caller
-   * still observes its own abort before and after awaiting.
-   *
-   * A failed load is not cached, so the next query retries instead of replaying
-   * one rejection forever.
+   * The memoised load for one query (see `./lazy-load.ts` for the shared shape:
+   * one load per project root, no watcher, `invalidate()` as the only trigger —
+   * which is also what re-reads the default pair, triage Q1).
    */
-  async function loadFor(cwd: string | undefined, signal: AbortSignal | undefined): Promise<AliasLoad> {
-    signal?.throwIfAborted()
-    // Resolved once per query: the memo key and the layer table must describe the same project.
-    const projectRoot = cwd === undefined ? undefined : await findProjectRoot(resolve(cwd), fileSystem())
-    const key = projectRoot ?? NO_PROJECT_ROOT_KEY
-    let pending = cache.get(key)
-    if (pending === undefined) {
-      pending = load(projectRoot)
-      pending.catch(() => {
-        if (cache.get(key) === pending) cache.delete(key)
-      })
-      cache.set(key, pending)
-    }
-    const result = await pending
-    signal?.throwIfAborted()
-    return result
-  }
+  const lazy = createLazyLoad<AliasLoad>({
+    resolveProjectRoot: (cwd) => findProjectRoot(resolve(cwd), fileSystem()),
+    load,
+  })
 
   return {
     async snapshot(options) {
-      return (await loadFor(options?.cwd, options?.signal)).snapshot
+      return (await lazy.forQuery(options?.cwd, options?.signal)).snapshot
     },
     async getAlias(aliasName, options) {
-      return (await loadFor(options?.cwd, options?.signal)).snapshot.aliases.find((entry) => entry.alias === aliasName)
+      return (await lazy.forQuery(options?.cwd, options?.signal)).snapshot.aliases.find((entry) => entry.alias === aliasName)
     },
     async getModel(modelName, options) {
-      return (await loadFor(options?.cwd, options?.signal)).snapshot.models.find((entry) => entry.modelName === modelName)
+      return (await lazy.forQuery(options?.cwd, options?.signal)).snapshot.models.find((entry) => entry.modelName === modelName)
     },
     async diagnostics(options) {
-      return (await loadFor(options?.cwd, undefined)).diagnostics
+      return (await lazy.forQuery(options?.cwd, undefined)).diagnostics
     },
     invalidate() {
-      cache.clear()
+      lazy.invalidate()
     },
   }
 }
@@ -210,8 +189,9 @@ function withBuiltInAlias(
   pair: AgentModelTarget | undefined,
 ): AliasRegistrySnapshot {
   if (pair === undefined) return { models: declared.models, aliases: declared.aliases }
-  const builtInAlias = (target: string): AliasDefinition => ({ alias: DEFAULT_ALIAS_NAME, targets: [target], source: 'builtin' })
-  // Stable merge order decides, so the workspace layer outranks the global one.
+  const builtInAlias = (target: string): AliasDefinition => ({ alias: DEFAULT_ALIAS_NAME, targets: [target], source: 'built-in' })
+  // The merged list is already in precedence order (workspace layer first), so
+  // the first match is the highest-precedence declaration (triage Q2).
   const match = declared.models.find((entry) => entry.provider === pair.provider && entry.model === pair.model)
   if (match !== undefined) return { models: declared.models, aliases: [...declared.aliases, builtInAlias(match.modelName)] }
   const implicit: ModelDefinition = {
@@ -219,7 +199,7 @@ function withBuiltInAlias(
     provider: pair.provider,
     model: pair.model,
     available: true,
-    source: 'builtin',
+    source: 'built-in',
     synthesized: true,
   }
   return { models: [...declared.models, implicit], aliases: [...declared.aliases, builtInAlias(DEFAULT_ALIAS_NAME)] }
@@ -259,7 +239,7 @@ export function inspectAliasRegistry(
   // would otherwise flag every user alias that happens to name the same model.
   const byTarget = new Map<string, string[]>()
   for (const entry of snapshot.aliases) {
-    if (entry.source === 'builtin') continue
+    if (entry.source === 'built-in') continue
     for (const target of entry.targets) byTarget.set(target, [...(byTarget.get(target) ?? []), entry.alias])
   }
   for (const [target, names] of byTarget) {
@@ -280,7 +260,11 @@ export function inspectAliasRegistry(
         code: 'unknown-alias',
         agentName: agent.agentName,
         alias: name,
-        message: `agent "${agent.agentName}" modelOrder names alias "${name}", which the registry does not have`,
+        // The built-in name is owned here and cannot be declared by a user, so a
+        // missing one is a host-composition fact, not something to go write.
+        message: name === DEFAULT_ALIAS_NAME
+          ? `agent "${agent.agentName}" modelOrder names the built-in alias "${name}", which exists only when the host exposes a readable agentDefaultModel default pair`
+          : `agent "${agent.agentName}" modelOrder names alias "${name}", which the registry does not have`,
       })
     }
     if ((agent.model?.length ?? 0) > 0) {

@@ -152,7 +152,7 @@ describe('the built-in dsh-default alias', () => {
     const snapshot = await registry.snapshot()
     const builtIn = snapshot.aliases.find((entry) => entry.alias === DEFAULT_ALIAS_NAME)
 
-    expect(builtIn).toMatchObject({ targets: ['ds-chat'], source: 'builtin' })
+    expect(builtIn).toMatchObject({ targets: ['ds-chat'], source: 'built-in' })
     expect(builtIn?.path).toBeUndefined()
     // A match is a pure pointer: nothing is synthesised.
     expect(snapshot.models.map((entry) => entry.modelName)).toEqual(['ds-chat', 'ds-reasoner'])
@@ -168,7 +168,7 @@ describe('the built-in dsh-default alias', () => {
       provider: 'volcengine-plan',
       model: 'glm-5.3',
       available: true,
-      source: 'builtin',
+      source: 'built-in',
       synthesized: true,
     })
     expect(snapshot.aliases.find((entry) => entry.alias === DEFAULT_ALIAS_NAME)?.targets).toEqual([DEFAULT_ALIAS_NAME])
@@ -207,6 +207,20 @@ describe('the built-in dsh-default alias', () => {
       expect(snapshot.aliases.some((entry) => entry.alias === DEFAULT_ALIAS_NAME)).toBe(false)
       expect(snapshot.models.some((entry) => entry.synthesized === true)).toBe(false)
     }
+  })
+
+  it('does not invent a pair, and names the host as the cause when the built-in alias is missing', async () => {
+    // On a host with no readable default pair the bundled default agent's chain
+    // really does dangle, so the finding stays an error — but it points at the
+    // host, not at a declaration the user is forbidden to write (the name is
+    // reserved on both sides).
+    const snapshot = await service(homeDir(USER_LAYER)).snapshot()
+
+    const findings = inspectAliasRegistry(snapshot, [{ agentName: 'default', modelOrder: [DEFAULT_ALIAS_NAME] }])
+
+    expect(findings).toHaveLength(1)
+    expect(findings[0]).toMatchObject({ severity: 'error', code: 'unknown-alias', alias: DEFAULT_ALIAS_NAME })
+    expect(findings[0]?.message).toContain('agentDefaultModel')
   })
 })
 
@@ -289,7 +303,7 @@ describe('cross-layer inspection (pure, ticket 03 consumes it)', () => {
 
     const withBuiltIn = inspectAliasRegistry({
       models: [model('ds-chat')],
-      aliases: [alias('fast', ['ds-chat']), alias(DEFAULT_ALIAS_NAME, ['ds-chat'], { source: 'builtin' })],
+      aliases: [alias('fast', ['ds-chat']), alias(DEFAULT_ALIAS_NAME, ['ds-chat'], { source: 'built-in' })],
     })
     expect(withBuiltIn).toEqual([])
   })

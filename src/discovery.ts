@@ -10,12 +10,13 @@
  * shape and `invalidate()` are copied here, while the locator is ours: native
  * skills look for `SKILL.md`, agents look for `<agent-name>/<agent-name>.agent.md`.
  */
-import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import { createNodeFileSystem, type AgentDirEntry, type AgentFileSystem } from './file-system.ts'
 import { parseAgentDocument } from './frontmatter.ts'
+import { createLazyLoad } from './lazy-load.ts'
 import { createAgentRegistry, type AgentDefinitionContainer } from './registry.ts'
+import { findProjectRoot, resolveAgentsHome, resolveDshHome } from './roots.ts'
 
 import type {
   AgentDefinition,
@@ -39,11 +40,6 @@ export const USER_AGENTS_RANK = 500
 /** The bundled root, searched last and trusted. */
 export const BUNDLED_AGENT_RANK = 600
 
-/** Environment variable overriding the DeepSeek Harness home (native `DSH_HOME_ENV`). */
-export const DSH_HOME_ENV = 'DSH_HOME'
-/** Environment variable overriding the shared agents home (native `AGENTS_HOME_ENV`). */
-export const AGENTS_HOME_ENV = 'DSH_AGENTS_HOME'
-
 /** Agent directories are lower-case kebab, exactly like native skill names. */
 export const AGENT_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 /** `default` names the built-in agent; a user directory with it is rejected. */
@@ -54,9 +50,6 @@ const ADVISORY_CODES: ReadonlySet<AgentDiagnosticCode> = new Set<AgentDiagnostic
 
 /** A flat document where a directory is expected. */
 const MISPLACED_DOC_PATTERN = /^([a-z0-9]+(?:-[a-z0-9]+)*)(?:\.agent)?\.md$/
-
-/** Cache key for scans that have no project root (only user and bundled roots). */
-const NO_PROJECT_ROOT_KEY = ''
 
 /** One discovery root, in ascending rank order. */
 export interface AgentRoot {
@@ -129,7 +122,6 @@ export function createAgentRegistryService(
   const resolveHostFileSystem = dependencies.resolveFileSystem
   const warn = dependencies.warn ?? (() => {})
   const env = options.env ?? process.env
-  const cache = new Map<string, Promise<AgentScan>>()
 
   /** Trusted roots bypass the host `fs` service, like the native `trustedHost` path. */
   function fileSystemFor(trusted: boolean): AgentFileSystem {
@@ -291,107 +283,26 @@ export function createAgentRegistryService(
   }
 
   /**
-   * The memoised scan for one query.
-   *
-   * The scan itself is started without the caller's signal on purpose: the
-   * cached result must not depend on which caller happened to arrive first, and
-   * a caller-owned abort must not poison the shared in-flight scan. Each caller
-   * still observes its own abort before and after awaiting.
-   *
-   * A failed scan (a trusted root that does not parse) is not cached, so the
-   * next query retries instead of replaying one rejection forever; callers
-   * still see the error every time until the asset is fixed.
+   * The memoised scan for one query (see `./lazy-load.ts` for the shared shape:
+   * one scan per project root, no watcher, `invalidate()` as the only trigger).
    */
-  async function scanFor(cwd: string | undefined, signal: AbortSignal | undefined): Promise<AgentScan> {
-    signal?.throwIfAborted()
-    // Resolved once per query: the memo key and the root table must describe the same project.
-    const projectRoot = cwd === undefined ? undefined : await findProjectRoot(resolve(cwd), fileSystemFor(false))
-    const key = projectRoot ?? NO_PROJECT_ROOT_KEY
-    let pending = cache.get(key)
-    if (pending === undefined) {
-      pending = scan(projectRoot)
-      pending.catch(() => {
-        if (cache.get(key) === pending) cache.delete(key)
-      })
-      cache.set(key, pending)
-    }
-    const result = await pending
-    signal?.throwIfAborted()
-    return result
-  }
+  const lazy = createLazyLoad<AgentScan>({
+    resolveProjectRoot: (cwd) => findProjectRoot(resolve(cwd), fileSystemFor(false)),
+    load: scan,
+  })
 
   return {
     async list(options) {
-      return (await scanFor(options?.cwd, options?.signal)).container.list()
+      return (await lazy.forQuery(options?.cwd, options?.signal)).container.list()
     },
     async get(agentName, options) {
-      return (await scanFor(options?.cwd, options?.signal)).container.get(agentName)
+      return (await lazy.forQuery(options?.cwd, options?.signal)).container.get(agentName)
     },
     async diagnostics(options) {
-      return (await scanFor(options?.cwd, undefined)).diagnostics
+      return (await lazy.forQuery(options?.cwd, undefined)).diagnostics
     },
     invalidate() {
-      cache.clear()
+      lazy.invalidate()
     },
   }
-}
-
-/**
- * Walk up from `cwd` to the nearest directory holding a `.git` marker, falling
- * back to `cwd` itself — the native `findProjectRoot`
- * (`skill/skill-filesystem/src/index.ts:952`) semantics.
- */
-export async function findProjectRoot(cwd: string, fileSystem: AgentFileSystem): Promise<string> {
-  let current = cwd
-  while (true) {
-    if (await fileSystem.pathExists(join(current, '.git'))) return current
-    const parent = dirname(current)
-    if (parent === current) return cwd
-    current = parent
-  }
-}
-
-/** Default DeepSeek Harness home (`~/.dsh`), mirroring the native helper. */
-export function defaultDshHome(): string {
-  return join(homedir(), '.dsh')
-}
-
-/** Default shared agents home (`~/.agents`), mirroring the native helper. */
-export function defaultAgentsHome(): string {
-  return join(homedir(), '.agents')
-}
-
-/** Resolve the harness home from an explicit path, `$DSH_HOME`, or `~/.dsh`. */
-export function resolveDshHome(
-  configured: string | undefined = undefined,
-  env: Record<string, string | undefined> = process.env,
-): string {
-  return resolveRoot(configured, env, DSH_HOME_ENV, defaultDshHome)
-}
-
-/** Resolve the shared agents home from an explicit path, `$DSH_AGENTS_HOME`, or `~/.agents`. */
-export function resolveAgentsHome(
-  configured: string | undefined = undefined,
-  env: Record<string, string | undefined> = process.env,
-): string {
-  return resolveRoot(configured, env, AGENTS_HOME_ENV, defaultAgentsHome)
-}
-
-/** Explicit path wins, then a non-blank environment override, then the default. */
-function resolveRoot(
-  configured: string | undefined,
-  env: Record<string, string | undefined>,
-  envName: string,
-  fallback: () => string,
-): string {
-  const fromEnv = env[envName]
-  const selected = configured ?? (fromEnv !== undefined && fromEnv.trim().length > 0 ? fromEnv : fallback())
-  return resolve(expandHomePath(selected))
-}
-
-/** Expand the supported `~` prefixes against the OS home. */
-function expandHomePath(path: string): string {
-  if (path === '~') return homedir()
-  if (path.startsWith('~/') || path.startsWith('~\\')) return join(homedir(), path.slice(2))
-  return path
 }

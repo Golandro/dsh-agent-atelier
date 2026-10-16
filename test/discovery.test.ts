@@ -7,11 +7,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   AgentDocumentError,
   createAgentRegistryService,
-  findProjectRoot,
-  resolveAgentsHome,
-  resolveDshHome,
   type AgentRegistryOptions,
 } from '../src/discovery.ts'
+import { findProjectRoot, resolveAgentsHome, resolveDshHome } from '../src/roots.ts'
 import type { AgentFileSystem } from '../src/file-system.ts'
 import { createNodeFileSystem } from '../src/file-system.ts'
 import type { AgentDefinition, AgentDiagnostic } from '../src/types.ts'

@@ -66,7 +66,7 @@ describe('agents-manager plugin', () => {
       aliasRegistry.invalidate()
 
       // readDefaultPair runs per load, so invalidate() is what makes the pair follow.
-      expect(await aliasRegistry.getAlias('dsh-default')).toMatchObject({ targets: ['dsh-default'], source: 'builtin' })
+      expect(await aliasRegistry.getAlias('dsh-default')).toMatchObject({ targets: ['dsh-default'], source: 'built-in' })
       expect(await aliasRegistry.getModel('dsh-default')).toMatchObject({
         provider: 'volcengine-plan',
         model: 'glm-5.3',

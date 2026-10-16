@@ -21,6 +21,8 @@
  */
 import { flowInner, splitTopLevel, stripComment, unquote } from './yaml-scalar.ts'
 
+import type { AliasDeclaration, AliasDiagnosticCode, ModelDeclaration } from './types.ts'
+
 /**
  * Name of the built-in alias that follows the DSH sub-agent default pair.
  *
@@ -31,23 +33,10 @@ import { flowInner, splitTopLevel, stripComment, unquote } from './yaml-scalar.t
 export const DEFAULT_ALIAS_NAME = 'dsh-default'
 
 /** One real model entry: the tuning layer hangs on this (D6). */
-export interface ModelEntry {
-  /** Key under `models:`; what an alias points at. */
-  readonly modelName: string
-  readonly provider: string
-  readonly model: string
-  /** Per-model system prompt (D12 channel ①); absent means the entry adds none. */
-  readonly sysPrompt?: string | undefined
-  /** v1 manual availability switch; a false entry is skipped during resolution (D6). */
-  readonly available: boolean
-}
+export type ModelEntry = ModelDeclaration
 
 /** One alias pointer: a name an agent's `modelOrder` may use (D5/D18). */
-export interface AliasEntry {
-  readonly alias: string
-  /** v1 holds exactly one model entry name. */
-  readonly targets: readonly string[]
-}
+export type AliasEntry = AliasDeclaration
 
 /** Everything one registry.yaml layer declares, in file order. */
 export interface RegistryLayerData {
@@ -55,8 +44,8 @@ export interface RegistryLayerData {
   readonly aliases: readonly AliasEntry[]
 }
 
-/** Why a whole layer was dropped. */
-export type RegistryLayerFailureCode = 'unparseable-registry' | 'invalid-registry'
+/** Why a whole layer was dropped; the same vocabulary the service reports it with. */
+export type RegistryLayerFailureCode = AliasDiagnosticCode
 
 /** One reason a layer was dropped; the path is added by the caller that read the file. */
 export interface RegistryLayerFailure {
@@ -181,20 +170,27 @@ function mapModelEntry(modelName: string, fields: Map<string, Scalar>, schema: s
   const provider = readText(fields.get('provider'))
   const model = readText(fields.get('model'))
   const sysPrompt = readText(fields.get('sysPrompt'))
-  if (provider === undefined || provider === '') problems.push(`model "${modelName}" requires a non-empty provider`)
-  if (model === undefined || model === '') problems.push(`model "${modelName}" requires a non-empty model`)
+  if (!isFilled(provider)) problems.push(`model "${modelName}" requires a non-empty provider`)
+  if (!isFilled(model)) problems.push(`model "${modelName}" requires a non-empty model`)
   const available = readAvailable(fields.get('available'), modelName, problems)
-  if (problems.length > 0) {
+  // The `isFilled` pair is repeated here because the early return is what narrows
+  // the two values to `string`; a bare `problems.length` check does not.
+  if (!isFilled(provider) || !isFilled(model) || problems.length > 0) {
     schema.push(...problems)
     return undefined
   }
   return {
     modelName,
-    provider: provider ?? '',
-    model: model ?? '',
+    provider,
+    model,
     ...(sysPrompt === undefined || sysPrompt === '' ? {} : { sysPrompt }),
     available,
   }
+}
+
+/** Whether a field read produced a value worth keeping. */
+function isFilled(text: string | undefined): text is string {
+  return text !== undefined && text !== ''
 }
 
 /** Read every `aliases:` entry; v1 allows exactly one target each (D18). */
@@ -338,7 +334,8 @@ function readText(scalar: Scalar | undefined): string | undefined {
 function readAvailable(scalar: Scalar | undefined, modelName: string, problems: string[]): boolean {
   if (scalar === undefined) return true
   if (scalar.kind === 'boolean') return scalar.value
-  if (scalar.text === 'true' || scalar.text === 'false') return scalar.text === 'true'
+  // `asScalar` turns the only two boolean spellings into `boolean`, so anything
+  // left here is a user writing YAML 1.1's `yes`/`no` or a quoted word.
   problems.push(`model "${modelName}" has available: ${scalar.text}, which must be true or false`)
   return true
 }
