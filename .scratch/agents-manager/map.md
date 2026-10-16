@@ -23,6 +23,8 @@
 - ✅ 01 修复轮（2026-10-15，`/code-review` 两轴 + `/implement`）：Standards 8 条 + Spec 9 条 → 修 4 项 Spec 缺陷（ctx `fs` 端口改**按用时解析**、`extra` 值改公共缩进去缩、受信根 advisory 行为补测、Answer 计数更正）+ 4 项 Standards（契约成员改名 `id`→`agentName`、`persona`→`body`；每查询只解析一次 `findProjectRoot`；根 `README.md`/`package.json` 契约陈述更新；plugin 测试改封闭不再读真实 home），其余记为债务或接受偏差（详见 01 票「修复轮」节）。**唯一破坏性变更 = 契约成员改名**，形状/语义不变，03/05/06 用新名。
 - ✅ 01 修复轮复评（2026-10-15，两轴 `/code-review` 跑在修复提交上）：Standards 1–4 RESOLVED、5–8 维持债务，再收 `get(id)` 参数名与 `bundled/README.md` 矛盾句；Spec a2/b3/c1/c2/c3 RESOLVED、零回归，新增两条处置——**未知键不再能让整份文档消失**（spec §5.1 只允许已知键造成 `unparseable-frontmatter`，已修 + 补测）、受信根坏文档即使被同名用户根抢先也照抛（裁决故意的，已补测）；`spawn` 缺席 = `undefined`（裁决）。终态：`npm run check` 全绿，46 用例 / 44 锚点。
 - ✅ 02 票诊断 + 五项裁决落地（2026-10-15，/triage，全按推荐）：dsh-default **装载时快照 + `invalidate()` 重读**（弃「启动时」措辞，D24 同构）；目标 = 与默认对相等的已声明条目、无匹配 ⇒ **隐式合成条目**（无 sysPrompt、available: true，保「别名=纯指针」不变式）；`dsh-default` **保留字**；registry.yaml **软诊断错误面**（坏层弃用、另一层照常、两层全坏 ⇒ 空注册表只含 dsh-default）；跨层校验 = **纯函数 + 错误级 finding**（agent modelOrder/model 入参注入，运行时硬错仍归 03 链耗尽）。诊断发现并回填票面：registry.yaml 语法（布尔/两层块映射/四键流映射）超出 01 frontmatter 子集 ⇒ 需新写最小解析器；运行时读取面 = `ctx.agentDefaultModel.currentSelection()`（服务已装配本 profile）；服务键 `aliasRegistry` 原生无占用已核验。agent brief 已挂票 02，维持 `ready-for-agent` 可开工。
+- ✅ 02 票落地（2026-10-15，`/implement` + 两轴 `/code-review`，**resolved**，见 `issues/02-alias-registry.md` 的 `## Answer`）：registry.yaml 双层装载与工作区胜合并、自写第二份最小 YAML 子集读器（布尔/两层块映射/四键流映射超出 01 子集）、内置 `dsh-default`（装载时快照、匹配已声明条目否则合成隐式条目、`models:`/`aliases:` 两处保留字、无默认对则不存在）、跨层发现为纯函数 `inspectAliasRegistry`（agent 侧数据注入，不扫 agent 根）、服务面 `ctx.aliasRegistry`（`snapshot`/`getAlias`/`getModel`/`diagnostics`/`invalidate`）。契约冻结并回写票面 `## 契约（冻结）`。**共享层抽出**：`src/roots.ts`（项目根走查 + home 解析）、`src/lazy-load.ts`（两注册表共用的懒加载/记忆化，01 的 `scanFor` 重复实现一并收敛）、`src/yaml-scalar.ts`（两份 YAML 读器的标量规则）。三笔提交：`85fa97d`（实施）、`6820f23`（复核后修正）、末笔（票面/地图回填）。终态：**83 用例 / 54 锚点**，`npm run check` 全绿。复核后修正要点：`'builtin'`→`'built-in'`（词汇漂移）、一概念一声明（`ModelDeclaration`/`AliasDeclaration`）、无默认对时的 finding 归因主机。
+- ⚠️ 02 实现期细化（下游需要知道）：`inspectAliasRegistry` 除 scope 四项外还校验「别名 → 模型目标」存在性（D6 不变式）；agent 的 `model:` 数组只出逃逸口 hint，不做目标存在性校验（D5 允许直连）；无默认可读对时 `dsh-default` 不存在且引用它的链得一条**主机归因**错误 finding；`path?`/`synthesized?` 是给 05/06 的预留字段。
 
 ## Fog
 
@@ -33,7 +35,7 @@
 - 脚手架不再阻塞任何票（票 `10` 已 resolved、已装入本 profile）。遗留限制：Host `Service` 目录只收录**声明式契约** service，空壳 `agentRegistry` 无法 service 级读回；现证据 = loader entry 命中 + `application: applied` + 真实 Cordis 单测。若日后需要 service 级读回，另开小票给注册点补契约。
 - 03 票面「modelOrder 条目为 raw」旧读法待同步：新契约 = 链先 `modelOrder` 别名、耗尽后 `model` raw 兜底（spec §5.3 已改，03 票正文动工前修订）。
 - 预置技能（`skills`）投递方式未定（内容预注入 vs 目录标记）——04/07 设计题，不阻塞 01（01 只解析名字）。
-- deck 闸本轮仍 defer（`deck_*` 返回 `{"reason":"gate-defer"}`）：01 票二轮处理、修复轮与 02 票诊断+裁决回填（2026-10-15）都按 `docs/agents/issue-tracker.md` 的 markdown 约定直接改票（`issues/01-agent-registry.md`、`issues/02-alias-registry.md`、本文件），未走 deck 上报；闸恢复后补报（挂账：#2 诊断与裁决回填完毕，待补报）。
+- deck 闸本轮仍 defer（`deck_*` 返回 `{"reason":"gate-defer"}`）：01 票二轮处理、修复轮与 02 票诊断+裁决回填+实施（2026-10-15）都按 `docs/agents/issue-tracker.md` 的 markdown 约定直接改票（`issues/01-agent-registry.md`、`issues/02-alias-registry.md`、本文件），未走 deck 上报；闸恢复后补报（挂账：#2 诊断、裁决回填与实施完毕，待补报）。
 
 ## Children
 
