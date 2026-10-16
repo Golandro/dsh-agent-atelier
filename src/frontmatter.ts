@@ -14,6 +14,8 @@
  * problem, and a document with problems is skipped with an
  * `unparseable-frontmatter` diagnostic rather than silently half-read.
  */
+import { flowInner, splitTopLevel, stripComment, unquote } from './yaml-scalar.ts'
+
 import type { AgentModelTarget } from './types.ts'
 
 /** Typed view of a document's frontmatter block. */
@@ -226,103 +228,6 @@ function classifyFlowSequence(text: string, problems: string[]): RawValue {
     .map((item) => item.trim())
     .filter((item) => item !== '')
   return { kind: 'sequence', items }
-}
-
-/** Inner text of a balanced `open`/`close` pair, or `undefined` when unbalanced. */
-function flowInner(text: string, open: string, close: string): string | undefined {
-  let depth = 0
-  let quote: string | undefined
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index] ?? ''
-    if (quote !== undefined) {
-      if (char === '\\' && quote === '"') index += 1
-      else if (char === quote) quote = undefined
-      continue
-    }
-    if (char === '"' || char === "'") {
-      quote = char
-      continue
-    }
-    if (char === open) depth += 1
-    else if (char === close) {
-      depth -= 1
-      if (depth === 0) {
-        const trailing = stripComment(text.slice(index + 1)).trim()
-        return trailing === '' ? text.slice(1, index) : undefined
-      }
-    }
-  }
-  return undefined
-}
-
-/** Split on top-level commas, respecting quotes and nested brackets. */
-function splitTopLevel(text: string): string[] {
-  const parts: string[] = []
-  let depth = 0
-  let quote: string | undefined
-  let start = 0
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index] ?? ''
-    if (quote !== undefined) {
-      if (char === '\\' && quote === '"') index += 1
-      else if (char === quote) quote = undefined
-      continue
-    }
-    if (char === '"' || char === "'") {
-      quote = char
-      continue
-    }
-    if (char === '[' || char === '{') depth += 1
-    else if (char === ']' || char === '}') depth -= 1
-    else if (char === ',' && depth === 0) {
-      parts.push(text.slice(start, index))
-      start = index + 1
-    }
-  }
-  parts.push(text.slice(start))
-  return parts
-}
-
-/** Cut a `#` comment that starts a token, leaving quoted text alone. */
-function stripComment(text: string): string {
-  let quote: string | undefined
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index] ?? ''
-    if (quote !== undefined) {
-      if (char === '\\' && quote === '"') index += 1
-      else if (char === quote) quote = undefined
-      continue
-    }
-    if (char === '"' || char === "'") {
-      quote = char
-      continue
-    }
-    if (char === '#' && (index === 0 || /\s/.test(text[index - 1] ?? ''))) return text.slice(0, index)
-  }
-  return text
-}
-
-/** Unwrap a quoted scalar; plain text passes through, an unterminated quote does not. */
-function unquote(text: string): string | undefined {
-  const quote = text[0]
-  if (quote !== '"' && quote !== "'") return text
-  let out = ''
-  for (let index = 1; index < text.length; index += 1) {
-    const char = text[index] ?? ''
-    if (quote === '"' && char === '\\') {
-      const escaped = text[index + 1]
-      /* v8 ignore next -- a trailing backslash is not a value we can recover. */
-      if (escaped === undefined) return undefined
-      out += escaped === 'n' ? '\n' : escaped === 't' ? '\t' : escaped
-      index += 1
-      continue
-    }
-    if (char === quote) {
-      return stripComment(text.slice(index + 1)).trim() === '' ? out : undefined
-    }
-    out += char
-  }
-  return undefined
 }
 
 /** Project raw entries onto the agent schema. */

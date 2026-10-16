@@ -3,8 +3,11 @@
 Installable Cordis bundle for the DeepSeek Harness profile that manages
 `agent.md` definitions. Delivered so far: **ticket 01** — lazy agent discovery
 (four user/workspace roots plus the bundled root), the minimal frontmatter
-reader, and the read-only `agentRegistry` service. Model resolution, UI, tool
-filtering and prompt assembly belong to tickets 02–07.
+reader, and the read-only `agentRegistry` service; **ticket 02** — the
+`registry.yaml` layer reader, the workspace-over-global merge, the built-in
+`dsh-default` alias, and the pure cross-layer inspection behind the read-only
+`aliasRegistry` service. Model resolution, UI, tool filtering and prompt
+assembly belong to tickets 03–07.
 
 ## What it provides
 
@@ -17,12 +20,27 @@ filtering and prompt assembly belong to tickets 02–07.
 | Service face | `list(options)` / `get(agentName, options)` / `diagnostics(options)` / `invalidate()` |
 | Document layout | `<root>/<agent-name>/<agent-name>.agent.md` (ADR-0002) |
 | Discovery roots | `.dsh/agents`, `.agents/agents` (project), `$DSH_HOME/agents`, `$DSH_AGENTS_HOME/agents` (user), bundled (rank 600) |
+| Alias service key | `aliasRegistry` |
+| Alias service face | `snapshot(options)` / `getAlias(aliasName, options)` / `getModel(modelName, options)` / `diagnostics(options)` / `invalidate()` |
+| Registry layers | `<project>/.dsh/agents/registry.yaml` (workspace) over `$DSH_HOME/agents/registry.yaml` (global) |
 | Build output | `lib/` (ESM + `.d.ts`, loaded by the Harness) |
 
 `agentRegistry` is deliberately **not** named `agents`: the host already owns
 `ctx.agents` (the live Agent registry), and a bundle must not shadow a native
-service. Nothing is registered into `ctx.skills` either — agents mirror the
+service. `aliasRegistry` follows the same rule, and nothing native occupies it
+either. Nothing is registered into `ctx.skills` either — agents mirror the
 native skill *shape* structurally instead (ADR-0001).
+
+`registry.yaml` is a two-map file: `models:` holds real model entries
+(`provider`, `model`, `sysPrompt`, `available`) and `aliases:` holds pure
+pointers to them. The built-in `dsh-default` alias tracks the DSH sub-agent
+default pair — read from `ctx.agentDefaultModel` at load time, which makes
+`invalidate()` the only refresh — is a reserved word in both maps, and points at
+a synthesised model entry when the pair matches nothing declared. A layer that
+fails to read or validate is dropped whole with diagnostics instead of being
+half-merged, and `inspectAliasRegistry(snapshot, agents)` reports agent-side
+problems (unknown alias, raw `model:` escape hatch, alias fan-in) as data rather
+than throwing.
 
 ## Commands
 
@@ -66,6 +84,7 @@ the workspace directory as a bundle through the harness tool:
 plugin_manager { action: "install_bundle", target: "/home/gg/dsh-plugin/agents-manager" }
 ```
 
-`application: applied` means the row is live. Verify the registration point with
-`cordis_inspect_query` (Host `Service.listService`, `service: "agentRegistry"`).
-Rollback is `plugin_manager { action: "remove_bundle", target: "dsh-plugin-agents-manager" }`.
+`application: applied` means the row is live. Verify the registration points with
+`cordis_inspect_query` (Host `Service.listService`, `service: "agentRegistry"`
+and `service: "aliasRegistry"`). Rollback is
+`plugin_manager { action: "remove_bundle", target: "dsh-plugin-agents-manager" }`.

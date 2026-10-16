@@ -5,15 +5,17 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 
-import { AGENT_REGISTRY_SERVICE, apply } from '../src/index.ts'
-import type { AgentRegistry } from '../src/types.ts'
+import { AGENT_REGISTRY_SERVICE, ALIAS_REGISTRY_SERVICE, apply } from '../src/index.ts'
+import type { AgentRegistry, AliasRegistry } from '../src/types.ts'
 
-async function mounted(): Promise<{ ctx: Context; registry: AgentRegistry }> {
+async function mounted(): Promise<{ ctx: Context; registry: AgentRegistry; aliasRegistry: AliasRegistry }> {
   const ctx = new Context()
   await ctx.plugin({ apply })
   const registry = ctx.get(AGENT_REGISTRY_SERVICE) as AgentRegistry | undefined
   if (registry === undefined) throw new Error('agent registry service was not registered')
-  return { ctx, registry }
+  const aliasRegistry = ctx.get(ALIAS_REGISTRY_SERVICE) as AliasRegistry | undefined
+  if (aliasRegistry === undefined) throw new Error('alias registry service was not registered')
+  return { ctx, registry, aliasRegistry }
 }
 
 /** One throwaway directory under the OS temp dir. */
@@ -38,6 +40,43 @@ describe('agents-manager plugin', () => {
     // scaffold must never register itself under that key.
     expect(AGENT_REGISTRY_SERVICE).toBe('agentRegistry')
     expect(AGENT_REGISTRY_SERVICE).not.toBe('agents')
+    // The alias registry follows the same rule, under its own key.
+    expect(ALIAS_REGISTRY_SERVICE).toBe('aliasRegistry')
+    expect(ALIAS_REGISTRY_SERVICE).not.toBe('agents')
+    expect(ALIAS_REGISTRY_SERVICE).not.toBe(AGENT_REGISTRY_SERVICE)
+  })
+
+  it('registers the alias registry with the frozen read face', async () => {
+    const { aliasRegistry } = await mounted()
+
+    expect(Object.keys(aliasRegistry).sort()).toEqual(['diagnostics', 'getAlias', 'getModel', 'invalidate', 'snapshot'])
+  })
+
+  it('resolves the built-in dsh-default alias from a default-model service mounted after the plugin', async () => {
+    const home = scratchDir()
+    vi.stubEnv('DSH_HOME', home)
+    vi.stubEnv('DSH_AGENTS_HOME', join(home, 'agents-home'))
+    try {
+      const { ctx, aliasRegistry } = await mounted()
+      // The host context has no agentDefaultModel service, so there is no pair
+      // to point at and therefore no built-in alias — nothing is invented.
+      expect(await aliasRegistry.getAlias('dsh-default')).toBeUndefined()
+
+      ctx.provide('agentDefaultModel', { currentSelection: () => ({ provider: 'volcengine-plan', model: 'glm-5.3' }) })
+      aliasRegistry.invalidate()
+
+      // readDefaultPair runs per load, so invalidate() is what makes the pair follow.
+      expect(await aliasRegistry.getAlias('dsh-default')).toMatchObject({ targets: ['dsh-default'], source: 'builtin' })
+      expect(await aliasRegistry.getModel('dsh-default')).toMatchObject({
+        provider: 'volcengine-plan',
+        model: 'glm-5.3',
+        available: true,
+        synthesized: true,
+      })
+    } finally {
+      vi.unstubAllEnvs()
+      rmSync(home, { recursive: true, force: true })
+    }
   })
 
   it('does not launder agents into the native skills surface (ADR-0001)', async () => {
@@ -100,9 +139,11 @@ describe('agents-manager plugin', () => {
     const ctx = new Context()
     const fork = await ctx.plugin({ apply })
     expect(ctx.get(AGENT_REGISTRY_SERVICE)).toBeDefined()
+    expect(ctx.get(ALIAS_REGISTRY_SERVICE)).toBeDefined()
 
     await fork.dispose()
 
     expect(ctx.get(AGENT_REGISTRY_SERVICE)).toBeUndefined()
+    expect(ctx.get(ALIAS_REGISTRY_SERVICE)).toBeUndefined()
   })
 })

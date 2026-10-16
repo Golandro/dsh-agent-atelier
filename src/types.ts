@@ -119,3 +119,139 @@ export interface AgentRegistry {
   /** Drop the memoised scans; the next query rescans. */
   invalidate(): void
 }
+
+/* ── Alias and model registry (ticket 02) ────────────────────────────────────
+ *
+ * Second half of the frozen contract: the alias layer an agent's `modelOrder`
+ * resolves through (spec §5.2, D5/D6/D18). It is frozen here because tickets
+ * 03/05/06 consume exactly this surface, the same reason ticket 01 froze its
+ * own half above.
+ */
+
+/** Registry layer a model entry or alias was declared in, highest precedence first. */
+export type AliasRegistrySource = 'project-dsh' | 'user-dsh' | 'builtin'
+
+/** One real model entry, as the alias registry hands it to consumers. */
+export interface ModelDefinition {
+  /** Key under `models:`; what an alias points at. */
+  readonly modelName: string
+  readonly provider: string
+  readonly model: string
+  /** Per-model system prompt (D12 channel ①); absent means the entry adds none. */
+  readonly sysPrompt?: string | undefined
+  /** v1 manual availability switch; a false entry is skipped during resolution (D6). */
+  readonly available: boolean
+  readonly source: AliasRegistrySource
+  /** True only for the implicit entry synthesised for an unmatched default pair (triage Q2). */
+  readonly synthesized?: boolean | undefined
+  /** Layer file this entry was declared in; absent for the built-in entry. */
+  readonly path?: string | undefined
+}
+
+/** One alias pointer: the name an agent's `modelOrder` uses (D5/D18). */
+export interface AliasDefinition {
+  readonly alias: string
+  /** v1 holds exactly one model entry name; the pool form is R1/R2 work. */
+  readonly targets: readonly string[]
+  readonly source: AliasRegistrySource
+  /** Layer file this alias was declared in; absent for the built-in pointer. */
+  readonly path?: string | undefined
+}
+
+/**
+ * Everything the two layers declare, merged, plus the built-in pointer.
+ *
+ * This is the pure data ticket 03's resolution engine consumes: no filesystem,
+ * no host context, no laziness.
+ */
+export interface AliasRegistrySnapshot {
+  readonly models: readonly ModelDefinition[]
+  readonly aliases: readonly AliasDefinition[]
+}
+
+/**
+ * Why a whole registry.yaml layer was dropped (soft diagnostics, D21-isomorphic;
+ * triage Q4 — a broken layer never merges half of itself, and never throws).
+ */
+export type AliasDiagnosticCode = 'unparseable-registry' | 'invalid-registry'
+
+/** One finding about a registry.yaml layer that was dropped. */
+export interface AliasDiagnostic {
+  /** Absolute path of the layer file. */
+  readonly path: string
+  readonly code: AliasDiagnosticCode
+  /** Human-readable, one line, safe to log and to show in the UI. */
+  readonly message: string
+}
+
+/** Query options, isomorphic to {@link AgentLookupOptions}. */
+export interface AliasLookupOptions {
+  readonly cwd?: string | undefined
+  readonly signal?: AbortSignal | undefined
+}
+
+/** Options of {@link AliasRegistry.diagnostics}; a load needs no signal. */
+export interface AliasDiagnosticsOptions {
+  readonly cwd?: string | undefined
+}
+
+/**
+ * The read model registered as `ctx.aliasRegistry` (ticket 02).
+ *
+ * First query per project root loads the layers and memoises the result; there
+ * is no watcher, so {@link invalidate} is the only way to force a reload —
+ * including re-reading the DSH default pair (triage Q1).
+ */
+export interface AliasRegistry {
+  /** The merged registry: real model entries first, then the built-in alias. */
+  snapshot(options?: AliasLookupOptions): Promise<AliasRegistrySnapshot>
+  /** The alias named `aliasName`, if any; the built-in `dsh-default` is present when a pair is readable. */
+  getAlias(aliasName: string, options?: AliasLookupOptions): Promise<AliasDefinition | undefined>
+  /** The model entry named `modelName`, if any. */
+  getModel(modelName: string, options?: AliasLookupOptions): Promise<ModelDefinition | undefined>
+  /** Findings from the load that backs {@link snapshot}, memoised alongside it. */
+  diagnostics(options?: AliasDiagnosticsOptions): Promise<readonly AliasDiagnostic[]>
+  /** Drop the memoised loads; the next query reloads and re-reads the default pair. */
+  invalidate(): void
+}
+
+/** Severity of one cross-layer finding: an error the user must fix, or a hint. */
+export type AliasFindingSeverity = 'error' | 'hint'
+
+/** What one cross-layer finding is about. */
+export type AliasFindingCode =
+  /** An agent's `modelOrder` names an alias the registry does not have. */
+  | 'unknown-alias'
+  /** An alias points at a model entry the registry does not have. */
+  | 'unknown-model-target'
+  /** An agent still uses the legacy `model:` chain instead of an alias (D5 escape hatch). */
+  | 'raw-model-escape'
+  /** Several aliases resolve to the same model entry (harmless, flagged as intent overlap). */
+  | 'alias-fan-in'
+
+/**
+ * One finding from the pure cross-layer inspection.
+ *
+ * Findings are data, never throws (triage Q5): running out of chain is ticket
+ * 03's hard error, and this layer only hands the user something to fix.
+ */
+export interface AliasFinding {
+  readonly severity: AliasFindingSeverity
+  readonly code: AliasFindingCode
+  /** Human-readable, one line, safe to log and to show in the UI. */
+  readonly message: string
+  /** Agent the finding belongs to, for the agent-side codes. */
+  readonly agentName?: string | undefined
+  /** Alias the finding is about, where the code names one. */
+  readonly alias?: string | undefined
+}
+
+/**
+ * The agent-side input of {@link inspectAliasRegistry}: plain data, so the
+ * inspection stays pure and ticket 02 never reads agent roots itself.
+ */
+export interface AgentChainInput {
+  readonly agentName: string
+  readonly modelOrder?: readonly string[] | undefined
+  readonly model?: readonly AgentModelTarget[] | undefined
+}

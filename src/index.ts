@@ -2,10 +2,11 @@ import { fileURLToPath } from 'node:url'
 
 import type { Context } from '@deepseek-ai/cordis'
 
+import { createAliasRegistryService, inspectAliasRegistry } from './alias-registry.ts'
 import { createAgentRegistryService } from './discovery.ts'
 import { optionalFileSystem } from './file-system.ts'
 import { createAgentRegistry } from './registry.ts'
-import type { AgentDefinition, AgentRegistry } from './types.ts'
+import type { AgentDefinition, AgentModelTarget, AgentRegistry, AliasRegistry } from './types.ts'
 
 /**
  * Service key of the agent-definition registry.
@@ -14,6 +15,15 @@ import type { AgentDefinition, AgentRegistry } from './types.ts'
  * under that key (`ctx.agents`), and a bundle must not shadow a native service.
  */
 export const AGENT_REGISTRY_SERVICE = 'agentRegistry'
+
+/**
+ * Service key of the alias and model registry.
+ *
+ * Same reasoning one layer over: `aliasRegistry` is descriptive and the native
+ * host does not occupy it, so ticket 03 resolves through this bundle's own
+ * service instead of reaching into a native one (ADR-0001).
+ */
+export const ALIAS_REGISTRY_SERVICE = 'aliasRegistry'
 
 /**
  * The bundled agents shipped with this bundle (rank 600, trusted):
@@ -41,7 +51,40 @@ export function apply(ctx: Context): void {
     { bundledDir: BUNDLED_AGENTS_DIR },
   )
   ctx.effect(() => ctx.provide(AGENT_REGISTRY_SERVICE, registry))
+
+  // The alias registry reads the DSH default pair through the injected closure,
+  // so `ctx.agentDefaultModel` is resolved per load rather than captured here.
+  const aliasRegistry = createAliasRegistryService({
+    resolveFileSystem: () => optionalFileSystem(ctx),
+    readDefaultPair: () => optionalDefaultPair(ctx),
+    warn: (message) => ctx.logger.warn(message),
+  })
+  ctx.effect(() => ctx.provide(ALIAS_REGISTRY_SERVICE, aliasRegistry))
 }
 
-export { createAgentRegistry, createAgentRegistryService, optionalFileSystem }
-export type { AgentDefinition, AgentRegistry }
+/** The slice of the host `agentDefaultModel` service this bundle reads. */
+interface HostDefaultModel {
+  currentSelection(): { readonly provider: string; readonly model: string }
+}
+
+/**
+ * The DSH sub-agent default pair, as the built-in `dsh-default` alias sees it.
+ *
+ * The native package cannot be imported from this bundle (ADR-0001), so the
+ * service is read structurally — and at use time, never in `apply()`, so a
+ * service mounted after this plugin is still honoured (the lesson from ticket
+ * 01's fix round). No service, or an empty selection, means no built-in alias
+ * rather than an invented one.
+ */
+function optionalDefaultPair(ctx: Context): AgentModelTarget | undefined {
+  const candidate: unknown = ctx.get('agentDefaultModel')
+  if (typeof candidate !== 'object' || candidate === null) return undefined
+  const service = candidate as Partial<HostDefaultModel>
+  if (typeof service.currentSelection !== 'function') return undefined
+  const selection = service.currentSelection()
+  if (selection.provider === '' || selection.model === '') return undefined
+  return { provider: selection.provider, model: selection.model }
+}
+
+export { createAgentRegistry, createAgentRegistryService, createAliasRegistryService, inspectAliasRegistry, optionalFileSystem }
+export type { AgentDefinition, AgentRegistry, AliasRegistry }
