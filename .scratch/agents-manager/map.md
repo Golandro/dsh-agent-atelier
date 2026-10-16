@@ -22,6 +22,7 @@
 - ⚠️ 01 实现期细化（下游需要知道）：受信 bundled 根**绕过**注入的 fs 端口（原生 `trustedHost` 同构）；无 frontmatter / `modelOrder: []` 这类「合法但无链」的 agent 会得到 advisory `no-model-order`（仍注册）；未闭合围栏按 `unparseable-frontmatter` 处理；新增 devDependency `@types/node`（运行时依赖仍为空）；`spawn` 缺席保持 `undefined`（默认 flavor 是调用点的事，避免破坏 D14 的 1:1 回写）。
 - ✅ 01 修复轮（2026-10-15，`/code-review` 两轴 + `/implement`）：Standards 8 条 + Spec 9 条 → 修 4 项 Spec 缺陷（ctx `fs` 端口改**按用时解析**、`extra` 值改公共缩进去缩、受信根 advisory 行为补测、Answer 计数更正）+ 4 项 Standards（契约成员改名 `id`→`agentName`、`persona`→`body`；每查询只解析一次 `findProjectRoot`；根 `README.md`/`package.json` 契约陈述更新；plugin 测试改封闭不再读真实 home），其余记为债务或接受偏差（详见 01 票「修复轮」节）。**唯一破坏性变更 = 契约成员改名**，形状/语义不变，03/05/06 用新名。
 - ✅ 01 修复轮复评（2026-10-15，两轴 `/code-review` 跑在修复提交上）：Standards 1–4 RESOLVED、5–8 维持债务，再收 `get(id)` 参数名与 `bundled/README.md` 矛盾句；Spec a2/b3/c1/c2/c3 RESOLVED、零回归，新增两条处置——**未知键不再能让整份文档消失**（spec §5.1 只允许已知键造成 `unparseable-frontmatter`，已修 + 补测）、受信根坏文档即使被同名用户根抢先也照抛（裁决故意的，已补测）；`spawn` 缺席 = `undefined`（裁决）。终态：`npm run check` 全绿，46 用例 / 44 锚点。
+- ✅ 02 票诊断 + 五项裁决落地（2026-10-15，/triage，全按推荐）：dsh-default **装载时快照 + `invalidate()` 重读**（弃「启动时」措辞，D24 同构）；目标 = 与默认对相等的已声明条目、无匹配 ⇒ **隐式合成条目**（无 sysPrompt、available: true，保「别名=纯指针」不变式）；`dsh-default` **保留字**；registry.yaml **软诊断错误面**（坏层弃用、另一层照常、两层全坏 ⇒ 空注册表只含 dsh-default）；跨层校验 = **纯函数 + 错误级 finding**（agent modelOrder/model 入参注入，运行时硬错仍归 03 链耗尽）。诊断发现并回填票面：registry.yaml 语法（布尔/两层块映射/四键流映射）超出 01 frontmatter 子集 ⇒ 需新写最小解析器；运行时读取面 = `ctx.agentDefaultModel.currentSelection()`（服务已装配本 profile）；服务键 `aliasRegistry` 原生无占用已核验。agent brief 已挂票 02，维持 `ready-for-agent` 可开工。
 
 ## Fog
 
@@ -32,7 +33,7 @@
 - 脚手架不再阻塞任何票（票 `10` 已 resolved、已装入本 profile）。遗留限制：Host `Service` 目录只收录**声明式契约** service，空壳 `agentRegistry` 无法 service 级读回；现证据 = loader entry 命中 + `application: applied` + 真实 Cordis 单测。若日后需要 service 级读回，另开小票给注册点补契约。
 - 03 票面「modelOrder 条目为 raw」旧读法待同步：新契约 = 链先 `modelOrder` 别名、耗尽后 `model` raw 兜底（spec §5.3 已改，03 票正文动工前修订）。
 - 预置技能（`skills`）投递方式未定（内容预注入 vs 目录标记）——04/07 设计题，不阻塞 01（01 只解析名字）。
-- deck 闸本轮仍 defer（`deck_*` 返回 `{"reason":"gate-defer"}`）：01 票二轮处理与本次修复轮都按 `docs/agents/issue-tracker.md` 的 markdown 约定直接改票（`issues/01-agent-registry.md`、本文件），未走 deck 上报；闸恢复后补报。
+- deck 闸本轮仍 defer（`deck_*` 返回 `{"reason":"gate-defer"}`）：01 票二轮处理、修复轮与 02 票诊断+裁决回填（2026-10-15）都按 `docs/agents/issue-tracker.md` 的 markdown 约定直接改票（`issues/01-agent-registry.md`、`issues/02-alias-registry.md`、本文件），未走 deck 上报；闸恢复后补报（挂账：#2 诊断与裁决回填完毕，待补报）。
 
 ## Children
 
