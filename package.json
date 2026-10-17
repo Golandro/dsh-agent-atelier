@@ -26,8 +26,9 @@
     "test": "vitest run",
     "check:static": "node scripts/check.mjs",
     "check": "node scripts/check.mjs && pnpm run typecheck && pnpm test",
-    "proto:build": "esbuild prototype/settings-ui/src/main.tsx --bundle --outfile=prototype/settings-ui/dist/app.js --format=esm --target=es2022 --jsx=automatic",
-    "proto": "pnpm run proto:build && node prototype/settings-ui/serve.mjs"
+    "proto": "vite --config prototype/settings-ui/vite.config.ts --host 127.0.0.1 --port 4188",
+    "proto:build": "vite build --config prototype/settings-ui/vite.config.ts",
+    "proto:preview": "vite preview --config prototype/settings-ui/vite.config.ts --host 127.0.0.1 --port 4188"
   },
   "engines": {
     "node": ">=24"
@@ -42,12 +43,15 @@
     "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "typescript": "^5.9.0",
+    "vite": "^8.3.4",
     "vitest": "^3.2.0"
   },
   "dependencies": {
+    "@tanstack/react-table": "^9.3.1",
     "js-yaml": "^5.5.0",
     "zod": "^4.6.7"
   }

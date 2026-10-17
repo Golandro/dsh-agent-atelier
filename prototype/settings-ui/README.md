@@ -6,11 +6,13 @@
 ## 运行
 
 ```bash
-pnpm proto        # 构建（esbuild bundle）+ 起静态服务
+pnpm proto        # 启动 Vite 开发服务器（支持热更新）
 # → http://localhost:4188/
+pnpm proto:build  # 自动构建到 dist/
+pnpm proto:preview # 预览 dist/ 构建结果
 ```
 
-改 `src/` 后 `pnpm proto:build` 重新构建，刷新页面即可。无持久化：全部状态在内存，刷新即重置。
+TS/TSX、CSS 修改会由 Vite 自动处理并热更新。无持久化：全部状态在内存，刷新即重置。
 
 ## 变体（URL 可分享）
 
