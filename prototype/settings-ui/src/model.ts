@@ -7,9 +7,9 @@ import type {
   AgentListQuery,
   AgentSource,
   AliasDef,
+  BlockRange,
   ChannelRow,
   ComposedDocument,
-  ComposedRow,
   DocBlock,
   Finding,
   FileWrite,
@@ -127,9 +127,10 @@ export function shadowedClipNames(clips: PromptClip[]): Map<string, number> {
   return byName
 }
 
-/** 哪些 agent 的 body 引用了某 clip（`$ name` 行） */
+/** 哪些 agent 的 body 引用了某 clip（`{% include clip <name> %}` 模板行） */
 export function referencedBy(clipName: string, agents: AgentDoc[]): string[] {
-  const re = new RegExp(`^\\$\\s*${clipName}\\s*$`, 'm')
+  const escaped = clipName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const re = new RegExp(`^\\{%\\s*include\\s+clip\\s+${escaped}\\s*%\\}$`, 'm')
   return agents.filter((a) => re.test(a.body)).map((a) => a.agentName)
 }
 
@@ -158,13 +159,51 @@ export function serializeFrontmatter(agent: AgentDoc): string {
 
 /* ── P1 组合文档 ────────────────────────────────────────────────── */
 
-const CLIP_REF_RE = /^\$\s*([a-z0-9][a-z0-9-]*)\s*$/
+const CLIP_REF_RE = /^\{%\s*include\s+clip\s+([a-z0-9][a-z0-9-]*)\s*%\}$/
 
 export interface ComposeOptions {
-  /** compact 模式：折叠 clip 内容行，只留 header（P1：「自认为 Prompt 封装好的话」） */
-  compact: boolean
   /** 已保存的块文本（模拟磁盘；blockId → text） */
   overrides: Record<string, string>
+}
+
+/** 实际定义文件里的 clip 模板行（type 暂只支持 clip）。 */
+export function clipIncludeLine(name: string): string {
+  return `{% include clip ${name} %}`
+}
+
+export interface ComposedLayout {
+  text: string
+  ranges: Record<string, BlockRange>
+}
+
+/**
+ * 把块序列排成单编辑器文档：块间一个换行；clip 块前插入模板行，
+ * clip 内容内联在模板行之后。块内容区间不含分隔换行，
+ * 因此行首/行尾输入能稳定落到正确的块。
+ */
+export function layoutBlocks(blocks: DocBlock[], overrides: Record<string, string> = {}): ComposedLayout {
+  const ranges: Record<string, BlockRange> = {}
+  let text = ''
+  const push = (s: string) => { text += s }
+
+  blocks.forEach((block, i) => {
+    if (i > 0) push('\n')
+    if (block.kind === 'clip') {
+      const headerFrom = text.length
+      push(clipIncludeLine(block.clipName ?? ''))
+      const headerTo = text.length
+      push('\n')
+      const from = text.length
+      push(overrides[block.id] ?? block.text)
+      ranges[block.id] = { from, to: text.length, headerFrom, headerTo }
+    } else {
+      const from = text.length
+      push(overrides[block.id] ?? block.text)
+      ranges[block.id] = { from, to: text.length }
+    }
+  })
+
+  return { text, ranges }
 }
 
 export function composeDocument(agent: AgentDoc, clips: PromptClip[], opts: ComposeOptions): ComposedDocument {
@@ -204,20 +243,8 @@ export function composeDocument(agent: AgentDoc, clips: PromptClip[], opts: Comp
   }
   flushProse()
 
-  const rows: ComposedRow[] = []
-  blocks.forEach((b, bi) => {
-    if (bi > 0) rows.push({ blockId: b.id, role: 'separator', text: '', editable: false })
-    if (b.kind === 'clip') {
-      rows.push({ blockId: b.id, role: 'header', text: `$ ${b.clipName ?? ''}`, editable: false })
-      if (!opts.compact && !b.missing) {
-        for (const l of b.text.split('\n')) rows.push({ blockId: b.id, role: 'text', text: l, editable: true })
-      }
-    } else {
-      for (const l of b.text.split('\n')) rows.push({ blockId: b.id, role: 'text', text: l, editable: true })
-    }
-  })
-
-  return { agentName: agent.agentName, agentPath: agent.path, blocks, rows }
+  const layout = layoutBlocks(blocks, opts.overrides)
+  return { agentName: agent.agentName, agentPath: agent.path, blocks, ...layout }
 }
 
 /* ── 校验（02 findings 四类 + 05 警告项；数据进数据出，同 inspectAliasRegistry 哲学）── */

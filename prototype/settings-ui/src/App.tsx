@@ -148,7 +148,7 @@ export default function App() {
     () => ({ ...clipOverrides, ...currentAgentOverrides }),
     [clipOverrides, currentAgentOverrides],
   )
-  const doc = useMemo(() => composeDocument(agent, clips, { compact, overrides: docOverrides }), [agent, clips, compact, docOverrides])
+  const doc = useMemo(() => composeDocument(agent, clips, { overrides: docOverrides }), [agent, clips, docOverrides])
   const findings = useMemo(() => inspectAll(agents, models, aliases, KNOWN_TOOLS, KNOWN_SKILLS), [agents, models, aliases])
   const chain = useMemo(() => resolveChain(agent, aliases, models), [agent, aliases, models])
 
@@ -185,16 +185,15 @@ export default function App() {
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onUp)
   }
-  /** 写块草稿；文本回到已保存值时自动视为干净（不产生空保存）。 */
-  const setBlockDraft = (blockId: string, text: string) => {
-    const saved = doc.blocks.find((b) => b.id === blockId)?.text
-    setDrafts((d) => {
-      if (text === saved) {
-        if (!(blockId in d)) return d
-        const { [blockId]: _, ...rest } = d
-        return rest
+  /** 单编辑器回传整篇文本；文本回到已保存值的块自动视为干净（不产生空保存）。 */
+  const applyEditorDrafts = (texts: Record<string, string>) => {
+    setDrafts(() => {
+      const next: Record<string, string> = {}
+      for (const block of doc.blocks) {
+        const text = texts[block.id]
+        if (text !== undefined && text !== block.text) next[block.id] = text
       }
-      return { ...d, [blockId]: text }
+      return next
     })
   }
   /** 可保存全部脏块，也可只传一个块（分块保存）。 */
@@ -254,7 +253,7 @@ export default function App() {
     const name = `new-agent-${seq++}`
     const fresh: AgentDoc = base
       ? { ...base, agentName: name, frontmatter: { ...base.frontmatter, name: `${base.frontmatter.name ?? base.agentName} 副本` }, extra: { ...base.extra }, source: 'project-dsh', origin: 'user', path: `.dsh/agents/${name}/${name}.agent.md` }
-      : { agentName: name, frontmatter: { description: '', modelOrder: ['dsh-default'] }, extra: {}, body: '（在此写 persona 正文；用 `$ 切片名` 行引用切片）', source: 'project-dsh', origin: 'user', path: `.dsh/agents/${name}/${name}.agent.md` }
+      : { agentName: name, frontmatter: { description: '', modelOrder: ['dsh-default'] }, extra: {}, body: '（在此写 persona 正文；用 `{% include clip 切片名 %}` 行引用切片）', source: 'project-dsh', origin: 'user', path: `.dsh/agents/${name}/${name}.agent.md` }
     setAgents((a) => [...a, fresh])
     markWrites([{ file: fresh.path, reason: '新建 agent', lines: fresh.body.split('\n').length }])
     pushLog(`新建 ${fresh.path}`)
@@ -266,7 +265,7 @@ export default function App() {
     const clip: PromptClip = { name, file: `.dsh/agents/sections/${name}.md`, source: 'project-dsh', content: '## 新切片\n' }
     setClips((c) => [...c, clip])
     markWrites([{ file: clip.file, reason: '新建切片', lines: 1 }])
-    pushLog(`新建 ${clip.file}；在 agent 正文用 \`$ ${name}\` 行引用`)
+    pushLog(`新建 ${clip.file}；在 agent 正文用 \`{% include clip ${name} %}\` 行引用`)
     setTab('sections')
   }
 
@@ -368,7 +367,7 @@ export default function App() {
                 <AgentEditor
                   doc={doc}
                   drafts={drafts}
-                  onDraft={setBlockDraft}
+                  onDrafts={applyEditorDrafts}
                   onSaveBlock={(id) => saveBlocks([id])}
                   onRevertBlock={revertBlock}
                   onSave={saveAll}

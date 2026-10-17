@@ -22,13 +22,13 @@ TS/TSX、CSS 修改会由 Vite 自动处理并热更新。无持久化：全部�
 
 ## 数据结构（交付物之一）
 
-`src/types.ts`：镜像冻结契约（`AgentSource` / `AgentFrontmatter` 全字段 / `ModelDef` / `AliasDef` / `Finding`）+ 本原型新增的 **P1 组合文档模型**（`DocBlock` / `ComposedDocument` / `ComposedRow` / `FileWrite`）。`src/model.ts` 是纯函数：组合文档、校验（02 四类 + 警告项）、解析链、断点推演、保存回写、S5 影响预览。
+`src/types.ts`：镜像冻结契约（`AgentSource` / `AgentFrontmatter` 全字段 / `ModelDef` / `AliasDef` / `Finding`）+ 本原型新增的 **P1 组合文档模型**（`DocBlock` / `BlockRange` / `ComposedDocument` / `FileWrite`）。`src/model.ts` 是纯函数：组合文档、校验（02 四类 + 警告项）、解析链、断点推演、保存回写、S5 影响预览。
 
 ## P1 标注还原点
 
 - **A 区**：Agent List 走资源管理器「内容」排布——每行两行：第 1 行来源标签 / Agent 名称 / 弹性空白 / 路径 / 状态，第 2 行 Agent 摘要 / 模型链、工具、技能、spawn、reasoning。「内容」两行全显，「紧凑」只留第 1 行（视图级折叠），均为扁平行、无卡片外壳，行内不再提供展开/折叠按钮。状态：无诊断为绿色圆点，有诊断为红/黄徽标，禁用为灰色圆点。搜索 / 层级筛选 / 仅问题 / 排序（名称、层级、诊断、模型数）由 `@tanstack/react-table` v9 的 globalFilter / columnFilters / sorting 执行；查询接口仍是 `types.ts` 的 `AgentListQuery`，`model.ts` 的 `queryAgents` 保留为纯函数参考实现。`fixtures.ts` 含超长名称/路径/摘要/属性与禁用态样例。
 - **布局**：Agent List 与 Editor 之间可拖拽分栏，分隔条 cursor = `ew-resize`，拖拽坐标按 `.agents-page` 父容器换算；列表最小 20rem（≈320px，默认 24rem）、编辑器最小 40rem（≈640px），分隔条 0.375rem。放不下（< 60.375rem ≈ 966px，并扣除顾问抽屉宽度）时 Editor 改为浮层覆盖 List；双击分隔条复位到默认 24rem（受可用宽度限制）。Editor 可关闭，窄屏默认先显示 List；不满足并列宽度时列表始终纵向排列，不做横向卡片条。
-- **B 区**：Agent Edit 组合文本编辑器（CodeMirror 6）——front-matter（YAML）与 prose / clip（Markdown）按块排布；body 的 `$ clip-name` 引用行展开为 clip 块。**所有块默认直接可编辑**，块头显示全局行范围、来源、落盘文件与未保存状态；可**分块保存 / 回退**，也可在工具栏一次保存全部脏块（一次回写涉及的每个文件，见 Inspector 的「最近写入」）。**compact 开关**只折叠 clip 内容显示，不影响草稿与整块保存语义。
+- **B 区**：Agent Edit 组合文本编辑器（单个 CodeMirror 6 文档）——front-matter 与 prose / clip 按块组织在同一个文档里。实际定义文件中的 `{% include clip <name> %}` 模板行原地渲染为 clip header（type 暂只支持 clip），clip 文件内容内联在该行之后；front-matter 在 `---` 上方有同样的 header。**所有内容默认直接可编辑**；header 显示全局行范围、来源、落盘文件与未保存状态，可**分块保存 / 回退**，也可在工具栏一次保存全部脏块（一次回写涉及的每个文件，见 Inspector 的「最近写入」）。header 的 chrome（文件 / 状态 / 行范围 / 按钮）是不可选中的 widget，而模板行本身仍是文档文本——跨切片选取复制时不会带上 header chrome，但会带上 `{% include ... %}` 模板标识。**compact 开关**只折叠 clip 内容显示，不影响草稿与整块保存语义。
 - 顶栏：workspace 选择器、`+ Add Prompt Section ▾`、`+ Add Agent ▾`；页签行右缘 `Edit Tools ⋯`（顾问面板 / 模拟外部改文件 / invalidate 重读）。
 
 ## 自行发挥部分
@@ -40,7 +40,7 @@ TS/TSX、CSS 修改会由 Vite 自动处理并热更新。无持久化：全部�
 
 ## 开放问题（回票据裁决）
 
-1. **clip 引用语法与落盘布局**：`$ name` 行 + `sections/<name>.md` 是原型提案，01 冻结契约的 body 是单文件——要不要引入切片文件，需裁决（可能另立票）。
+1. **clip 模板的落盘布局**：引用语法已定为 `{% include clip <name> %}`（type 暂只支持 clip）；clip 内容仍按 `sections/<name>.md` 独立成文件（原型提案）。01 冻结契约的 body 是单文件——要不要引入切片文件，需裁决（可能另立票）。
 2. **front-matter 编辑形态**：P1 标注是「文本编辑器」，原型按 raw 文本编辑演示（不解析往返）；验收要求字段 1:1——正式实现要 D23 解析器往返或字段表单，二选一。
 3. **顾问面板放置**：drawer vs tab，用底部浮动条对比体验后定。
 4. **主题**：DSH core 暗色是近黑（`#151517`）不是藏青；截图的藏青感来自未启用的 whale-song 皮肤。要强藏青只调 `--dsh-bg` / `--dsh-bg-panel` 两个 token（见 `styles/dsh-theme.css` 头注释）。
@@ -48,6 +48,6 @@ TS/TSX、CSS 修改会由 Vite 自动处理并热更新。无持久化：全部�
 ## 演示简化（不算数的地方）
 
 - front-matter 存文本不解析回字段（卡片上的字段标签不随编辑更新）。
-- 块内行号由 CodeMirror 从 1 起算；块头另行标注它在组合文档中的全局行范围。
+- 单编辑器使用全局行号；header 中的 L 范围随输入实时重算。
 - 无文件 watcher（D24）：用「模拟外部改文件」+ invalidate 演示失效路径。
 - 重命名切片不自动改引用方（故意演示悬空引用诊断）。

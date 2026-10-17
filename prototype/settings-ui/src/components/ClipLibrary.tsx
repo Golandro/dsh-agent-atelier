@@ -25,8 +25,8 @@ export function ClipLibrary(props: ClipLibraryProps) {
       <div className="page-head">
         <h2>Prompt Sections</h2>
         <p className="page-sub">
-          切片 = 一个具名提示词文件；agent 正文用 <code>$ name</code> 行引用（原型提案语法）。
-          同名切片低层被遮蔽（D2：workspace 胜 user）。
+          切片 = 一个具名提示词文件；agent 正文用 <code>{'{% include clip <name> %}'}</code> 模板行引用
+          （type 暂只支持 clip）。同名切片低层被遮蔽（D2：workspace 胜 user）。
         </p>
         <button className="btn" onClick={props.onAdd}>＋ 新建切片</button>
       </div>
@@ -40,7 +40,7 @@ export function ClipLibrary(props: ClipLibraryProps) {
         return (
           <div className="card clip-row" key={name}>
             <div className="clip-main" onClick={() => setExpanded(isOpen ? null : name)}>
-              <span className="clip-name">$ {name}</span>
+              <span className="clip-name" title={`{% include clip ${name} %}`}>{`{% include clip ${name} %}`}</span>
               <span className={`tag tag-${winner.source.startsWith('project') ? 'workspace' : 'user'}`}>{layerLabel(winner.source)}</span>
               {layers > 0 && <span className="tag tag-warn" title="同名低层切片被遮蔽">遮蔽 ×{layers}</span>}
               <span className="clip-file">{winner.file}</span>

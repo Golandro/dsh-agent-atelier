@@ -4,8 +4,8 @@
  * 「智能体控制」设置页的 UI 数据结构：
  * - Agent/Clip/Model/Alias/Finding 镜像冻结契约（本仓 src/types.ts 的 01/02 读面）与
  *   spec §5.1（agent 文档全字段）/ §5.2（registry.yaml）。
- * - DocBlock / ComposedDocument / ComposedRow 是 P1 标注的「组合文本编辑器」文档模型，
- *   属本原型的新增提案（clip 引用语法 `$ name`、切片落盘布局），见 README 开放问题。
+ * - DocBlock / BlockRange / ComposedDocument 是 P1 标注的「组合文本编辑器」文档模型，
+ *   属本原型的新增提案（clip 模板语法 `{% include clip <name> %}`、切片落盘布局），见 README 开放问题。
  */
 
 /** 发现根（镜像 01 冻结契约 AgentSource；rank 见 model.ts） */
@@ -43,7 +43,7 @@ export interface AgentDoc {
   frontmatter: AgentFrontmatter
   /** 未知 frontmatter 键，原文保留（D14 回写不丢） */
   extra: Record<string, string>
-  /** 正文：自由文本 + `$ clip-name` 引用行（原型提案语法） */
+  /** 正文：自由文本 + `{% include clip <name> %}` 引用行（模板语法；type 暂只支持 clip） */
   body: string
   source: AgentSource
   origin: AgentOrigin
@@ -118,11 +118,11 @@ export interface AgentListQuery {
   direction: AgentListSortDirection
 }
 
-/* ── P1 编辑器组合文档模型（原型新增提案）─────────────────────────
- * 编辑器把 agent 文档渲染成带全局行号的文本视图：
- * front-matter 块打头；body 中 `$ clip-name` 引用行展开为 clip 块
- * （header 行 + 内容行）；块与块之间强制空行分隔（= 各块的 Header）。
- * 保存 = 改动按块回写各自文件（frontmatter/prose → agent.md；clip → sections/<name>.md），
+/* ── P1 编辑器组合文档模型 ────────────────────────────────────────
+ * 编辑器把 agent 文档渲染成**一个**带全局行号的文本视图：
+ * front-matter 块打头；body 中 `{% include clip <name> %}` 模板行原地成为 clip header，
+ * clip 文件内容内联在该行之后。保存 = 改动按块回写各自文件
+ * （frontmatter/prose → agent.md；clip → sections/<name>.md），
  * 一次保存可以写多个文件（P1 标注：「编辑 Clip 保存时确实会改涉及的所有 clip 文件」）。
  */
 export type DocBlockKind = 'frontmatter' | 'prose' | 'clip'
@@ -142,19 +142,22 @@ export interface DocBlock {
   source?: AgentSource
 }
 
-export interface ComposedRow {
-  blockId: string
-  role: 'header' | 'text' | 'separator'
-  text: string
-  editable: boolean
+/** 块内容在单编辑器文档中的偏移；clip 的模板行单独标注（不含行尾换行）。 */
+export interface BlockRange {
+  from: number
+  to: number
+  headerFrom?: number
+  headerTo?: number
 }
 
 export interface ComposedDocument {
   agentName: string
   agentPath: string
   blocks: DocBlock[]
-  /** 渲染行；行号 = 下标 + 1（compact 折叠 clip 内容行后重算） */
-  rows: ComposedRow[]
+  /** 单编辑器文档文本：frontmatter + body，clip 内容内联在模板行之后 */
+  text: string
+  /** blockId → 在 text 中的位置 */
+  ranges: Record<string, BlockRange>
 }
 
 /** 保存动作的产物：一个文件一笔 */
