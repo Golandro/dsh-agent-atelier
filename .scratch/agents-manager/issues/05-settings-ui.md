@@ -125,3 +125,12 @@ Blocked by: 10, 01, 02（均已 `resolved`：10 于 2026-10-14，01/02 于 2026-
 - 修改守卫判定（`bundle` 项已按 2026-10-17 修订落定）
 
 **实施注意**：pnpm workspace 工具链（沙箱内 `pnpm install` 有 store 陷阱，见 harness-facts）；改 `src/` 后 `pnpm run build`；client 面走 tsdown 共享 preset；外仓包不在 dev:web watch 集合、须自带 watch；票面 `path:line` 锚点动工前真机复核。
+
+## 设计原型（2026-10-17）
+
+UI 设计原型在 throwaway 分支 `proto/settings-ui`（commit `5dc7486`），回答的问题：本票设置页的布局与交互——P1 标注还原（Agent List + 组合文本编辑器，保存一次回写涉及的所有切片文件、compact 折叠重算行号）+ 自行发挥（Prompt Sections 库 / System Prompts 双列 / 顾问面板 / Inspector 状态可见）。
+
+- 运行：`git checkout proto/settings-ui && pnpm proto` → `http://localhost:4188/`；变体 `?advisor=drawer|tab`（底部浮动条切换）。
+- 数据结构：`prototype/settings-ui/src/types.ts`（镜像冻结契约 + P1 组合文档模型提案）；主题 CSS 扒自 DSH 源码树暗色 token。
+- 待回填裁决（原型 README「开放问题」）：clip 引用语法与落盘布局、front-matter 编辑形态（raw 文本 vs 字段表单）、顾问面板放置（drawer vs tab）、主题取色（core 近黑 vs 藏青）。
+- 按原型技能规则：验证后只把决策并入主线，原型本体不进主线。
