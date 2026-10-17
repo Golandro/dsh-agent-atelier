@@ -162,6 +162,8 @@ function actionButton(label: string, title: string, disabled: boolean, onClick: 
   button.type = 'button'
   button.className = 'btn btn-sm cm-head-btn'
   button.textContent = label
+  button.dataset.icon = label === '保存' ? '✓' : '↩'
+  button.setAttribute('aria-label', label)
   button.title = title
   button.disabled = disabled
   button.addEventListener('mousedown', (e) => e.preventDefault())
@@ -171,48 +173,6 @@ function actionButton(label: string, title: string, disabled: boolean, onClick: 
     onClick()
   })
   return button
-}
-
-/** 窄宽度下把保存/回退收进一个按钮，避免 header 行内空间被操作区吃光。 */
-function compactMenu(meta: HeadMeta, actions: MutableRefObject<Actions>) {
-  const menu = document.createElement('details')
-  menu.className = 'cm-head-menu'
-
-  const toggle = document.createElement('summary')
-  toggle.className = 'cm-head-menu-toggle'
-  toggle.textContent = '⋯'
-  toggle.title = '块操作'
-  toggle.setAttribute('aria-label', '块操作')
-  toggle.addEventListener('mousedown', (e) => e.preventDefault())
-  toggle.addEventListener('click', (e) => e.stopPropagation())
-
-  const pop = document.createElement('div')
-  pop.className = 'cm-head-menu-pop'
-  const closeThen = (run: () => void) => {
-    menu.open = false
-    run()
-  }
-  pop.append(
-    actionButton('保存', `只回写此块 → ${meta.file}`, !meta.dirty, () => closeThen(() => actions.current.save(meta.id))),
-    actionButton('回退', '撤回此块的未保存改动', !meta.dirty, () => closeThen(() => actions.current.revert(meta.id))),
-  )
-
-  menu.append(toggle, pop)
-  return menu
-}
-
-type ChromeDom = HTMLElement & { chromeObserver?: ResizeObserver }
-
-/** clip header 的 chrome 是绝对定位的，需要把它的实际宽度写回行内预留列。 */
-function trackChromeWidth(dom: HTMLElement) {
-  if (typeof ResizeObserver === 'undefined') return
-  const observer = new ResizeObserver(() => {
-    const line = dom.closest<HTMLElement>('.cm-line')
-    if (!line) return
-    line.style.setProperty('--cm-head-chrome-w', `${Math.ceil(dom.getBoundingClientRect().width)}px`)
-  })
-  observer.observe(dom)
-  ;(dom as ChromeDom).chromeObserver = observer
 }
 
 function fillChrome(
@@ -263,7 +223,6 @@ function fillChrome(
     container.append(
       actionButton('保存', `只回写此块 → ${meta.file}`, false, () => actions.current.save(meta.id)),
       actionButton('回退', '撤回此块的未保存改动', false, () => actions.current.revert(meta.id)),
-      compactMenu(meta, actions),
     )
   }
 }
@@ -306,12 +265,7 @@ class HeaderChromeWidget extends WidgetType {
     const chrome = document.createElement('span')
     chrome.classList.add('cm-head-inline')
     fillChrome(chrome, this.meta, this.actions, false)
-    trackChromeWidth(chrome)
     return chrome
-  }
-
-  destroy(dom: HTMLElement) {
-    ;(dom as ChromeDom).chromeObserver?.disconnect()
   }
 }
 
@@ -433,6 +387,8 @@ function buildDecorations(
     if (block.kind === 'clip' && block.headerFrom !== undefined) {
       const line = state.doc.lineAt(block.headerFrom)
       const headClasses = ['cm-region-head', kindClass, 'cm-block-head-line']
+      // 只有真有保存/回退时才为窄屏图标列预留空间。
+      if (dirty && !readonly && !meta.missing) headClasses.push('cm-head-actions')
       // 折叠或空块没有可见正文：header 同时承担末行底线。
       if (folded || (block.to <= block.from && !block.missing)) headClasses.push('cm-region-last')
       decorations.push(Decoration.line({ class: headClasses.join(' ') }).range(line.from))
