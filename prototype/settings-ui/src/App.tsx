@@ -43,6 +43,9 @@ const LIST_DEFAULT_REM = 24
 const EDITOR_MIN_REM = 40
 const SPLITTER_REM = 0.375
 
+/** 无已保存覆盖时的稳定空对象（避免 useMemo 每次失效）。 */
+const EMPTY_BLOCK_OVERRIDES: Record<string, string> = {}
+
 const rootFontSize = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
 
 interface PaneMetrics {
@@ -88,8 +91,9 @@ export default function App() {
   })
   const [compact, setCompact] = useState(false)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
-  /** 已保存的块文本（模拟磁盘） */
-  const [overrides, setOverrides] = useState<Record<string, string>>({})
+  /** 已保存的块文本（模拟磁盘）：front-matter/prose 属 agent，clip 文件全局共享 */
+  const [agentOverrides, setAgentOverrides] = useState<Record<string, Record<string, string>>>({})
+  const [clipOverrides, setClipOverrides] = useState<Record<string, string>>({})
   const [savedFiles, setSavedFiles] = useState<string[]>([])
 
   const [advisorOpen, setAdvisorOpen] = useState(false)
@@ -139,7 +143,12 @@ export default function App() {
   }
 
   const agent = agents.find((a) => a.agentName === selectedAgent) ?? agents[0]!
-  const doc = useMemo(() => composeDocument(agent, clips, { compact, overrides }), [agent, clips, compact, overrides])
+  const currentAgentOverrides = agentOverrides[agent.agentName] ?? EMPTY_BLOCK_OVERRIDES
+  const docOverrides = useMemo(
+    () => ({ ...clipOverrides, ...currentAgentOverrides }),
+    [clipOverrides, currentAgentOverrides],
+  )
+  const doc = useMemo(() => composeDocument(agent, clips, { compact, overrides: docOverrides }), [agent, clips, compact, docOverrides])
   const findings = useMemo(() => inspectAll(agents, models, aliases, KNOWN_TOOLS, KNOWN_SKILLS), [agents, models, aliases])
   const chain = useMemo(() => resolveChain(agent, aliases, models), [agent, aliases, models])
 
@@ -176,19 +185,67 @@ export default function App() {
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onUp)
   }
-  const startEdit = (blockId: string) => {
-    const b = doc.blocks.find((x) => x.id === blockId)
-    if (!b) return
-    setDrafts((d) => ({ ...d, [blockId]: b.text }))
+  /** 写块草稿；文本回到已保存值时自动视为干净（不产生空保存）。 */
+  const setBlockDraft = (blockId: string, text: string) => {
+    const saved = doc.blocks.find((b) => b.id === blockId)?.text
+    setDrafts((d) => {
+      if (text === saved) {
+        if (!(blockId in d)) return d
+        const { [blockId]: _, ...rest } = d
+        return rest
+      }
+      return { ...d, [blockId]: text }
+    })
   }
-  const saveAll = () => {
-    const writes = saveWrites(doc, drafts)
-    if (writes.length === 0) return
-    setOverrides((o) => ({ ...o, ...drafts }))
-    setDrafts({})
+  /** 可保存全部脏块，也可只传一个块（分块保存）。 */
+  const saveBlocks = (blockIds: string[]) => {
+    const only: Record<string, string> = {}
+    for (const id of blockIds) {
+      const text = drafts[id]
+      if (text !== undefined) only[id] = text
+    }
+    const writes = saveWrites(doc, only)
+    const ids = Object.keys(only)
+    if (writes.length === 0 || ids.length === 0) return
+    const clipDrafts: Record<string, string> = {}
+    const agentDrafts: Record<string, string> = {}
+    for (const id of ids) {
+      const block = doc.blocks.find((b) => b.id === id)
+      if (!block) continue
+      if (block.kind === 'clip') clipDrafts[id] = only[id]!
+      else agentDrafts[id] = only[id]!
+    }
+    if (Object.keys(clipDrafts).length > 0) setClipOverrides((o) => ({ ...o, ...clipDrafts }))
+    if (Object.keys(agentDrafts).length > 0) {
+      setAgentOverrides((o) => ({
+        ...o,
+        [agent.agentName]: { ...(o[agent.agentName] ?? {}), ...agentDrafts },
+      }))
+    }
+    setDrafts((d) => {
+      const next = { ...d }
+      for (const id of ids) delete next[id]
+      return next
+    })
     markWrites(writes)
-    pushLog(`保存：写入 ${writes.length} 个文件 — ${writes.map((w) => w.file).join('、')}`)
+    pushLog(
+      ids.length === 1
+        ? `保存块 ${ids[0]} → ${writes[0]!.file}`
+        : `保存 ${ids.length} 个块 → ${writes.length} 个文件 — ${writes.map((w) => w.file).join('、')}`,
+    )
     setInspectorOpen(true)
+  }
+  const saveAll = () => saveBlocks(Object.keys(drafts))
+  const revertBlock = (blockId: string) => {
+    setDrafts((d) => {
+      const { [blockId]: _, ...rest } = d
+      return rest
+    })
+    pushLog(`回退块 ${blockId}（恢复为上次保存内容）`)
+  }
+  const revertAll = () => {
+    setDrafts({})
+    pushLog('回退所有未保存改动')
   }
 
   /* ── 新建 ── */
@@ -252,10 +309,10 @@ export default function App() {
   const invalidate = () => pushLog('invalidate() → 重读 agent/别名/模型目录（D24：无 watcher，显式失效；digest 门控不变不发）')
   const externalEdit = () => {
     const id = 'clip-review-checklist'
-    const cur = overrides[id] ?? clips.find((c) => c.name === 'review-checklist' && c.source === 'project-dsh')?.content
+    const cur = clipOverrides[id] ?? clips.find((c) => c.name === 'review-checklist' && c.source === 'project-dsh')?.content
     if (!cur) return
     const text = `${cur}\n- [ ] （外部手改新增的一行）`
-    setOverrides((o) => ({ ...o, [id]: text }))
+    setClipOverrides((o) => ({ ...o, [id]: text }))
     markWrites([{ file: '.dsh/agents/sections/review-checklist.md', reason: '外部手改（演示）', lines: 1 }])
     pushLog('模拟外部手改 review-checklist.md → invalidate 重读后 UI 反映（演示即时反映）')
   }
@@ -311,11 +368,11 @@ export default function App() {
                 <AgentEditor
                   doc={doc}
                   drafts={drafts}
-                  onStartEdit={startEdit}
-                  onDraft={(id, t) => setDrafts((d) => ({ ...d, [id]: t }))}
-                  onDropDraft={(id) => setDrafts((d) => { const { [id]: _, ...rest } = d; return rest })}
+                  onDraft={setBlockDraft}
+                  onSaveBlock={(id) => saveBlocks([id])}
+                  onRevertBlock={revertBlock}
                   onSave={saveAll}
-                  onDiscard={() => { setDrafts({}); pushLog('放弃未保存改动') }}
+                  onDiscard={revertAll}
                   compact={compact}
                   onCompact={setCompact}
                   chain={chain}

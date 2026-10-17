@@ -28,7 +28,7 @@ TS/TSX、CSS 修改会由 Vite 自动处理并热更新。无持久化：全部�
 
 - **A 区**：Agent List 走资源管理器「内容」排布——每行两行：第 1 行来源标签 / Agent 名称 / 弹性空白 / 路径 / 状态，第 2 行 Agent 摘要 / 模型链、工具、技能、spawn、reasoning。「内容」两行全显，「紧凑」只留第 1 行（视图级折叠），均为扁平行、无卡片外壳，行内不再提供展开/折叠按钮。状态：无诊断为绿色圆点，有诊断为红/黄徽标，禁用为灰色圆点。搜索 / 层级筛选 / 仅问题 / 排序（名称、层级、诊断、模型数）由 `@tanstack/react-table` v9 的 globalFilter / columnFilters / sorting 执行；查询接口仍是 `types.ts` 的 `AgentListQuery`，`model.ts` 的 `queryAgents` 保留为纯函数参考实现。`fixtures.ts` 含超长名称/路径/摘要/属性与禁用态样例。
 - **布局**：Agent List 与 Editor 之间可拖拽分栏，分隔条 cursor = `ew-resize`，拖拽坐标按 `.agents-page` 父容器换算；列表最小 20rem（≈320px，默认 24rem）、编辑器最小 40rem（≈640px），分隔条 0.375rem。放不下（< 60.375rem ≈ 966px，并扣除顾问抽屉宽度）时 Editor 改为浮层覆盖 List；双击分隔条复位到默认 24rem（受可用宽度限制）。Editor 可关闭，窄屏默认先显示 List；不满足并列宽度时列表始终纵向排列，不做横向卡片条。
-- **B 区**：Agent Edit 组合文本编辑器——front-matter 块打头；body 的 `$ clip-name` 引用行展开为 clip 块（header 行 + 内容行）；块间强制空行 = 各块 Header；行号全局连续；**保存一次回写涉及的每个文件**（见 Inspector 的「最近写入」）；**compact 开关**折叠 clip 内容只留 header（行号重算）。
+- **B 区**：Agent Edit 组合文本编辑器（CodeMirror 6）——front-matter（YAML）与 prose / clip（Markdown）按块排布；body 的 `$ clip-name` 引用行展开为 clip 块。**所有块默认直接可编辑**，块头显示全局行范围、来源、落盘文件与未保存状态；可**分块保存 / 回退**，也可在工具栏一次保存全部脏块（一次回写涉及的每个文件，见 Inspector 的「最近写入」）。**compact 开关**只折叠 clip 内容显示，不影响草稿与整块保存语义。
 - 顶栏：workspace 选择器、`+ Add Prompt Section ▾`、`+ Add Agent ▾`；页签行右缘 `Edit Tools ⋯`（顾问面板 / 模拟外部改文件 / invalidate 重读）。
 
 ## 自行发挥部分
@@ -47,7 +47,7 @@ TS/TSX、CSS 修改会由 Vite 自动处理并热更新。无持久化：全部�
 
 ## 演示简化（不算数的地方）
 
-- 编辑中的行号不随 textarea 实际高度流动（显示静态范围）。
 - front-matter 存文本不解析回字段（卡片上的字段标签不随编辑更新）。
+- 块内行号由 CodeMirror 从 1 起算；块头另行标注它在组合文档中的全局行范围。
 - 无文件 watcher（D24）：用「模拟外部改文件」+ invalidate 演示失效路径。
 - 重命名切片不自动改引用方（故意演示悬空引用诊断）。

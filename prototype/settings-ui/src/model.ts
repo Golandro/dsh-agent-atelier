@@ -177,13 +177,13 @@ export function composeDocument(agent: AgentDoc, clips: PromptClip[], opts: Comp
     text: opts.overrides[fmId] ?? serializeFrontmatter(agent),
   })
 
-  const bodyText = opts.overrides['body'] ?? agent.body
+  const bodyText = agent.body
   let proseBuf: string[] = []
   let proseIdx = 0
   const flushProse = () => {
     if (proseBuf.length === 0) return
     const id = `prose-${proseIdx++}`
-    blocks.push({ id, kind: 'prose', file: agent.path, text: proseBuf.join('\n') })
+    blocks.push({ id, kind: 'prose', file: agent.path, text: opts.overrides[id] ?? proseBuf.join('\n') })
     proseBuf = []
   }
   for (const line of bodyText.split('\n')) {

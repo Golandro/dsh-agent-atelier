@@ -1,21 +1,22 @@
 /**
- * PROTOTYPE — Agent Edit（P1 B 区）：组合文本编辑器。
- * front-matter 块打头；body 的 `$ clip` 引用行展开为 clip 块（header 行 + 内容行）；
- * 块间强制空行（= 各块 Header 分隔）；行号全局连续，compact 折叠 clip 内容后重算。
- * 保存把每个脏块回写各自文件（一次保存可写多个文件——见 Inspector）。
+ * PROTOTYPE — Agent Edit（P1 B 区）：CodeMirror 组合文档编辑器。
+ * front-matter 块打头；body 的 `$ clip` 引用行展开为 clip 块。
+ * 所有块默认直接可编辑（无需双击进入）；每个块对应一个落盘文件（D14 1:1），
+ * 可在块头单独保存 / 回退，也可在工具栏一次保存全部脏块（一次写多个文件）。
+ * compact 仅折叠 clip 内容显示，不改变草稿与保存语义。
  */
-import { Fragment } from 'react'
-import type { ComposedDocument } from '../types'
+import type { ComposedDocument, DocBlock } from '../types'
 import { layerLabel, saveWrites } from '../model'
 import type { ChainResult } from '../model'
+import { CodeBlock } from './CodeBlock'
 
 export interface AgentEditorProps {
   doc: ComposedDocument
   /** 未保存的块草稿：blockId → 文本（存在即编辑中/脏） */
   drafts: Record<string, string>
-  onStartEdit: (blockId: string) => void
   onDraft: (blockId: string, text: string) => void
-  onDropDraft: (blockId: string) => void
+  onSaveBlock: (blockId: string) => void
+  onRevertBlock: (blockId: string) => void
   onSave: () => void
   onDiscard: () => void
   compact: boolean
@@ -27,14 +28,43 @@ export interface AgentEditorProps {
   onClose: () => void
 }
 
-const lineCount = (t: string) => t.split('\n').length
+const kindLabel: Record<DocBlock['kind'], string> = {
+  frontmatter: 'front-matter',
+  prose: 'prose',
+  clip: 'clip',
+}
+
+const sourceTag = (source: NonNullable<DocBlock['source']>) =>
+  source.startsWith('project') ? 'workspace' : source === 'bundled' ? 'bundled' : 'user'
+
+/** 组合文档里的全局行范围；按当前草稿与 compact 状态即时重算。 */
+function blockRanges(
+  doc: ComposedDocument,
+  drafts: Record<string, string>,
+  compact: boolean,
+): Map<string, { start: number; end: number }> {
+  const ranges = new Map<string, { start: number; end: number }>()
+  let next = 1
+  doc.blocks.forEach((block, i) => {
+    if (i > 0) next += 1 // 块间空行
+    const isClip = block.kind === 'clip'
+    const headerLines = isClip ? 1 : 0
+    const contentLines = block.missing || (compact && isClip)
+      ? 0
+      : (drafts[block.id] ?? block.text).split('\n').length
+    const start = next
+    const end = next + headerLines + contentLines - 1
+    ranges.set(block.id, { start, end })
+    next = end + 1
+  })
+  return ranges
+}
 
 export function AgentEditor(props: AgentEditorProps) {
   const { doc, drafts } = props
   const dirtyCount = Object.keys(drafts).length
   const pendingFiles = saveWrites(doc, drafts).length
-  const blockById = new Map(doc.blocks.map((b) => [b.id, b]))
-  const editedBlocks = new Set<string>()
+  const ranges = blockRanges(doc, drafts, props.compact)
 
   return (
     <section className="editor">
@@ -51,11 +81,16 @@ export function AgentEditor(props: AgentEditorProps) {
           <span className="tag tag-bundled">bundled 只读 · 修改 = 另存到工作区根（D16）</span>
         ) : (
           <>
+            {dirtyCount > 0 && (
+              <span className="editor-dirty-chip" title="未保存的块与将写入的文件数">
+                {dirtyCount} 块未保存 → {pendingFiles} 文件
+              </span>
+            )}
             <button className="btn btn-sm btn-primary" disabled={dirtyCount === 0} onClick={props.onSave} title="回写所有脏块到各自文件">
-              💾 <span className="lbl">保存{dirtyCount > 0 ? `（${dirtyCount} 块 → ${pendingFiles} 文件）` : ''}</span>
+              💾 <span className="lbl">保存全部{dirtyCount > 0 ? `（${dirtyCount} 块）` : ''}</span>
             </button>
-            <button className="btn btn-sm" disabled={dirtyCount === 0} onClick={props.onDiscard}>↩ <span className="lbl">放弃</span></button>
-            <label className="toggle" title="compact：折叠 clip 内容，只留 header（P1：自认为 Prompt 封装好的话）">
+            <button className="btn btn-sm" disabled={dirtyCount === 0} onClick={props.onDiscard} title="撤回所有块的未保存改动">↩ <span className="lbl">全部回退</span></button>
+            <label className="toggle" title="compact：折叠 clip 内容，只留块头（不影响草稿）">
               <input type="checkbox" checked={props.compact} onChange={(e) => props.onCompact(e.target.checked)} />
               <span className="toggle-track" />
               <span className="lbl toggle-lbl">compact</span>
@@ -72,69 +107,69 @@ export function AgentEditor(props: AgentEditorProps) {
       </div>
 
       <div className="editor-body">
-        {doc.rows.map((row, i) => {
-          const n = i + 1
-          const draft = drafts[row.blockId]
+        {doc.blocks.map((block) => {
+          const draft = drafts[block.id]
+          const dirty = draft !== undefined
+          const range = ranges.get(block.id)
+          const collapsed = props.compact && block.kind === 'clip'
+          const lineCount = (draft ?? block.text).split('\n').length
+          const label = block.kind === 'clip' ? `clip ${block.clipName}` : kindLabel[block.kind]
 
-          if (row.role === 'separator') {
-            return <div className="ed-row ed-sep" key={i}><span className="ln">{n}</span></div>
-          }
-
-          if (row.role === 'header') {
-            const block = blockById.get(row.blockId)
-            const collapsed = props.compact && block && !block.missing
-            return (
-              <Fragment key={i}>
-                <div className="ed-row ed-header">
-                  <span className="ln">{n}</span>
-                  <span className="hdr-ref">{row.text}</span>
-                  {block?.source && <span className={`tag tag-${block.source.startsWith('project') ? 'workspace' : block.source === 'bundled' ? 'bundled' : 'user'}`}>{layerLabel(block.source)}</span>}
-                  <span className="hdr-file" title="该切片落盘文件">{block?.file}</span>
-                  {block?.missing && <span className="tag tag-err">未找到切片</span>}
-                  {collapsed && draft === undefined && <span className="hdr-collapsed">（已折叠 {lineCount(block.text)} 行）</span>}
-                  {!props.readonly && !block?.missing && (
-                    draft === undefined ? (
-                      <button className="btn btn-sm hdr-action" onClick={() => props.onStartEdit(row.blockId)}>Clip Edit</button>
-                    ) : (
-                      <button className="btn btn-sm hdr-action" onClick={() => props.onDropDraft(row.blockId)} title="放弃此块改动">✕ 放弃</button>
-                    )
-                  )}
-                </div>
-                {draft !== undefined && (
-                  <div className="ed-row ed-edit">
-                    <span className="ln">{n + 1}–{n + lineCount(draft)}</span>
-                    <textarea className="ed-area" value={draft} rows={lineCount(draft)} onChange={(e) => props.onDraft(row.blockId, e.target.value)} />
-                  </div>
-                )}
-              </Fragment>
-            )
-          }
-
-          // 文本行：所在块有草稿时，fm/prose 首个文本行换成整段 textarea，其余跳过；clip 的编辑框挂在 header 后
-          if (draft !== undefined) {
-            if (blockById.get(row.blockId)?.kind === 'clip') return null
-            if (editedBlocks.has(row.blockId)) return null
-            editedBlocks.add(row.blockId)
-            return (
-              <div className="ed-row ed-edit" key={i}>
-                <span className="ln">{n}–{n + lineCount(draft) - 1}</span>
-                <textarea className="ed-area" value={draft} rows={lineCount(draft)} onChange={(e) => props.onDraft(row.blockId, e.target.value)} />
-              </div>
-            )
-          }
-
-          const block = blockById.get(row.blockId)
-          const startable = !props.readonly && block && (block.kind === 'frontmatter' || block.kind === 'prose')
           return (
-            <div
-              className={`ed-row ed-text${startable ? ' editable' : ''}`}
-              key={i}
-              onDoubleClick={startable ? () => props.onStartEdit(row.blockId) : undefined}
-              title={startable ? '双击编辑此块' : undefined}
+            <section
+              key={block.id}
+              className={`ed-block${dirty ? ' dirty' : ''}${block.missing ? ' missing' : ''}${collapsed && !block.missing ? ' collapsed' : ''}`}
+              data-block-id={block.id}
             >
-              <span className="ln">{n}</span>
-              <span className="ed-line">{row.text || ' '}</span>
-            </div>
+              <header className="ed-block-head">
+                <span className={`ed-block-kind kind-${block.kind}`}>{kindLabel[block.kind]}</span>
+                {block.kind === 'clip' && <span className="ed-block-title">$ {block.clipName}</span>}
+                {block.source && <span className={`tag tag-${sourceTag(block.source)}`}>{layerLabel(block.source)}</span>}
+                <span className="ed-block-file" title={block.file}>{block.file}</span>
+                <span className="ed-block-spacer" />
+                {block.missing
+                  ? <span className="ed-block-state missing">引用缺失</span>
+                  : dirty
+                    ? <span className="ed-block-state dirty">未保存</span>
+                    : <span className="ed-block-state">已保存</span>}
+                {range && <span className="ed-block-range" title="组合文档中的全局行范围">L{range.start}–{range.end}</span>}
+                {!props.readonly && !block.missing && (
+                  <span className="ed-block-actions">
+                    <button
+                      className="btn btn-sm"
+                      disabled={!dirty}
+                      onClick={() => props.onSaveBlock(block.id)}
+                      title={`只回写此块 → ${block.file}`}
+                    >保存此块</button>
+                    <button
+                      className="btn btn-sm"
+                      disabled={!dirty}
+                      onClick={() => props.onRevertBlock(block.id)}
+                      title="撤回此块的未保存改动"
+                    >回退</button>
+                  </span>
+                )}
+              </header>
+
+              {block.missing ? (
+                <div className="ed-block-note">
+                  引用的切片文件不存在：<code>$ {block.clipName}</code>。在正文删除该引用行，或创建同名切片。
+                </div>
+              ) : collapsed ? (
+                <div className="ed-block-note">
+                  {dirty ? '草稿已修改' : '内容已折叠'} · {lineCount} 行
+                  <span className="dim">（compact；保存/回退仍按整块生效）</span>
+                </div>
+              ) : (
+                <CodeBlock
+                  value={draft ?? block.text}
+                  language={block.kind === 'frontmatter' ? 'yaml' : 'markdown'}
+                  readOnly={props.readonly}
+                  ariaLabel={`${label}：${block.file}`}
+                  onChange={(text) => props.onDraft(block.id, text)}
+                />
+              )}
+            </section>
           )
         })}
       </div>
