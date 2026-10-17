@@ -11,6 +11,8 @@ export interface VariantBarProps {
   onToggleInspector: () => void
   editorOpen: boolean
   onToggleEditor: () => void
+  /** Editor 开关只在有编辑器的视图（Agents）显示 */
+  showEditorToggle: boolean
 }
 
 export function VariantBar(props: VariantBarProps) {
@@ -20,7 +22,9 @@ export function VariantBar(props: VariantBarProps) {
       <button className={`btn btn-sm${props.variant === 'drawer' ? ' btn-primary' : ''}`} onClick={() => props.onVariant('drawer')}>右抽屉</button>
       <button className={`btn btn-sm${props.variant === 'tab' ? ' btn-primary' : ''}`} onClick={() => props.onVariant('tab')}>页签</button>
       <span className="variant-sep" />
-      <button className="btn btn-sm" onClick={props.onToggleEditor}>{props.editorOpen ? '隐藏' : '显示'} Editor</button>
+      {props.showEditorToggle && (
+        <button className="btn btn-sm" onClick={props.onToggleEditor}>{props.editorOpen ? '隐藏' : '显示'} Editor</button>
+      )}
       <button className="btn btn-sm" onClick={props.onToggleInspector}>{props.inspectorOpen ? '隐藏' : '显示'} Inspector</button>
       <span className="dim variant-note">?advisor=tab 可分享</span>
     </div>

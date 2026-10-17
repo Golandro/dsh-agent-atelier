@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 本仓守卫（本仓无 CI、无远端，所以守卫挂在 `npm run check` 与 `.githooks/pre-commit` 上）。
+ * 本仓守卫（本仓无 CI、无远端，所以守卫挂在 `pnpm run check` 与 `.githooks/pre-commit` 上）。
  *
  * 检查项（由廉价到昂贵）：
  *   self-test  自身有牙：用合成坏输入断言下面每条判定都能报错
@@ -10,7 +10,7 @@
  *   deps       声明的每个 devDependency 必须已安装
  *   anchors    `.scratch`/`docs` 里每一处 `path:line` 断言都必须能解析且行号在范围内
  *
- * 用法：`npm run check`（全量）| `npm run check:static`（只跑本脚本）| `--self-test`
+ * 用法：`pnpm run check`（全量）| `pnpm run check:static`（只跑本脚本）| `--self-test`
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
@@ -181,7 +181,7 @@ function main() {
   if (scratch.length > 0) problems.push(`残留探针目录：${scratch.join(', ')}（被 .gitignore 隐藏，必须删掉）`)
 
   const fresh = buildFresh()
-  if (!fresh.ok) problems.push(`build 不新鲜：${fresh.reason} → 跑 \`npm run build\``)
+  if (!fresh.ok) problems.push(`build 不新鲜：${fresh.reason} → 跑 \`pnpm run build\``)
 
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
   const hostDeps = hostRuntimeDeps(pkg)

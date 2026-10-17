@@ -1,5 +1,5 @@
 /**
- * PROTOTYPE — 页签行：Agents | Prompt Sections | System Prompts（+ 顾问，tab 变体时），
+ * PROTOTYPE — 页签行：智能体 | 提示切片 | 模型关联 | 系统提示词（+ 顾问，tab 变体时），
  * 右侧「Edit Tools ⋯」菜单（P1 橙框右缘）。窄屏页签横向滚动。
  */
 import { useState } from 'react'
@@ -17,9 +17,10 @@ export interface TabsProps {
 }
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'agents', label: 'Agents' },
-  { id: 'sections', label: 'Prompt Sections' },
-  { id: 'prompts', label: 'System Prompts' },
+  { id: 'agents', label: '智能体' },
+  { id: 'sections', label: '提示切片' },
+  { id: 'models', label: '模型关联' },
+  { id: 'prompts', label: '系统提示词' },
 ]
 
 export function Tabs(props: TabsProps) {

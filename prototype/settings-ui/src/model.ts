@@ -127,6 +127,42 @@ export function shadowedClipNames(clips: PromptClip[]): Map<string, number> {
   return byName
 }
 
+/* ── registry 层解析（模型条目 / 别名共用 D2 规则：workspace 压过 user，bundled 最后）── */
+
+/** 条目身份：层 + 名字（同一层内名字唯一） */
+export const modelKey = (m: ModelDef) => `${m.source}:${m.modelName}`
+export const aliasKey = (a: AliasDef) => `${a.source}:${a.alias}`
+
+/** 同名模型条目取低 rank 层的生效版本。 */
+export function resolveModel(name: string, models: ModelDef[]): ModelDef | undefined {
+  return models
+    .filter((m) => m.modelName === name)
+    .sort((a, b) => SOURCE_RANK[a.source] - SOURCE_RANK[b.source])[0]
+}
+
+/** 同名别名取低 rank 层的生效版本（注入名不变，命中随层变化）。 */
+export function resolveAlias(name: string, aliases: AliasDef[]): AliasDef | undefined {
+  return aliases
+    .filter((a) => a.alias === name)
+    .sort((a, b) => SOURCE_RANK[a.source] - SOURCE_RANK[b.source])[0]
+}
+
+/** 哪些 agent 的 modelOrder 点了这个别名（不论最终是否命中）。 */
+export function agentsUsingAlias(alias: string, agents: AgentDoc[]): string[] {
+  return agents
+    .filter((a) => (a.frontmatter.modelOrder ?? []).includes(alias))
+    .map((a) => a.agentName)
+}
+
+/** 指向某模型条目名的生效别名（同名别名先按层去重；被覆盖层不算）。 */
+export function aliasesPointingAt(modelName: string, aliases: AliasDef[]): AliasDef[] {
+  const names = [...new Set(aliases.filter((a) => a.targets.includes(modelName)).map((a) => a.alias))]
+  return names.flatMap((name) => {
+    const resolved = resolveAlias(name, aliases)
+    return resolved && resolved.targets.includes(modelName) ? [resolved] : []
+  })
+}
+
 /** 哪些 agent 的 body 引用了某 clip（`{% include clip <name> %}` 模板行） */
 export function referencedBy(clipName: string, agents: AgentDoc[]): string[] {
   const escaped = clipName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -279,7 +315,11 @@ export function inspectAll(
     }
   }
 
-  for (const al of aliases) {
+  // registry 先按层解析再校验：被遮蔽的低层条目不是生效条目，不产生发现。
+  const effectiveAliases = [...new Set(aliases.map((a) => a.alias))]
+    .flatMap((name) => resolveAlias(name, aliases) ?? [])
+
+  for (const al of effectiveAliases) {
     if (al.builtin) continue
     for (const t of al.targets) {
       if (!modelNames.has(t)) {
@@ -289,7 +329,7 @@ export function inspectAll(
   }
 
   const byTarget = new Map<string, string[]>()
-  for (const al of aliases) {
+  for (const al of effectiveAliases) {
     if (al.builtin) continue
     const t = al.targets[0]
     if (t && modelNames.has(t)) byTarget.set(t, [...(byTarget.get(t) ?? []), al.alias])
@@ -320,13 +360,13 @@ export interface ChainResult {
 export function resolveChain(agent: AgentDoc, aliases: AliasDef[], models: ModelDef[]): ChainResult {
   const steps: ChainStep[] = []
   for (const name of agent.frontmatter.modelOrder ?? []) {
-    const al = aliases.find((a) => a.alias === name)
+    const al = resolveAlias(name, aliases)
     if (!al) {
       steps.push({ label: name, status: 'broken', detail: '别名不存在' })
       continue
     }
     const target = al.targets[0]
-    const m = models.find((mm) => mm.modelName === target)
+    const m = resolveModel(target ?? '', models)
     if (!m) {
       steps.push({ label: `${name} → ${target ?? '?'}`, status: 'broken', detail: '目标模型条目不存在' })
       continue
@@ -377,13 +417,16 @@ export interface RemapImpact {
   affectedAgents: string[]
 }
 
-export function remapImpact(aliasName: string, newTarget: string, agents: AgentDoc[], models: ModelDef[], aliases: AliasDef[]): RemapImpact {
-  const al = aliases.find((a) => a.alias === aliasName)
+export function remapImpact(aliasName: string, newTarget: string, agents: AgentDoc[], models: ModelDef[], aliases: AliasDef[], source?: AgentSource): RemapImpact {
+  // 指定层时看该层条目；否则看解析后的生效别名（顾问面板走这里）。
+  const al = source
+    ? aliases.find((a) => a.alias === aliasName && a.source === source)
+    : resolveAlias(aliasName, aliases)
   return {
     aliasName,
-    before: models.find((m) => m.modelName === al?.targets[0]),
-    after: models.find((m) => m.modelName === newTarget),
-    affectedAgents: agents.filter((a) => (a.frontmatter.modelOrder ?? []).includes(aliasName)).map((a) => a.agentName),
+    before: al ? resolveModel(al.targets[0] ?? '', models) : undefined,
+    after: resolveModel(newTarget, models),
+    affectedAgents: agentsUsingAlias(aliasName, agents),
   }
 }
 

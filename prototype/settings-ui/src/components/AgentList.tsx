@@ -34,6 +34,7 @@ import type { AgentDoc, AgentListQuery, AgentListSortKey, Finding } from '../typ
 import { agentHaystack, displayName, layerRank, layerTag, modelCount, type AgentListRow } from '../model'
 import { AgentCard } from './AgentCard'
 import { AgentDetail } from './AgentDetail'
+import { ListPane } from './ListPane'
 
 export interface AgentListProps {
   agents: AgentDoc[]
@@ -202,40 +203,40 @@ export function AgentList(props: AgentListProps) {
   }, [mode, props.selected, query, rows.length])
 
   return (
-    <aside ref={listRef} className={`agent-list ${mode === 'content' ? 'content-mode' : 'compact-mode'}`}>
-      <div className="agent-list-top">
-        <div className="agent-list-head">
-          <div className="agent-list-title">
-            Agent List <span className="agent-list-count">{rows.length}/{props.agents.length}</span>
-          </div>
-          <div className="agent-view-toggle" role="group" aria-label="Agent 列表视图">
-            <button
-              type="button"
-              className={mode === 'content' ? 'active' : ''}
-              aria-pressed={mode === 'content'}
-              onClick={() => switchMode('content')}
-            >内容</button>
-            <button
-              type="button"
-              className={mode === 'compact' ? 'active' : ''}
-              aria-pressed={mode === 'compact'}
-              onClick={() => switchMode('compact')}
-            >紧凑</button>
-          </div>
+    <ListPane
+      listRef={listRef}
+      className={`agent-list ${mode === 'content' ? 'content-mode' : 'compact-mode'}`}
+      title="Agent List"
+      count={`${rows.length}/${props.agents.length}`}
+      headAction={
+        <div className="agent-view-toggle" role="group" aria-label="Agent 列表视图">
+          <button
+            type="button"
+            className={mode === 'content' ? 'active' : ''}
+            aria-pressed={mode === 'content'}
+            onClick={() => switchMode('content')}
+          >内容</button>
+          <button
+            type="button"
+            className={mode === 'compact' ? 'active' : ''}
+            aria-pressed={mode === 'compact'}
+            onClick={() => switchMode('compact')}
+          >紧凑</button>
         </div>
-
-        <div className="agent-list-tools">
+      }
+      tools={
+        <>
           <input
-            className="input agent-search"
+            className="input list-search"
             type="search"
             value={query.text}
             placeholder="搜索名称 / 描述 / 路径 / 模型"
             aria-label="搜索 agent"
             onChange={(e) => table.setGlobalFilter(e.target.value)}
           />
-          <div className="agent-filter-row">
+          <div className="list-filter-row">
             <select
-              className="select agent-filter"
+              className="select list-filter"
               value={query.layer}
               aria-label="按层级筛选"
               onChange={(e) => setLayer(e.target.value as AgentListQuery['layer'])}
@@ -246,7 +247,7 @@ export function AgentList(props: AgentListProps) {
               <option value="bundled">bundled</option>
             </select>
             <select
-              className="select agent-filter"
+              className="select list-filter"
               value={query.sort}
               aria-label="排序字段"
               onChange={(e) => setSort(e.target.value as AgentListSortKey)}
@@ -257,7 +258,7 @@ export function AgentList(props: AgentListProps) {
             </select>
             <button
               type="button"
-              className="btn-icon agent-sort-dir"
+              className="btn-icon list-sort-dir"
               title={query.direction === 'asc' ? '升序（点击切降序）' : '降序（点击切升序）'}
               aria-label={query.direction === 'asc' ? '升序' : '降序'}
               onClick={() => table.setSorting([{ id: query.sort, desc: query.direction === 'asc' }])}
@@ -269,10 +270,10 @@ export function AgentList(props: AgentListProps) {
               onClick={() => table.getColumn('issues')?.setFilterValue(query.onlyIssues ? undefined : 0)}
             >仅问题</button>
           </div>
-        </div>
-      </div>
-
-      {rows.length === 0 && <div className="agent-list-empty dim">没有匹配的 agent</div>}
+        </>
+      }
+    >
+      {rows.length === 0 && <div className="list-empty dim">没有匹配的 agent</div>}
 
       <div className="agent-rows" role="listbox" aria-label="Agent 列表">
         {rows.map((row) => {
@@ -291,6 +292,6 @@ export function AgentList(props: AgentListProps) {
           )
         })}
       </div>
-    </aside>
+    </ListPane>
   )
 }

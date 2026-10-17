@@ -1,119 +1,122 @@
 /**
- * PROTOTYPE — System Prompts 页：
- * 左列 = per-model 系统提示词（D6：调优层挂真实模型条目，与 persona 分层）；
- * 右列 = 别名 → 模型条目映射（S5：改目标 = 注入名不变、内容瞬时换；dsh-default 只读）。
- * 窄屏两列堆叠（app.css 响应式）。
+ * PROTOTYPE — 系统提示词页：per-model sysPrompt 调优（D6）。
+ *
+ * 模型条目身份、available 开关、别名映射与层覆盖已统一到「模型关联」页；
+ * 本页只负责提示词内容，避免两处都能改注册表。列表按层解析后每个模型名只出现一次
+ * （工作区胜），被遮蔽条目在模型关联页查看。
  */
-import { useState } from 'react'
-import type { AgentDoc, AliasDef, ModelDef } from '../types'
-import { layerLabel } from '../model'
+import { useEffect, useState } from 'react'
+import type { AgentSource, AliasDef, ModelDef } from '../types'
+import { aliasesPointingAt, layerLabel, layerTag, modelKey, resolveModel } from '../model'
 
 export interface SystemPromptsProps {
   models: ModelDef[]
   aliases: AliasDef[]
-  agents: AgentDoc[]
-  onToggleAvailable: (modelName: string) => void
-  onSaveSysPrompt: (modelName: string, text: string) => void
-  onRemap: (alias: string, target: string) => void
+  onSaveSysPrompt: (source: AgentSource, modelName: string, text: string) => void
+  onOpenRegistry: () => void
+  /** 从模型关联页跳转过来时要滚动并高亮的模型名 */
+  focusModelName?: string | null
+  onFocusConsumed?: () => void
 }
 
-function ModelCard(props: { model: ModelDef; onToggleAvailable: (n: string) => void; onSaveSysPrompt: (n: string, t: string) => void }) {
+function ModelCard(props: {
+  model: ModelDef
+  aliasCount: number
+  focused: boolean
+  onSave: (source: AgentSource, modelName: string, text: string) => void
+}) {
   const m = props.model
   const [draft, setDraft] = useState(m.sysPrompt ?? '')
   const dirty = draft !== (m.sysPrompt ?? '')
+
+  // 模型条目内容变化（保存/回退/外部失效）时同步草稿基线。
+  useEffect(() => setDraft(m.sysPrompt ?? ''), [m.sysPrompt])
+
   return (
-    <div className={`card model-card${m.available ? '' : ' off'}`}>
+    <div
+      className={`card model-card${m.available ? '' : ' off'}${props.focused ? ' focus' : ''}`}
+      data-model-name={m.modelName}
+    >
       <div className="model-head">
         <span className="model-name">{m.modelName}</span>
-        <span className={`tag tag-${m.source.startsWith('project') ? 'workspace' : m.source === 'bundled' ? 'bundled' : 'user'}`}>{layerLabel(m.source)}</span>
+        <span className={`tag tag-${layerTag(m.source)}`}>{layerLabel(m.source)}</span>
         {m.synthesized && <span className="tag" title="合成条目">synthesized</span>}
-        <span className="editor-spacer" />
-        <label className="toggle" title="available:false = 解析时跳过（沿声明顺序回退；Q1 裁决：v1 手动开关）">
-          <input type="checkbox" checked={m.available} onChange={() => props.onToggleAvailable(m.modelName)} />
-          <span className="toggle-track" />
-        </label>
+        <span className="model-head-fill" />
+        {m.available
+          ? <span className="tag tag-ok">可用</span>
+          : <span className="tag tag-warn" title="在「模型关联」页切换 available">停用 · 解析时跳过</span>}
       </div>
       <div className="model-id">{m.provider}/{m.model}</div>
       <textarea
         className="input sys-area"
         rows={3}
         value={draft}
+        aria-label={`${m.modelName} 的 sysPrompt`}
         placeholder="（无 sysPrompt —— 未调优）"
         onChange={(e) => setDraft(e.target.value)}
       />
       <div className="model-foot">
-        <span className="dim">{m.path}</span>
-        <button className="btn btn-sm" disabled={!dirty} onClick={() => props.onSaveSysPrompt(m.modelName, draft)}>保存</button>
+        <span className="model-foot-meta">
+          <span className="dim model-foot-path" title={m.path}>{m.path ?? '—'}</span>
+          <span className="dim">{props.aliasCount > 0 ? `别名 ×${props.aliasCount}` : '无别名指向'}</span>
+        </span>
+        <button
+          type="button"
+          className="btn btn-sm"
+          disabled={!dirty}
+          aria-label={`保存 ${m.modelName} 的 sysPrompt`}
+          onClick={() => props.onSave(m.source, m.modelName, draft)}
+        >保存</button>
       </div>
     </div>
   )
 }
 
 export function SystemPrompts(props: SystemPromptsProps) {
-  const modelNames = props.models.map((m) => m.modelName)
-  const hitOf = (target: string | undefined) => props.models.find((m) => m.modelName === target)
-  const userAliases = props.aliases.filter((a) => !a.builtin)
-  const builtin = props.aliases.filter((a) => a.builtin)
+  const [focusedName, setFocusedName] = useState<string | null>(null)
+  const { focusModelName, onFocusConsumed } = props
+
+  // 每个模型名只展示生效层；排序稳定，便于跨页跳转定位。
+  const models = [...new Set(props.models.map((m) => m.modelName))]
+    .flatMap((name) => resolveModel(name, props.models) ?? [])
+    .sort((a, b) => a.modelName.localeCompare(b.modelName, 'zh-CN'))
+
+  useEffect(() => {
+    if (!focusModelName) return
+    setFocusedName(focusModelName)
+    const el = window.document.querySelector<HTMLElement>(
+      `[data-model-name="${CSS.escape(focusModelName)}"]`,
+    )
+    el?.scrollIntoView({ block: 'center' })
+    onFocusConsumed?.()
+    // 不随 focusModelName 清空而清理定时器：消费焦点会立刻把 prop 置空，
+    // 若在这里 cleanup，高亮就永远不会退场。
+    window.setTimeout(() => setFocusedName(null), 1800)
+  }, [focusModelName, onFocusConsumed])
 
   return (
     <div className="prompts-page">
       <div className="page-head">
-        <h2>System Prompts</h2>
+        <h2>系统提示词</h2>
+        <button type="button" className="btn btn-sm" onClick={props.onOpenRegistry}>模型关联 →</button>
         <p className="page-sub">
-          per-model 提示词挂真实模型条目（D6），与 agent persona 分层；别名改目标 = 注入名不变、内容瞬时换（S5）。
+          per-model 提示词挂在真实模型条目上（D6），与 agent persona 分层。模型集合、available 与别名映射在「模型关联」页统一管理；
+          被工作区覆盖的低层条目不会出现在这里。
         </p>
       </div>
       <div className="prompts-grid">
-        <section>
-          <h3 className="col-title">模型条目</h3>
-          {props.models.map((m) => (
-            <ModelCard key={m.modelName} model={m} onToggleAvailable={props.onToggleAvailable} onSaveSysPrompt={props.onSaveSysPrompt} />
-          ))}
-        </section>
-        <section>
-          <h3 className="col-title">别名</h3>
-          {userAliases.map((a) => {
-            const hit = hitOf(a.targets[0])
-            const usedBy = props.agents.filter((ag) => (ag.frontmatter.modelOrder ?? []).includes(a.alias)).map((ag) => ag.agentName)
-            return (
-              <div className="card alias-card" key={a.alias}>
-                <div className="alias-head">
-                  <span className="alias-name">{a.alias}</span>
-                  <span className={`tag tag-${a.source.startsWith('project') ? 'workspace' : 'user'}`}>{layerLabel(a.source)}</span>
-                  <span className="editor-spacer" />
-                  <select
-                    className="select"
-                    value={a.targets[0] ?? ''}
-                    onChange={(e) => props.onRemap(a.alias, e.target.value)}
-                    title="改目标 = S5 重映射（注入名不变）"
-                  >
-                    {!hit && <option value={a.targets[0]}>{a.targets[0]}（不存在）</option>}
-                    {modelNames.map((n) => (
-                      <option key={n} value={n}>{n}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="alias-hit">
-                  {hit ? <>→ {hit.provider}/{hit.model}{hit.available ? '' : '（available:false，解析时跳过）'}</> : <span className="err-text">→ 目标不存在（unknown-model-target）</span>}
-                </div>
-                <div className="alias-refs dim">{usedBy.length > 0 ? `使用者：${usedBy.join('、')}` : '无人使用'}</div>
-              </div>
-            )
-          })}
-          {builtin.map((a) => {
-            const hit = hitOf(a.targets[0])
-            return (
-              <div className="card alias-card builtin" key={a.alias}>
-                <div className="alias-head">
-                  <span className="alias-name">{a.alias}</span>
-                  <span className="tag tag-bundled">内置指针 · 只读</span>
-                </div>
-                <div className="alias-hit">→ {hit ? `${hit.provider}/${hit.model}` : a.targets[0]}</div>
-                <div className="alias-refs dim">装载时快照自 DSH 子代理默认对；invalidate 重读（D4）。用户别名永远写不进 DSH 的设置面板。</div>
-              </div>
-            )
-          })}
-        </section>
+        {models.map((m) => (
+          <ModelCard
+            key={modelKey(m)}
+            model={m}
+            aliasCount={aliasesPointingAt(m.modelName, props.aliases).length}
+            focused={focusedName === m.modelName}
+            onSave={props.onSaveSysPrompt}
+          />
+        ))}
+      </div>
+      <div className="prompts-note dim">
+        共 {models.length} 个生效模型条目（按层解析后）；调优只写入该条目所在的 registry.yaml。
       </div>
     </div>
   )

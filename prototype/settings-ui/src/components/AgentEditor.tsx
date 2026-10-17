@@ -8,6 +8,8 @@
  *
  * 头部固定两行：第一行是 agent 身份（名称 / 路径 / 复制与详情），
  * 第二行是文档级操作（折叠、回退、保存）。模型链解析暂不在编辑器展示。
+ * 窗格变窄时按优先级压缩而不是整组隐藏：文案换短、路径左截断保留文件名；
+ * 更窄时路径与复制让位给详情弹层，折叠上移到第一行，第二行只留状态与写盘动作。
  */
 import { useEffect, useRef, useState } from 'react'
 import type { AgentSource, ComposedDocument } from '../types'
@@ -35,6 +37,17 @@ export interface AgentEditorProps {
 }
 
 type CopyTarget = 'path' | 'doc'
+
+/** 同一动作的三档文案：完整 / 紧凑 / 极窄。由容器查询切换，避免窄窗格直接丢功能。 */
+function TieredLabel({ full, compact, tiny }: { full: string; compact: string; tiny?: string }) {
+  return (
+    <>
+      <span className="lbl-full">{full}</span>
+      <span className="lbl-compact">{compact}</span>
+      {tiny !== undefined && <span className="lbl-tiny">{tiny}</span>}
+    </>
+  )
+}
 
 export function AgentEditor(props: AgentEditorProps) {
   const { doc, drafts } = props
@@ -75,8 +88,10 @@ export function AgentEditor(props: AgentEditorProps) {
     setCopyState({ target, ok })
   }
 
-  const copyLabel = (target: CopyTarget, label: string) =>
-    copyState?.target === target ? (copyState.ok ? '已复制' : '复制失败') : label
+  const copyContent = (target: CopyTarget, full: string, compact: string) =>
+    copyState?.target === target
+      ? <span className="copy-feedback">{copyState.ok ? '已复制' : '复制失败'}</span>
+      : <TieredLabel full={full} compact={compact} />
 
   useEffect(() => {
     if (!copyState) return
@@ -113,27 +128,46 @@ export function AgentEditor(props: AgentEditorProps) {
       <header className="editor-head">
         <div className="editor-titlebar">
           <span className="editor-title" title={doc.agentName}>{doc.agentName}</span>
-          <span className="editor-path" title={`当前文档落盘文件（D14 1:1）：${doc.agentPath}`}>{doc.agentPath}</span>
+          <span className="editor-path" title={`当前文档落盘文件（D14 1:1）：${doc.agentPath}`}>
+            <span className="editor-path-text">{doc.agentPath}</span>
+          </span>
           {props.readonly && (
             <span
               className="tag tag-bundled"
               title="bundled 只读（D16）：修改 = 另存到工作区根"
-            >只读 · 另存到工作区根</span>
+            >
+              <TieredLabel full="只读 · 另存到工作区根" compact="只读" />
+            </span>
           )}
           <span className="editor-spacer" />
           <div className="editor-utils">
+            {!props.readonly && (
+              <button
+                type="button"
+                className="btn btn-sm editor-fold editor-fold-inline"
+                aria-pressed={props.compact}
+                aria-label={props.compact ? '展开切片' : '折叠切片'}
+                onClick={() => props.onCompact(!props.compact)}
+                title="仅折叠显示：收起/展开全部切片正文，不改变草稿与文件；也可用 gutter 的折叠按钮单独控制"
+              >
+                <TieredLabel
+                  full={props.compact ? '展开切片' : '折叠切片'}
+                  compact={props.compact ? '展开' : '折叠'}
+                />
+              </button>
+            )}
             <button
               type="button"
               className="btn btn-sm editor-util"
               onClick={() => void copy('path', doc.agentPath)}
               title="复制 agent 文件路径"
-            >{copyLabel('path', '复制路径')}</button>
+            >{copyContent('path', '复制路径', '路径')}</button>
             <button
               type="button"
               className="btn btn-sm editor-util"
               onClick={() => void copy('doc', doc.text)}
               title="复制组合文档全文（含 front-matter 与内联切片）"
-            >{copyLabel('doc', '复制全文')}</button>
+            >{copyContent('doc', '复制全文', '全文')}</button>
             <button
               ref={infoRef}
               type="button"
@@ -158,23 +192,46 @@ export function AgentEditor(props: AgentEditorProps) {
           <div className="editor-toolbar">
             {dirtyCount > 0 ? (
               <span className="editor-dirty-chip" title="未保存的块与将写入的文件数">
-                {dirtyCount} 块未保存 → {pendingFiles} 文件
+                <TieredLabel
+                  full={`${dirtyCount} 块未保存 → ${pendingFiles} 文件`}
+                  compact={`${dirtyCount} 块未保存`}
+                  tiny={`${dirtyCount} 块`}
+                />
               </span>
             ) : (
-              <span className="editor-status">无未保存改动</span>
+              <span className="editor-status" title="当前文档没有未保存的改动">
+                <TieredLabel full="无未保存改动" compact="已保存" />
+              </span>
             )}
             <span className="editor-spacer" />
             <button
               type="button"
               className="btn btn-sm editor-fold"
               aria-pressed={props.compact}
+              aria-label={props.compact ? '展开切片' : '折叠切片'}
               onClick={() => props.onCompact(!props.compact)}
               title="仅折叠显示：收起/展开全部切片正文，不改变草稿与文件；也可用 gutter 的折叠按钮单独控制"
-            >{props.compact ? '展开切片' : '折叠切片'}</button>
+            >
+              <TieredLabel
+                full={props.compact ? '展开切片' : '折叠切片'}
+                compact={props.compact ? '展开' : '折叠'}
+              />
+            </button>
             <span className="editor-tool-sep" aria-hidden="true" />
-            <button className="btn btn-sm" disabled={dirtyCount === 0} onClick={props.onDiscard} title="撤回所有块的未保存改动">全部回退</button>
+            <button
+              className="btn btn-sm"
+              disabled={dirtyCount === 0}
+              onClick={props.onDiscard}
+              aria-label="全部回退"
+              title="撤回所有块的未保存改动"
+            >
+              <TieredLabel full="全部回退" compact="回退" />
+            </button>
             <button className="btn btn-sm btn-primary" disabled={dirtyCount === 0} onClick={props.onSave} title="回写所有脏块到各自文件">
-              保存全部{dirtyCount > 0 ? `（${dirtyCount} 块）` : ''}
+              <TieredLabel
+                full={dirtyCount > 0 ? `保存全部（${dirtyCount} 块）` : '保存全部'}
+                compact={dirtyCount > 0 ? `保存 ${dirtyCount} 块` : '保存'}
+              />
             </button>
           </div>
         )}
@@ -208,12 +265,12 @@ export function AgentEditor(props: AgentEditorProps) {
                 type="button"
                 className="btn btn-sm"
                 onClick={() => void copy('path', doc.agentPath)}
-              >{copyLabel('path', '复制路径')}</button>
+              >{copyContent('path', '复制路径', '路径')}</button>
               <button
                 type="button"
                 className="btn btn-sm"
                 onClick={() => void copy('doc', doc.text)}
-              >{copyLabel('doc', '复制全文')}</button>
+              >{copyContent('doc', '复制全文', '全文')}</button>
             </div>
           </div>
         )}

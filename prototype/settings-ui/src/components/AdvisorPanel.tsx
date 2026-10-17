@@ -6,7 +6,7 @@
  */
 import { useState } from 'react'
 import type { AgentDoc, AliasDef, ChannelRow, Finding, ModelDef } from '../types'
-import { BREAK_LABEL, remapImpact, resolveChain } from '../model'
+import { BREAK_LABEL, remapImpact, resolveAlias, resolveChain, resolveModel } from '../model'
 
 export interface AdvisorPanelProps {
   findings: Finding[]
@@ -29,7 +29,10 @@ export function AdvisorPanel(props: AdvisorPanelProps) {
   const agent = props.agents.find((a) => a.agentName === props.selectedAgent) ?? props.agents[0]!
   const chain = resolveChain(agent, props.aliases, props.models)
 
-  const userAliases = props.aliases.filter((a) => !a.builtin)
+  const userAliases = [...new Set(props.aliases.filter((a) => !a.builtin).map((a) => a.alias))]
+    .flatMap((name) => resolveAlias(name, props.aliases) ?? [])
+  const modelOptions = [...new Set(props.models.map((m) => m.modelName))]
+    .flatMap((name) => resolveModel(name, props.models) ?? [])
   const [remapAlias, setRemapAlias] = useState(userAliases[0]?.alias ?? '')
   const aliasDef = userAliases.find((a) => a.alias === remapAlias)
   const [remapTarget, setRemapTarget] = useState(aliasDef?.targets[0] ?? '')
@@ -94,7 +97,7 @@ export function AdvisorPanel(props: AdvisorPanelProps) {
           </select>
           <span className="dim">→</span>
           <select className="select" value={remapTarget} onChange={(e) => setRemapTarget(e.target.value)}>
-            {props.models.map((m) => <option key={m.modelName} value={m.modelName}>{m.modelName}</option>)}
+            {modelOptions.map((m) => <option key={m.modelName} value={m.modelName}>{m.modelName}</option>)}
           </select>
           <button className="btn btn-sm btn-primary" disabled={!impact || remapTarget === aliasDef?.targets[0]} onClick={() => impact && props.onRemap(remapAlias, remapTarget)}>应用</button>
         </div>

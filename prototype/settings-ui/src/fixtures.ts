@@ -87,7 +87,7 @@ export const AGENTS: AgentDoc[] = [
     frontmatter: {
       name: '超长字段测试 Agent · 这是一个故意写得非常非常长的显示名称用于验证内容行的省略与弹性空白行为',
       description: '这是一段非常长的描述，用于验证第二行在 20rem 最小宽度、24rem 默认宽度以及窄视口下的单行省略、tooltip 和属性挤压表现。描述里还包含中文、English、数字 1234567890 与标点符号，确保截断位置稳定。',
-      modelOrder: ['smart', 'fast', 'cheap', 'speedy', 'dsh-default'],
+      modelOrder: ['primary', 'smart', 'fast', 'cheap', 'speedy', 'dsh-default'],
       requiredTools: ['read', 'edit', 'write', 'bash', 'grep', 'glob', 'web_fetch', 'web_search', 'subagent'],
       skills: ['code-review-checklist', 'tdd', 'pr', 'grilling'],
       spawn: 'spawn',
@@ -204,6 +204,26 @@ export const MODELS: ModelDef[] = [
     source: 'user-dsh',
     path: '~/.dsh/agents/registry.yaml',
   },
+  {
+    // 与工作区层同名 → 本条目被遮蔽（D2：低 rank 胜）
+    modelName: 'team-llm',
+    provider: 'deepseek',
+    model: 'deepseek-chat',
+    sysPrompt: '你是用户层的团队默认：先给结论，再列证据。',
+    available: true,
+    source: 'user-dsh',
+    path: '~/.dsh/agents/registry.yaml',
+  },
+  {
+    // 同名的低层覆盖：工作区版本生效
+    modelName: 'team-llm',
+    provider: 'deepseek',
+    model: 'deepseek-reasoner',
+    sysPrompt: '工作区覆盖：团队默认改走推理模型，输出更克制。',
+    available: true,
+    source: 'project-dsh',
+    path: '.dsh/agents/registry.yaml',
+  },
 ]
 
 export const ALIASES: AliasDef[] = [
@@ -214,6 +234,9 @@ export const ALIASES: AliasDef[] = [
   { alias: 'speedy', targets: ['ds-chat'], source: 'project-dsh', path: '.dsh/agents/registry.yaml' },
   // 目标不存在 → unknown-model-target（error）
   { alias: 'broken', targets: ['missing-model'], source: 'user-dsh', path: '~/.dsh/agents/registry.yaml' },
+  // 跨层同名别名：工作区指向 team-llm，用户层指向 ds-chat；合并视图工作区胜
+  { alias: 'primary', targets: ['ds-chat'], source: 'user-dsh', path: '~/.dsh/agents/registry.yaml' },
+  { alias: 'primary', targets: ['team-llm'], source: 'project-dsh', path: '.dsh/agents/registry.yaml' },
   // 内置指针：只读（D4；装载时快照默认对，演示为合成展示）
   { alias: 'dsh-default', targets: ['ds-chat'], source: 'bundled', builtin: true },
 ]

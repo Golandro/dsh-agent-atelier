@@ -45,21 +45,21 @@ than throwing.
 ## Commands
 
 ```bash
-npm run build      # tsc -> lib/ (must exist before install)
-npm test           # vitest run
-npm run typecheck  # tsc --noEmit over src + test
-npm run check      # guardrail: static hygiene + typecheck + tests
-npm run check:static   # only the static guardrail (fast, no deps)
+pnpm run build      # tsc -> lib/ (must exist before install)
+pnpm test           # vitest run
+pnpm run typecheck  # tsc --noEmit over src + test
+pnpm run check      # guardrail: static hygiene + typecheck + tests
+pnpm run check:static   # only the static guardrail (fast, no deps)
 ```
 
 The installed plugin loads `lib/`, so **after any change under `src/` run
-`npm run build` again** — the profile links this directory, it does not rebuild
+`pnpm run build` again** — the profile links this directory, it does not rebuild
 it for you.
 
 ## Guardrails
 
 This repo has no CI and no remote, so `scripts/check.mjs` runs from
-`npm run check` and from `.githooks/pre-commit`. It fails on: a leftover probe
+`pnpm run check` and from `.githooks/pre-commit`. It fails on: a leftover probe
 directory (`.probe/` is gitignored, so `git status` stays silent about it), a
 `lib/` older than `src/`, a runtime `dependency` (this package is symlinked into
 the profile and must stay dependency-free), an uninstalled `devDependency`, and

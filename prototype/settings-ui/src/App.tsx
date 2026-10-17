@@ -1,23 +1,27 @@
 /**
  * PROTOTYPE — 应用装配：全部状态在内存（刷新即重置），tab/变体同步进 URL（可分享）。
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
-import type { AgentDoc, FileWrite, PromptClip } from './types'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
+import type { AgentDoc, AgentSource, FileWrite, PromptClip } from './types'
 import { AGENTS, ALIASES, CLIPS, KNOWN_SKILLS, KNOWN_TOOLS, MODELS, WORKSPACES, CHANNEL_TABLE } from './fixtures'
-import { composeDocument, inspectAll, remapImpact, saveWrites } from './model'
+import { composeDocument, inspectAll, layerLabel, remapImpact, resolveAlias, resolveModel, saveWrites } from './model'
 import { TopBar } from './components/TopBar'
 import { Tabs } from './components/Tabs'
 import { AgentList } from './components/AgentList'
 import { AgentEditor } from './components/AgentEditor'
 import { ClipLibrary } from './components/ClipLibrary'
+import { ModelLinks } from './components/ModelLinks'
+import type { ModelLinkFocus } from './components/ModelLinks'
+import { PaneSplitter } from './components/PaneSplitter'
 import { SystemPrompts } from './components/SystemPrompts'
 import { AdvisorPanel } from './components/AdvisorPanel'
 import { Inspector } from './components/Inspector'
 import type { InspectorFile, LogEntry } from './components/Inspector'
 import { VariantBar } from './components/VariantBar'
+import { PANE_CONTENT_MIN_REM, PANE_LIST_MIN_REM, paneSplitThreshold, usePaneLayout } from './pane-layout'
 
-export type Tab = 'agents' | 'sections' | 'prompts' | 'advisor'
+export type Tab = 'agents' | 'sections' | 'models' | 'prompts' | 'advisor'
 export type AdvisorVariant = 'drawer' | 'tab'
 
 const readUrl = () => {
@@ -25,7 +29,7 @@ const readUrl = () => {
   const tab = q.get('tab')
   const advisor = q.get('advisor')
   return {
-    tab: (['agents', 'sections', 'prompts', 'advisor'].includes(tab ?? '') ? tab : 'agents') as Tab,
+    tab: (['agents', 'sections', 'models', 'prompts', 'advisor'].includes(tab ?? '') ? tab : 'agents') as Tab,
     advisor: (advisor === 'tab' ? 'tab' : 'drawer') as AdvisorVariant,
   }
 }
@@ -33,39 +37,8 @@ const readUrl = () => {
 let seq = 1
 const stamp = () => new Date().toLocaleTimeString('zh-CN', { hour12: false })
 
-/* ── Agent List / Editor 分栏度量 ─────────────────────────────────
- * 左侧列表最小 20rem（≈320px）、默认 24rem（≈384px）；
- * 右侧编辑器最小 40rem（≈640px）；分隔条 0.375rem。
- * 两者放不下（< 60.375rem，约 966px）时编辑器改为浮层覆盖列表，
- * 不再压缩编辑区。阈值随根字号缩放。 */
-const LIST_MIN_REM = 20
-const LIST_DEFAULT_REM = 24
-const EDITOR_MIN_REM = 40
-const SPLITTER_REM = 0.375
-
 /** 无已保存覆盖时的稳定空对象（避免 useMemo 每次失效）。 */
 const EMPTY_BLOCK_OVERRIDES: Record<string, string> = {}
-
-const rootFontSize = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
-
-interface PaneMetrics {
-  available: number
-  minList: number
-  minEditor: number
-  splitter: number
-  overlay: boolean
-}
-
-function readPaneMetrics(page: HTMLElement | null, drawer: HTMLElement | null, hasDrawer: boolean): PaneMetrics {
-  const rem = rootFontSize()
-  const pageWidth = page?.clientWidth ?? window.innerWidth
-  const drawerWidth = hasDrawer && drawer ? drawer.offsetWidth : 0
-  const available = Math.max(0, pageWidth - drawerWidth)
-  const minList = LIST_MIN_REM * rem
-  const minEditor = EDITOR_MIN_REM * rem
-  const splitter = SPLITTER_REM * rem
-  return { available, minList, minEditor, splitter, overlay: available < minList + minEditor + splitter }
-}
 
 export default function App() {
   const [initial] = useState(readUrl)
@@ -75,20 +48,18 @@ export default function App() {
 
   const [agents, setAgents] = useState<AgentDoc[]>(AGENTS)
   const [clips, setClips] = useState<PromptClip[]>(CLIPS)
+  const [focusClip, setFocusClip] = useState<string | null>(null)
   const [models, setModels] = useState(MODELS)
   const [aliases, setAliases] = useState(ALIASES)
+  const [focusModelLink, setFocusModelLink] = useState<ModelLinkFocus | null>(null)
+  const [focusModelName, setFocusModelName] = useState<string | null>(null)
 
   const [selectedAgent, setSelectedAgent] = useState('code-reviewer')
   const pageRef = useRef<HTMLDivElement>(null)
   const drawerRef = useRef<HTMLDivElement>(null)
-  const [metrics, setMetrics] = useState<PaneMetrics>(() => readPaneMetrics(null, null, false))
-  const [listWidth, setListWidth] = useState(() => LIST_DEFAULT_REM * rootFontSize())
   // 放得下（列表 20rem + 编辑器 40rem + 分隔条）默认并列；否则默认先看列表，
   // 选中 agent 时编辑器以浮层覆盖列表。
-  const [editorOpen, setEditorOpen] = useState(() => {
-    const rem = rootFontSize()
-    return window.innerWidth >= (LIST_MIN_REM + EDITOR_MIN_REM + SPLITTER_REM) * rem
-  })
+  const [editorOpen, setEditorOpen] = useState(() => window.innerWidth >= paneSplitThreshold())
   const [compact, setCompact] = useState(false)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   /** 已保存的块文本（模拟磁盘）：front-matter/prose 属 agent，clip 文件全局共享 */
@@ -101,40 +72,20 @@ export default function App() {
   const [lastWrites, setLastWrites] = useState<FileWrite[]>([])
   const [log, setLog] = useState<LogEntry[]>([])
 
+  // 与 Prompt Sections 共用同一套分栏度量：可用宽度扣除顾问抽屉后，
+  // 放不下「列表最小 + 内容最小 + 分隔条」时内容区改为浮层。
+  const pane = usePaneLayout(pageRef, {
+    excludeRef: drawerRef,
+    excludeActive: variant === 'drawer' && advisorOpen,
+    measureKey: tab,
+  })
+
   useEffect(() => {
     const q = new URLSearchParams()
     if (tab !== 'agents') q.set('tab', tab)
     if (variant !== 'drawer') q.set('advisor', variant)
     window.history.replaceState(null, '', `${window.location.pathname}${q.size ? `?${q}` : ''}`)
   }, [tab, variant])
-
-  // 测量可用宽度（扣除顾问抽屉），驱动“并列 vs 浮层”和拖拽边界。
-  useLayoutEffect(() => {
-    if (tab !== 'agents') return
-    const update = () =>
-      setMetrics(readPaneMetrics(pageRef.current, drawerRef.current, variant === 'drawer' && advisorOpen))
-    update()
-    const ro = new ResizeObserver(update)
-    if (pageRef.current) ro.observe(pageRef.current)
-    if (drawerRef.current) ro.observe(drawerRef.current)
-    window.addEventListener('resize', update)
-    return () => {
-      ro.disconnect()
-      window.removeEventListener('resize', update)
-    }
-  }, [tab, variant, advisorOpen])
-
-  const maxListWidth = Math.max(metrics.minList, metrics.available - metrics.minEditor - metrics.splitter)
-  const defaultListWidth = Math.min(
-    maxListWidth,
-    Math.max(metrics.minList, metrics.minList * (LIST_DEFAULT_REM / LIST_MIN_REM)),
-  )
-
-  // 视口/抽屉变化后把已保存的列表宽度夹回合法范围。
-  useLayoutEffect(() => {
-    if (metrics.overlay) return
-    setListWidth((w) => Math.min(maxListWidth, Math.max(metrics.minList, w)))
-  }, [metrics.overlay, metrics.minList, maxListWidth])
 
   const pushLog = (text: string) => setLog((l) => [...l, { time: stamp(), text }])
   const markWrites = (writes: FileWrite[]) => {
@@ -160,30 +111,6 @@ export default function App() {
     if (jumpTab) setTab('agents')
   }
 
-  /** 列表/编辑器之间的拖拽分栏；坐标按父容器（.agents-page）视口换算。 */
-  const startResize = (e: ReactPointerEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    const pageEl = pageRef.current
-    if (!pageEl || metrics.overlay) return
-    const startRect = pageEl.getBoundingClientRect()
-    const startX = e.clientX - startRect.left
-    const startWidth = pageEl.querySelector<HTMLElement>('.agent-list')?.getBoundingClientRect().width ?? listWidth
-    const onMove = (ev: PointerEvent) => {
-      const rect = pageEl.getBoundingClientRect()
-      const localX = ev.clientX - rect.left
-      setListWidth(Math.min(maxListWidth, Math.max(metrics.minList, startWidth + localX - startX)))
-    }
-    const onUp = () => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onUp)
-      document.body.classList.remove('is-resizing')
-    }
-    document.body.classList.add('is-resizing')
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onUp)
-  }
   /** 单编辑器回传整篇文本；文本回到已保存值的块自动视为干净（不产生空保存）。 */
   const applyEditorDrafts = (texts: Record<string, string>) => {
     setDrafts(() => {
@@ -265,6 +192,7 @@ export default function App() {
     setClips((c) => [...c, clip])
     markWrites([{ file: clip.file, reason: '新建切片', lines: 1 }])
     pushLog(`新建 ${clip.file}；在 agent 正文用 \`{% include clip ${name} %}\` 行引用`)
+    setFocusClip(name)
     setTab('sections')
   }
 
@@ -281,26 +209,88 @@ export default function App() {
     pushLog(`删除切片 ${name}`)
   }
 
-  /* ── System Prompts ── */
+  /* ── 模型关联 / 系统提示词（registry.yaml 读写）── */
   const registryWrite = (path: string, reason: string): FileWrite => ({ file: path, reason, lines: 1 })
-  const toggleAvailable = (modelName: string) => {
-    setModels((ms) => ms.map((m) => (m.modelName === modelName ? { ...m, available: !m.available } : m)))
-    const m = models.find((x) => x.modelName === modelName)
-    markWrites([registryWrite(m?.path ?? 'registry.yaml', `available → ${!m?.available}`)])
-    pushLog(`${modelName} available → ${!m?.available}（解析时${m?.available ? '跳过回退' : '恢复命中'}；写回 registry.yaml）`)
+  const registryPath = (source: AgentSource) =>
+    source.startsWith('project') ? '.dsh/agents/registry.yaml' : '~/.dsh/agents/registry.yaml'
+
+  /** available 按「层 + 名」定位：同名模型条目可以在两层各有一条。 */
+  const toggleAvailable = (source: AgentSource, modelName: string, available: boolean) => {
+    const m = models.find((x) => x.source === source && x.modelName === modelName)
+    if (!m) return
+    setModels((ms) => ms.map((x) => (x.source === source && x.modelName === modelName ? { ...x, available } : x)))
+    markWrites([registryWrite(m.path ?? registryPath(source), `available → ${available}`)])
+    pushLog(`${modelName} @ ${layerLabel(source)} available → ${available}（解析时${available ? '恢复命中' : '跳过并回退'}；写回 ${m.path ?? 'registry.yaml'}）`)
   }
-  const saveSysPrompt = (modelName: string, text: string) => {
-    setModels((ms) => ms.map((m) => (m.modelName === modelName ? { ...m, sysPrompt: text } : m)))
-    const m = models.find((x) => x.modelName === modelName)
-    markWrites([registryWrite(m?.path ?? 'registry.yaml', `sysPrompt 写回 ${modelName}`)])
-    pushLog(`保存 ${modelName} 的 sysPrompt（per-model 提示词，D6）`)
+  const saveSysPrompt = (source: AgentSource, modelName: string, text: string) => {
+    const m = models.find((x) => x.source === source && x.modelName === modelName)
+    setModels((ms) => ms.map((x) => (x.source === source && x.modelName === modelName ? { ...x, sysPrompt: text } : x)))
+    markWrites([registryWrite(m?.path ?? registryPath(source), `sysPrompt 写回 ${modelName}`)])
+    pushLog(`保存 ${modelName} @ ${layerLabel(source)} 的 sysPrompt（per-model 提示词，D6）`)
   }
+  /** 顾问面板：重映射解析后的生效别名。 */
   const remapAlias = (alias: string, target: string) => {
+    const current = resolveAlias(alias, aliases)
+    if (!current) return
     const impact = remapImpact(alias, target, agents, models, aliases)
-    setAliases((as) => as.map((a) => (a.alias === alias ? { ...a, targets: [target] } : a)))
-    const al = aliases.find((a) => a.alias === alias)
-    markWrites([registryWrite(al?.path ?? 'registry.yaml', `S5 重映射 ${alias}`)])
+    setAliases((as) => as.map((a) => (a === current ? { ...a, targets: [target] } : a)))
+    markWrites([registryWrite(current.path ?? 'registry.yaml', `S5 重映射 ${alias}`)])
     pushLog(`S5：${alias} 注入名不变；命中 ${impact.before?.modelName ?? '（无）'} → ${target}；受影响 agent：${impact.affectedAgents.join('、') || '无'}`)
+  }
+  /** 模型关联页：重映射指定层的那条记录（被遮蔽的 user 层也能单独改）。 */
+  const remapAliasAt = (source: AgentSource, alias: string, target: string) => {
+    const current = aliases.find((a) => a.alias === alias && a.source === source)
+    if (!current) return
+    const impact = remapImpact(alias, target, agents, models, aliases, source)
+    setAliases((as) => as.map((a) => (a === current ? { ...a, targets: [target] } : a)))
+    markWrites([registryWrite(current.path ?? registryPath(source), `S5 重映射 ${alias}`)])
+    pushLog(`S5：${alias}（${layerLabel(source)}）注入名不变；命中 ${impact.before?.modelName ?? '（无）'} → ${target}；受影响 agent：${impact.affectedAgents.join('、') || '无'}`)
+  }
+
+  const addModel = (space: 'workspace' | 'user') => {
+    const source: AgentSource = space === 'workspace' ? 'project-dsh' : 'user-dsh'
+    const path = registryPath(source)
+    const modelName = `new-model-${seq++}`
+    setModels((ms) => [...ms, { modelName, provider: 'deepseek', model: `custom-${modelName}`, available: true, source, path, sysPrompt: '' }])
+    markWrites([registryWrite(path, `新建模型条目 ${modelName}`)])
+    pushLog(`新建模型条目 ${modelName} → ${path}`)
+    setFocusModelLink({ kind: 'model', name: modelName, source })
+  }
+  const addAlias = (space: 'workspace' | 'user') => {
+    const source: AgentSource = space === 'workspace' ? 'project-dsh' : 'user-dsh'
+    const path = registryPath(source)
+    const target = [...new Set(models.map((m) => m.modelName))]
+      .map((name) => resolveModel(name, models))
+      .find((m) => m?.available)?.modelName ?? 'dsh-default'
+    const alias = `new-alias-${seq++}`
+    setAliases((as) => [...as, { alias, targets: [target], source, path }])
+    markWrites([registryWrite(path, `新建别名 ${alias}`)])
+    pushLog(`新建别名 ${alias} → ${target}（${path}）`)
+    setFocusModelLink({ kind: 'alias', name: alias, source })
+  }
+  const deleteAlias = (source: AgentSource, alias: string) => {
+    const target = aliases.find((a) => a.alias === alias && a.source === source)
+    if (!target) return
+    if (!window.confirm(`删除别名 ${alias}（${layerLabel(source)}）？`)) return
+    const rest = aliases.filter((a) => !(a.alias === alias && a.source === source))
+    const fallback = resolveAlias(alias, rest)
+    setAliases(rest)
+    markWrites([registryWrite(target.path ?? registryPath(source), `删除别名 ${alias}`)])
+    pushLog(fallback
+      ? `删除别名 ${alias}（${layerLabel(source)}）；同名 ${layerLabel(fallback.source)} 别名接管`
+      : `删除别名 ${alias}（${layerLabel(source)}）`)
+  }
+  const deleteModel = (source: AgentSource, modelName: string) => {
+    const target = models.find((m) => m.source === source && m.modelName === modelName)
+    if (!target) return
+    if (!window.confirm(`删除模型条目 ${modelName}（${layerLabel(source)}）？`)) return
+    const rest = models.filter((m) => !(m.source === source && m.modelName === modelName))
+    const fallback = resolveModel(modelName, rest)
+    setModels(rest)
+    markWrites([registryWrite(target.path ?? registryPath(source), `删除模型条目 ${modelName}`)])
+    pushLog(fallback
+      ? `删除模型条目 ${modelName}（${layerLabel(source)}）；同名 ${layerLabel(fallback.source)} 条目接管`
+      : `删除模型条目 ${modelName}（${layerLabel(source)}）`)
   }
 
   /* ── Edit Tools ── */
@@ -341,27 +331,19 @@ export default function App() {
         {tab === 'agents' && (
           <div
             ref={pageRef}
-            className={`agents-page${variant === 'drawer' && advisorOpen ? ' with-drawer' : ''}${editorOpen ? '' : ' editor-closed'}${editorOpen && metrics.overlay ? ' editor-overlay' : ''}`}
-            style={{ '--list-width': `${listWidth}px` } as CSSProperties}
+            className={`agents-page${variant === 'drawer' && advisorOpen ? ' with-drawer' : ''}${editorOpen ? '' : ' editor-closed'}${editorOpen && pane.overlay ? ' editor-overlay' : ''}`}
+            style={{ '--list-width': `${pane.listWidth}px` } as CSSProperties}
           >
             <AgentList agents={agents} findings={findings} selected={agent.agentName} onSelect={selectAgent} />
             {editorOpen && (
               <>
-                <div
-                  className="pane-splitter"
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label={`调整列表宽度（列表最小 ${LIST_MIN_REM}rem，编辑器最小 ${EDITOR_MIN_REM}rem）`}
-                  aria-valuemin={Math.round(metrics.minList)}
-                  aria-valuemax={Math.round(maxListWidth)}
-                  aria-valuenow={Math.round(listWidth)}
-                  tabIndex={0}
-                  onPointerDown={startResize}
-                  onDoubleClick={() => setListWidth(defaultListWidth)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'ArrowLeft') setListWidth((w) => Math.max(metrics.minList, w - 16))
-                    if (e.key === 'ArrowRight') setListWidth((w) => Math.min(maxListWidth, w + 16))
-                  }}
+                <PaneSplitter
+                  label={`调整列表宽度（列表最小 ${PANE_LIST_MIN_REM}rem，编辑器最小 ${PANE_CONTENT_MIN_REM}rem）`}
+                  value={pane.listWidth}
+                  min={pane.minList}
+                  max={pane.maxListWidth}
+                  onResize={pane.setListWidth}
+                  onReset={pane.resetListWidth}
                 />
                 <AgentEditor
                   doc={doc}
@@ -386,8 +368,46 @@ export default function App() {
             )}
           </div>
         )}
-        {tab === 'sections' && <ClipLibrary clips={clips} agents={agents} onAdd={addClip} onRename={renameClip} onDelete={deleteClip} />}
-        {tab === 'prompts' && <SystemPrompts models={models} aliases={aliases} agents={agents} onToggleAvailable={toggleAvailable} onSaveSysPrompt={saveSysPrompt} onRemap={remapAlias} />}
+        {tab === 'sections' && (
+          <ClipLibrary
+            clips={clips}
+            agents={agents}
+            overrides={clipOverrides}
+            onAdd={addClip}
+            onRename={renameClip}
+            onDelete={deleteClip}
+            onOpenAgent={(name) => selectAgent(name, true)}
+            focusName={focusClip}
+            onFocusConsumed={() => setFocusClip(null)}
+          />
+        )}
+        {tab === 'models' && (
+          <ModelLinks
+            models={models}
+            aliases={aliases}
+            agents={agents}
+            onSetAvailable={toggleAvailable}
+            onRemap={remapAliasAt}
+            onDeleteAlias={deleteAlias}
+            onDeleteModel={deleteModel}
+            onAddAlias={addAlias}
+            onAddModel={addModel}
+            onOpenAgent={(name) => selectAgent(name, true)}
+            onOpenPrompt={(modelName) => { setFocusModelName(modelName); setTab('prompts') }}
+            focus={focusModelLink}
+            onFocusConsumed={() => setFocusModelLink(null)}
+          />
+        )}
+        {tab === 'prompts' && (
+          <SystemPrompts
+            models={models}
+            aliases={aliases}
+            onSaveSysPrompt={saveSysPrompt}
+            onOpenRegistry={() => setTab('models')}
+            focusModelName={focusModelName}
+            onFocusConsumed={() => setFocusModelName(null)}
+          />
+        )}
         {tab === 'advisor' && (
           <div className="advisor-page">
             <AdvisorPanel findings={findings} agents={agents} models={models} aliases={aliases} channelRows={CHANNEL_TABLE} selectedAgent={agent.agentName} onSelectAgent={(n) => selectAgent(n, true)} onRemap={remapAlias} />
@@ -402,6 +422,7 @@ export default function App() {
         onToggleInspector={() => setInspectorOpen((v) => !v)}
         editorOpen={editorOpen}
         onToggleEditor={() => setEditorOpen((v) => !v)}
+        showEditorToggle={tab === 'agents'}
       />
     </div>
   )
