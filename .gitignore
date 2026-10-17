@@ -5,3 +5,6 @@ lib/
 .probe/
 .vendor/
 *.tsbuildinfo
+
+# prototype build output
+prototype/settings-ui/dist/

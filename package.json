@@ -25,7 +25,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "check:static": "node scripts/check.mjs",
-    "check": "node scripts/check.mjs && pnpm run typecheck && pnpm test"
+    "check": "node scripts/check.mjs && pnpm run typecheck && pnpm test",
+    "proto:build": "esbuild prototype/settings-ui/src/main.tsx --bundle --outfile=prototype/settings-ui/dist/app.js --format=esm --target=es2022 --jsx=automatic",
+    "proto": "pnpm run proto:build && node prototype/settings-ui/serve.mjs"
   },
   "engines": {
     "node": ">=24"
@@ -38,6 +40,10 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",
     "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
   },
