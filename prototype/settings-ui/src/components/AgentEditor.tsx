@@ -23,6 +23,8 @@ export interface AgentEditorProps {
   chain: ChainResult
   /** bundled agent 只读（D16：修改 = 另存到工作区根） */
   readonly?: boolean
+  /** 关闭编辑器：宽屏时列表占满，窄屏时回到列表 */
+  onClose: () => void
 }
 
 const lineCount = (t: string) => t.split('\n').length
@@ -60,6 +62,13 @@ export function AgentEditor(props: AgentEditorProps) {
             </label>
           </>
         )}
+        <button
+          type="button"
+          className="btn-icon editor-close"
+          onClick={props.onClose}
+          title="关闭编辑器"
+          aria-label="关闭编辑器"
+        >✕</button>
       </div>
 
       <div className="editor-body">

@@ -2,6 +2,7 @@
  * PROTOTYPE — 应用装配：全部状态在内存（刷新即重置），tab/变体同步进 URL（可分享）。
  */
 import { useEffect, useMemo, useState } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import type { AgentDoc, FileWrite, PromptClip } from './types'
 import { AGENTS, ALIASES, CLIPS, KNOWN_SKILLS, KNOWN_TOOLS, MODELS, WORKSPACES, CHANNEL_TABLE } from './fixtures'
 import { composeDocument, inspectAll, remapImpact, resolveChain, saveWrites } from './model'
@@ -44,6 +45,9 @@ export default function App() {
   const [aliases, setAliases] = useState(ALIASES)
 
   const [selectedAgent, setSelectedAgent] = useState('code-reviewer')
+  const [listWidth, setListWidth] = useState(320)
+  // 窄屏默认先看列表（编辑器为覆盖层）；宽屏默认并列打开。
+  const [editorOpen, setEditorOpen] = useState(() => window.innerWidth > 960)
   const [compact, setCompact] = useState(false)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   /** 已保存的块文本（模拟磁盘） */
@@ -78,7 +82,28 @@ export default function App() {
     if (Object.keys(drafts).length > 0 && name !== selectedAgent) pushLog('切换 agent：未保存改动已丢弃')
     setSelectedAgent(name)
     setDrafts({})
+    setEditorOpen(true)
     if (jumpTab) setTab('agents')
+  }
+
+  /** 列表/编辑器之间的拖拽分栏（宽屏）；窄屏由 CSS 改为编辑器覆盖列表。 */
+  const startResize = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = listWidth
+    const onMove = (ev: PointerEvent) => {
+      setListWidth(Math.min(560, Math.max(300, startWidth + ev.clientX - startX)))
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      document.body.classList.remove('is-resizing')
+    }
+    document.body.classList.add('is-resizing')
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
   }
   const startEdit = (blockId: string) => {
     const b = doc.blocks.find((x) => x.id === blockId)
@@ -188,21 +213,45 @@ export default function App() {
       />
       <main className="page">
         {tab === 'agents' && (
-          <div className={`agents-page${variant === 'drawer' && advisorOpen ? ' with-drawer' : ''}`}>
+          <div
+            className={`agents-page${variant === 'drawer' && advisorOpen ? ' with-drawer' : ''}${editorOpen ? '' : ' editor-closed'}`}
+            style={{ '--list-width': `${listWidth}px` } as CSSProperties}
+          >
             <AgentList agents={agents} findings={findings} selected={agent.agentName} onSelect={selectAgent} />
-            <AgentEditor
-              doc={doc}
-              drafts={drafts}
-              onStartEdit={startEdit}
-              onDraft={(id, t) => setDrafts((d) => ({ ...d, [id]: t }))}
-              onDropDraft={(id) => setDrafts((d) => { const { [id]: _, ...rest } = d; return rest })}
-              onSave={saveAll}
-              onDiscard={() => { setDrafts({}); pushLog('放弃未保存改动') }}
-              compact={compact}
-              onCompact={setCompact}
-              chain={chain}
-              readonly={agent.source === 'bundled'}
-            />
+            {editorOpen && (
+              <>
+                <div
+                  className="pane-splitter"
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="调整列表宽度"
+                  aria-valuemin={300}
+                  aria-valuemax={560}
+                  aria-valuenow={listWidth}
+                  tabIndex={0}
+                  onPointerDown={startResize}
+                  onDoubleClick={() => setListWidth(320)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowLeft') setListWidth((w) => Math.max(300, w - 16))
+                    if (e.key === 'ArrowRight') setListWidth((w) => Math.min(560, w + 16))
+                  }}
+                />
+                <AgentEditor
+                  doc={doc}
+                  drafts={drafts}
+                  onStartEdit={startEdit}
+                  onDraft={(id, t) => setDrafts((d) => ({ ...d, [id]: t }))}
+                  onDropDraft={(id) => setDrafts((d) => { const { [id]: _, ...rest } = d; return rest })}
+                  onSave={saveAll}
+                  onDiscard={() => { setDrafts({}); pushLog('放弃未保存改动') }}
+                  compact={compact}
+                  onCompact={setCompact}
+                  chain={chain}
+                  readonly={agent.source === 'bundled'}
+                  onClose={() => setEditorOpen(false)}
+                />
+              </>
+            )}
             {variant === 'drawer' && advisorOpen && (
               <div className="advisor-drawer">
                 <AdvisorPanel findings={findings} agents={agents} models={models} aliases={aliases} channelRows={CHANNEL_TABLE} selectedAgent={agent.agentName} onSelectAgent={(n) => selectAgent(n, true)} onRemap={remapAlias} />
@@ -219,7 +268,14 @@ export default function App() {
         )}
       </main>
       <Inspector open={inspectorOpen} onToggle={() => setInspectorOpen((v) => !v)} files={files} lastWrites={lastWrites} log={log} />
-      <VariantBar variant={variant} onVariant={setVariant} inspectorOpen={inspectorOpen} onToggleInspector={() => setInspectorOpen((v) => !v)} />
+      <VariantBar
+        variant={variant}
+        onVariant={setVariant}
+        inspectorOpen={inspectorOpen}
+        onToggleInspector={() => setInspectorOpen((v) => !v)}
+        editorOpen={editorOpen}
+        onToggleEditor={() => setEditorOpen((v) => !v)}
+      />
     </div>
   )
 }

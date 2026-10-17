@@ -101,6 +101,21 @@ export interface Finding {
   alias?: string
 }
 
+/* ── Agent List 查询接口（排序 / 筛选；原型先定接口，只实现简单项）── */
+export type AgentListLayerFilter = LayerTag | 'all'
+export type AgentListSortKey = 'name' | 'layer' | 'diagnostics' | 'models'
+export type AgentListSortDirection = 'asc' | 'desc'
+
+export interface AgentListQuery {
+  /** 名称 / agentName / 描述 / 模型 / 未知键的自由文本搜索 */
+  text: string
+  layer: AgentListLayerFilter
+  /** 只看有诊断的 agent */
+  onlyIssues: boolean
+  sort: AgentListSortKey
+  direction: AgentListSortDirection
+}
+
 /* ── P1 编辑器组合文档模型（原型新增提案）─────────────────────────
  * 编辑器把 agent 文档渲染成带全局行号的文本视图：
  * front-matter 块打头；body 中 `$ clip-name` 引用行展开为 clip 块

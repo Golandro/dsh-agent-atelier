@@ -4,6 +4,7 @@
  */
 import type {
   AgentDoc,
+  AgentListQuery,
   AgentSource,
   AliasDef,
   ChannelRow,
@@ -40,6 +41,70 @@ export function layerLabel(source: AgentSource): string {
     case 'user-agents': return 'user · ~/.agents'
     case 'bundled': return 'bundled'
   }
+}
+
+/* ── Agent List 查询（接口 + 简单实现）──────────────────────────── */
+
+export interface AgentListRow {
+  agent: AgentDoc
+  errs: number
+  hints: number
+}
+
+const LAYER_ORDER: Record<LayerTag, number> = { workspace: 0, user: 1, bundled: 2 }
+
+const displayName = (agent: AgentDoc) => agent.frontmatter.name ?? agent.agentName
+
+const modelCount = (agent: AgentDoc) =>
+  (agent.frontmatter.modelOrder?.length ?? 0) + (agent.frontmatter.model?.length ?? 0)
+
+/** 先做接口：文本 / 层 / 仅问题过滤 + 名称 / 层级 / 诊断 / 模型数排序。 */
+export function queryAgents(agents: AgentDoc[], findings: Finding[], query: AgentListQuery): AgentListRow[] {
+  const text = query.text.trim().toLowerCase()
+  const rows: AgentListRow[] = agents
+    .map((agent) => {
+      const own = findings.filter((f) => f.agentName === agent.agentName)
+      return {
+        agent,
+        errs: own.filter((f) => f.severity === 'error').length,
+        hints: own.filter((f) => f.severity === 'hint').length,
+      }
+    })
+    .filter(({ agent, errs, hints }) => {
+      if (query.layer !== 'all' && layerTag(agent.source) !== query.layer) return false
+      if (query.onlyIssues && errs + hints === 0) return false
+      if (!text) return true
+      const haystack = [
+        agent.agentName,
+        agent.frontmatter.name,
+        agent.frontmatter.description,
+        agent.path,
+        ...(agent.frontmatter.modelOrder ?? []),
+        ...(agent.frontmatter.model ?? []).map((m) => `${m.provider}/${m.model}`),
+        ...(agent.frontmatter.requiredTools ?? []),
+        ...(agent.frontmatter.skills ?? []),
+        ...Object.entries(agent.extra).flatMap(([k, v]) => [k, v]),
+      ]
+        .filter((v): v is string => typeof v === 'string' && v.length > 0)
+        .join(' ')
+        .toLowerCase()
+      return haystack.includes(text)
+    })
+
+  const direction = query.direction === 'asc' ? 1 : -1
+  rows.sort((a, b) => {
+    switch (query.sort) {
+      case 'name':
+        return direction * displayName(a.agent).localeCompare(displayName(b.agent), 'zh-CN')
+      case 'layer':
+        return direction * (LAYER_ORDER[layerTag(a.agent.source)] - LAYER_ORDER[layerTag(b.agent.source)])
+      case 'diagnostics':
+        return direction * ((a.errs * 10 + a.hints) - (b.errs * 10 + b.hints))
+      case 'models':
+        return direction * (modelCount(a.agent) - modelCount(b.agent))
+    }
+  })
+  return rows
 }
 
 /** 同名 clip 取低 rank 层（D2：workspace 胜 user） */
