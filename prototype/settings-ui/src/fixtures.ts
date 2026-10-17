@@ -78,7 +78,28 @@ export const AGENTS: AgentDoc[] = [
     body: '你是一个老式问答机器人，言简意赅。',
     source: 'project-agents',
     origin: 'user',
+    disabled: true,
     path: '.agents/agents/legacy-bot/legacy-bot.agent.md',
+  },
+  {
+    // 超长字段 fixture：验证名称 / 路径 / 摘要 / 属性的省略与弹性空白
+    agentName: 'long-content-overflow-fixture',
+    frontmatter: {
+      name: '超长字段测试 Agent · 这是一个故意写得非常非常长的显示名称用于验证内容行的省略与弹性空白行为',
+      description: '这是一段非常长的描述，用于验证第二行在 20rem 最小宽度、24rem 默认宽度以及窄视口下的单行省略、tooltip 和属性挤压表现。描述里还包含中文、English、数字 1234567890 与标点符号，确保截断位置稳定。',
+      modelOrder: ['smart', 'fast', 'cheap', 'speedy', 'dsh-default'],
+      requiredTools: ['read', 'edit', 'write', 'bash', 'grep', 'glob', 'web_fetch', 'web_search', 'subagent'],
+      skills: ['code-review-checklist', 'tdd', 'pr', 'grilling'],
+      spawn: 'spawn',
+      reasoningEffort: 'medium',
+    },
+    extra: {
+      longUnknownKey: 'a-very-long-unknown-frontmatter-value-that-should-appear-in-search-results-and-tooltips',
+    },
+    body: '用于测试内容排布的超长字段 agent。',
+    source: 'project-dsh',
+    origin: 'user',
+    path: '.dsh/agents/long-content-overflow-fixture/nested/deeper/still-deeper/long-content-overflow-fixture.agent.md',
   },
 ]
 

@@ -47,6 +47,8 @@ export interface AgentDoc {
   body: string
   source: AgentSource
   origin: AgentOrigin
+  /** 原型扩展：禁用态（状态列显示灰点；正式契约若有 disabled 字段则映射） */
+  disabled?: boolean
   /** <发现根>/<agent-name>/<agent-name>.agent.md */
   path: string
 }

@@ -26,8 +26,8 @@ TS/TSX、CSS 修改会由 Vite 自动处理并热更新。无持久化：全部�
 
 ## P1 标注还原点
 
-- **A 区**：Agent List 专业列表——搜索 / 层级筛选 / 仅问题 / 排序（名称、层级、诊断、模型数）；「详情」为双行（身份行 + 字段网格），「半卡片」为详情的折叠态（自带边框约束）；切换在列表头，单项可用 ▸/▾ 独立展开/折叠。层标签 workspace/user/bundled + 诊断徽标。查询接口见 `types.ts` 的 `AgentListQuery`，简单实现见 `model.ts` 的 `queryAgents`。
-- **布局**：Agent List 与 Editor 之间可拖拽分栏（300–560px，双击复位）；Editor 可关闭；≤960px 时 Editor 从并列改为覆盖在 List 上，窄屏默认先显示 List。
+- **A 区**：Agent List 走资源管理器「内容」排布——每行两行：第 1 行来源标签 / Agent 名称 / 弹性空白 / 路径 / 状态，第 2 行 Agent 摘要 / 模型链、工具、技能、spawn、reasoning。「内容」两行全显，「紧凑」只留第 1 行（视图级折叠），均为扁平行、无卡片外壳，行内不再提供展开/折叠按钮。状态：无诊断为绿色圆点，有诊断为红/黄徽标，禁用为灰色圆点。搜索 / 层级筛选 / 仅问题 / 排序（名称、层级、诊断、模型数）由 `@tanstack/react-table` v9 的 globalFilter / columnFilters / sorting 执行；查询接口仍是 `types.ts` 的 `AgentListQuery`，`model.ts` 的 `queryAgents` 保留为纯函数参考实现。`fixtures.ts` 含超长名称/路径/摘要/属性与禁用态样例。
+- **布局**：Agent List 与 Editor 之间可拖拽分栏，分隔条 cursor = `ew-resize`，拖拽坐标按 `.agents-page` 父容器换算；列表最小 20rem（≈320px，默认 24rem）、编辑器最小 40rem（≈640px），分隔条 0.375rem。放不下（< 60.375rem ≈ 966px，并扣除顾问抽屉宽度）时 Editor 改为浮层覆盖 List；双击分隔条复位到默认 24rem（受可用宽度限制）。Editor 可关闭，窄屏默认先显示 List；不满足并列宽度时列表始终纵向排列，不做横向卡片条。
 - **B 区**：Agent Edit 组合文本编辑器——front-matter 块打头；body 的 `$ clip-name` 引用行展开为 clip 块（header 行 + 内容行）；块间强制空行 = 各块 Header；行号全局连续；**保存一次回写涉及的每个文件**（见 Inspector 的「最近写入」）；**compact 开关**折叠 clip 内容只留 header（行号重算）。
 - 顶栏：workspace 选择器、`+ Add Prompt Section ▾`、`+ Add Agent ▾`；页签行右缘 `Edit Tools ⋯`（顾问面板 / 模拟外部改文件 / invalidate 重读）。
 

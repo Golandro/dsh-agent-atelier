@@ -1,7 +1,7 @@
 /**
  * PROTOTYPE — 应用装配：全部状态在内存（刷新即重置），tab/变体同步进 URL（可分享）。
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import type { AgentDoc, FileWrite, PromptClip } from './types'
 import { AGENTS, ALIASES, CLIPS, KNOWN_SKILLS, KNOWN_TOOLS, MODELS, WORKSPACES, CHANNEL_TABLE } from './fixtures'
@@ -33,6 +33,37 @@ const readUrl = () => {
 let seq = 1
 const stamp = () => new Date().toLocaleTimeString('zh-CN', { hour12: false })
 
+/* ── Agent List / Editor 分栏度量 ─────────────────────────────────
+ * 左侧列表最小 20rem（≈320px）、默认 24rem（≈384px）；
+ * 右侧编辑器最小 40rem（≈640px）；分隔条 0.375rem。
+ * 两者放不下（< 60.375rem，约 966px）时编辑器改为浮层覆盖列表，
+ * 不再压缩编辑区。阈值随根字号缩放。 */
+const LIST_MIN_REM = 20
+const LIST_DEFAULT_REM = 24
+const EDITOR_MIN_REM = 40
+const SPLITTER_REM = 0.375
+
+const rootFontSize = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+
+interface PaneMetrics {
+  available: number
+  minList: number
+  minEditor: number
+  splitter: number
+  overlay: boolean
+}
+
+function readPaneMetrics(page: HTMLElement | null, drawer: HTMLElement | null, hasDrawer: boolean): PaneMetrics {
+  const rem = rootFontSize()
+  const pageWidth = page?.clientWidth ?? window.innerWidth
+  const drawerWidth = hasDrawer && drawer ? drawer.offsetWidth : 0
+  const available = Math.max(0, pageWidth - drawerWidth)
+  const minList = LIST_MIN_REM * rem
+  const minEditor = EDITOR_MIN_REM * rem
+  const splitter = SPLITTER_REM * rem
+  return { available, minList, minEditor, splitter, overlay: available < minList + minEditor + splitter }
+}
+
 export default function App() {
   const [initial] = useState(readUrl)
   const [tab, setTab] = useState<Tab>(initial.tab)
@@ -45,9 +76,16 @@ export default function App() {
   const [aliases, setAliases] = useState(ALIASES)
 
   const [selectedAgent, setSelectedAgent] = useState('code-reviewer')
-  const [listWidth, setListWidth] = useState(320)
-  // 窄屏默认先看列表（编辑器为覆盖层）；宽屏默认并列打开。
-  const [editorOpen, setEditorOpen] = useState(() => window.innerWidth > 960)
+  const pageRef = useRef<HTMLDivElement>(null)
+  const drawerRef = useRef<HTMLDivElement>(null)
+  const [metrics, setMetrics] = useState<PaneMetrics>(() => readPaneMetrics(null, null, false))
+  const [listWidth, setListWidth] = useState(() => LIST_DEFAULT_REM * rootFontSize())
+  // 放得下（列表 20rem + 编辑器 40rem + 分隔条）默认并列；否则默认先看列表，
+  // 选中 agent 时编辑器以浮层覆盖列表。
+  const [editorOpen, setEditorOpen] = useState(() => {
+    const rem = rootFontSize()
+    return window.innerWidth >= (LIST_MIN_REM + EDITOR_MIN_REM + SPLITTER_REM) * rem
+  })
   const [compact, setCompact] = useState(false)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   /** 已保存的块文本（模拟磁盘） */
@@ -65,6 +103,34 @@ export default function App() {
     if (variant !== 'drawer') q.set('advisor', variant)
     window.history.replaceState(null, '', `${window.location.pathname}${q.size ? `?${q}` : ''}`)
   }, [tab, variant])
+
+  // 测量可用宽度（扣除顾问抽屉），驱动“并列 vs 浮层”和拖拽边界。
+  useLayoutEffect(() => {
+    if (tab !== 'agents') return
+    const update = () =>
+      setMetrics(readPaneMetrics(pageRef.current, drawerRef.current, variant === 'drawer' && advisorOpen))
+    update()
+    const ro = new ResizeObserver(update)
+    if (pageRef.current) ro.observe(pageRef.current)
+    if (drawerRef.current) ro.observe(drawerRef.current)
+    window.addEventListener('resize', update)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', update)
+    }
+  }, [tab, variant, advisorOpen])
+
+  const maxListWidth = Math.max(metrics.minList, metrics.available - metrics.minEditor - metrics.splitter)
+  const defaultListWidth = Math.min(
+    maxListWidth,
+    Math.max(metrics.minList, metrics.minList * (LIST_DEFAULT_REM / LIST_MIN_REM)),
+  )
+
+  // 视口/抽屉变化后把已保存的列表宽度夹回合法范围。
+  useLayoutEffect(() => {
+    if (metrics.overlay) return
+    setListWidth((w) => Math.min(maxListWidth, Math.max(metrics.minList, w)))
+  }, [metrics.overlay, metrics.minList, maxListWidth])
 
   const pushLog = (text: string) => setLog((l) => [...l, { time: stamp(), text }])
   const markWrites = (writes: FileWrite[]) => {
@@ -86,13 +152,18 @@ export default function App() {
     if (jumpTab) setTab('agents')
   }
 
-  /** 列表/编辑器之间的拖拽分栏（宽屏）；窄屏由 CSS 改为编辑器覆盖列表。 */
+  /** 列表/编辑器之间的拖拽分栏；坐标按父容器（.agents-page）视口换算。 */
   const startResize = (e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault()
-    const startX = e.clientX
-    const startWidth = listWidth
+    const pageEl = pageRef.current
+    if (!pageEl || metrics.overlay) return
+    const startRect = pageEl.getBoundingClientRect()
+    const startX = e.clientX - startRect.left
+    const startWidth = pageEl.querySelector<HTMLElement>('.agent-list')?.getBoundingClientRect().width ?? listWidth
     const onMove = (ev: PointerEvent) => {
-      setListWidth(Math.min(560, Math.max(300, startWidth + ev.clientX - startX)))
+      const rect = pageEl.getBoundingClientRect()
+      const localX = ev.clientX - rect.left
+      setListWidth(Math.min(maxListWidth, Math.max(metrics.minList, startWidth + localX - startX)))
     }
     const onUp = () => {
       window.removeEventListener('pointermove', onMove)
@@ -214,7 +285,8 @@ export default function App() {
       <main className="page">
         {tab === 'agents' && (
           <div
-            className={`agents-page${variant === 'drawer' && advisorOpen ? ' with-drawer' : ''}${editorOpen ? '' : ' editor-closed'}`}
+            ref={pageRef}
+            className={`agents-page${variant === 'drawer' && advisorOpen ? ' with-drawer' : ''}${editorOpen ? '' : ' editor-closed'}${editorOpen && metrics.overlay ? ' editor-overlay' : ''}`}
             style={{ '--list-width': `${listWidth}px` } as CSSProperties}
           >
             <AgentList agents={agents} findings={findings} selected={agent.agentName} onSelect={selectAgent} />
@@ -224,16 +296,16 @@ export default function App() {
                   className="pane-splitter"
                   role="separator"
                   aria-orientation="vertical"
-                  aria-label="调整列表宽度"
-                  aria-valuemin={300}
-                  aria-valuemax={560}
-                  aria-valuenow={listWidth}
+                  aria-label={`调整列表宽度（列表最小 ${LIST_MIN_REM}rem，编辑器最小 ${EDITOR_MIN_REM}rem）`}
+                  aria-valuemin={Math.round(metrics.minList)}
+                  aria-valuemax={Math.round(maxListWidth)}
+                  aria-valuenow={Math.round(listWidth)}
                   tabIndex={0}
                   onPointerDown={startResize}
-                  onDoubleClick={() => setListWidth(320)}
+                  onDoubleClick={() => setListWidth(defaultListWidth)}
                   onKeyDown={(e) => {
-                    if (e.key === 'ArrowLeft') setListWidth((w) => Math.max(300, w - 16))
-                    if (e.key === 'ArrowRight') setListWidth((w) => Math.min(560, w + 16))
+                    if (e.key === 'ArrowLeft') setListWidth((w) => Math.max(metrics.minList, w - 16))
+                    if (e.key === 'ArrowRight') setListWidth((w) => Math.min(maxListWidth, w + 16))
                   }}
                 />
                 <AgentEditor
@@ -253,7 +325,7 @@ export default function App() {
               </>
             )}
             {variant === 'drawer' && advisorOpen && (
-              <div className="advisor-drawer">
+              <div className="advisor-drawer" ref={drawerRef}>
                 <AdvisorPanel findings={findings} agents={agents} models={models} aliases={aliases} channelRows={CHANNEL_TABLE} selectedAgent={agent.agentName} onSelectAgent={(n) => selectAgent(n, true)} onRemap={remapAlias} />
               </div>
             )}
