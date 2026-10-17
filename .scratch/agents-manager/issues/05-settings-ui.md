@@ -134,3 +134,13 @@ UI 设计原型在 throwaway 分支 `proto/settings-ui`（commit `5dc7486`），
 - 数据结构：`prototype/settings-ui/src/types.ts`（镜像冻结契约 + P1 组合文档模型提案）；主题 CSS 扒自 DSH 源码树暗色 token。
 - 待回填裁决（原型 README「开放问题」）：clip 引用语法与落盘布局、front-matter 编辑形态（raw 文本 vs 字段表单）、顾问面板放置（drawer vs tab）、主题取色（core 近黑 vs 藏青）。
 - 按原型技能规则：验证后只把决策并入主线，原型本体不进主线。
+
+## 施工分解（2026-10-17，`/codebase-design`）
+
+分析后本票的施工拆成三票（后端优先）：
+
+- **11 控制核心**（`issues/11-control-core.md`）：宿主侧深模块（`snapshot` / `compose` / `plan` / `commit` / `applyRegistryEdit` / `invalidate`）＋ 补上宿主目前缺失的写面 ＋ 消除原型相对冻结契约的数据形状漂移。**含两个动工前裁决**（clip 切片模型、front-matter 编辑形态），现为 `needs-triage`。
+- **12 接线**（`issues/12-host-wiring.md`）：`ctx.webServer` exact route（本票 Q3-A 通道）＋ client fetch 适配器 ＋ 去掉 fixtures；`Blocked by: 11`。
+- **13 前端测试**（`issues/13-frontend-tests.md`）：接口级用例、编辑器视图模型、组件测试（需 jsdom ＋ @testing-library，沙箱外安装）、适配器契约套件；`Blocked by: 11`（契约套件那一节待 12）。
+
+本票 brief 继续有效（页面与交付物不变），施工顺序 11 → 12 → 13；原型的验证结论与证据见 11 票的「现状分析」节。
