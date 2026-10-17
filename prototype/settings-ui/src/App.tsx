@@ -5,7 +5,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import type { AgentDoc, FileWrite, PromptClip } from './types'
 import { AGENTS, ALIASES, CLIPS, KNOWN_SKILLS, KNOWN_TOOLS, MODELS, WORKSPACES, CHANNEL_TABLE } from './fixtures'
-import { composeDocument, inspectAll, remapImpact, resolveChain, saveWrites } from './model'
+import { composeDocument, inspectAll, remapImpact, saveWrites } from './model'
 import { TopBar } from './components/TopBar'
 import { Tabs } from './components/Tabs'
 import { AgentList } from './components/AgentList'
@@ -150,7 +150,6 @@ export default function App() {
   )
   const doc = useMemo(() => composeDocument(agent, clips, { overrides: docOverrides }), [agent, clips, docOverrides])
   const findings = useMemo(() => inspectAll(agents, models, aliases, KNOWN_TOOLS, KNOWN_SKILLS), [agents, models, aliases])
-  const chain = useMemo(() => resolveChain(agent, aliases, models), [agent, aliases, models])
 
   /* ── Agents 页 ── */
   const selectAgent = (name: string, jumpTab = false) => {
@@ -366,6 +365,7 @@ export default function App() {
                 />
                 <AgentEditor
                   doc={doc}
+                  source={agent.source}
                   drafts={drafts}
                   onDrafts={applyEditorDrafts}
                   onSaveBlock={(id) => saveBlocks([id])}
@@ -374,7 +374,6 @@ export default function App() {
                   onDiscard={revertAll}
                   compact={compact}
                   onCompact={setCompact}
-                  chain={chain}
                   readonly={agent.source === 'bundled'}
                   onClose={() => setEditorOpen(false)}
                 />
