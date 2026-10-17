@@ -3,7 +3,8 @@
  * front-matter 块打头；body 的 `{% include clip <name> %}` 模板行原地成为 clip header，
  * clip 内容内联在模板行之后。所有内容默认直接可编辑；每个块对应一个落盘文件（D14 1:1），
  * 可在块头单独保存 / 回退，也可在工具栏一次保存全部脏块（一次写多个文件）。
- * compact 仅折叠 clip 内容显示，不改变草稿与保存语义。
+ * compact 仅折叠 clip 内容显示，不改变草稿与保存语义；
+ * 单个切片也可通过 CodeMirror gutter 的折叠按钮独立收起/展开。
  */
 import type { ComposedDocument } from '../types'
 import { saveWrites } from '../model'
@@ -58,7 +59,7 @@ export function AgentEditor(props: AgentEditorProps) {
               💾 <span className="lbl">保存全部{dirtyCount > 0 ? `（${dirtyCount} 块）` : ''}</span>
             </button>
             <button className="btn btn-sm" disabled={dirtyCount === 0} onClick={props.onDiscard} title="撤回所有块的未保存改动">↩ <span className="lbl">全部回退</span></button>
-            <label className="toggle" title="compact：折叠 clip 内容，只留块头（不影响草稿）">
+            <label className="toggle" title="compact：折叠全部 clip 内容；也可用行号旁 gutter 的折叠按钮单独控制（不影响草稿）">
               <input type="checkbox" checked={props.compact} onChange={(e) => props.onCompact(e.target.checked)} />
               <span className="toggle-track" />
               <span className="lbl toggle-lbl">compact</span>
