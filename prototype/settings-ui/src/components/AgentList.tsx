@@ -1,9 +1,14 @@
 /**
- * PROTOTYPE — Agent 列表（P1 A 区）：卡片 + 层标签（user/workspace/bundled）+ 诊断徽标。
- * 窄屏时变为横向滑动卡片条（app.css 响应式）。
+ * PROTOTYPE — Agent 列表（P1 A 区）：同时支持「详情」与「半卡片」两种视图。
+ * - 详情 = AgentDetail：扁平、双列 label/value，不是卡片外壳。
+ * - 半卡片 = AgentCard：详情折叠后的形态，保留自己的边框约束内容。
+ * 头部切换视图；单项也可用 ▸/▾ 独立展开/折叠（半卡片 = 详情的折叠态）。
+ * 窄屏时变为横向滑动条（app.css 响应式）。
  */
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { AgentDoc, Finding } from '../types'
-import { layerLabel, layerTag } from '../model'
+import { AgentCard } from './AgentCard'
+import { AgentDetail } from './AgentDetail'
 
 export interface AgentListProps {
   agents: AgentDoc[]
@@ -12,41 +17,68 @@ export interface AgentListProps {
   onSelect: (agentName: string) => void
 }
 
+type ViewMode = 'detail' | 'compact'
+
 export function AgentList(props: AgentListProps) {
+  const [mode, setMode] = useState<ViewMode>('detail')
+  /** 单项覆盖：true = 展开为详情，false = 折叠为半卡片；缺省跟随 mode */
+  const [overrides, setOverrides] = useState<Record<string, boolean>>({})
+  const listRef = useRef<HTMLElement>(null)
+  const isOpen = (name: string) => overrides[name] ?? mode === 'detail'
+  const switchMode = (next: ViewMode) => {
+    setMode(next)
+    setOverrides({})
+  }
+
+  // 视图切换会让行高整体变化；在布局提交后立刻把选中项拉回可视区。
+  useLayoutEffect(() => {
+    const nodes = listRef.current?.querySelectorAll<HTMLElement>('[data-agent]')
+    const el = nodes ? Array.from(nodes).find((n) => n.dataset.agent === props.selected) : undefined
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [mode, props.selected])
+
   return (
-    <aside className="agent-list">
-      <div className="agent-list-title">Agent List</div>
+    <aside ref={listRef} className={`agent-list ${mode === 'detail' ? 'detail-mode' : 'cards-mode'}`}>
+      <div className="agent-list-head">
+        <div className="agent-list-title">Agent List</div>
+        <div className="agent-view-toggle" role="group" aria-label="Agent 列表视图">
+          <button
+            type="button"
+            className={mode === 'detail' ? 'active' : ''}
+            aria-pressed={mode === 'detail'}
+            onClick={() => switchMode('detail')}
+          >详情</button>
+          <button
+            type="button"
+            className={mode === 'compact' ? 'active' : ''}
+            aria-pressed={mode === 'compact'}
+            onClick={() => switchMode('compact')}
+          >半卡片</button>
+        </div>
+      </div>
+
       {props.agents.map((a) => {
         const errs = props.findings.filter((f) => f.agentName === a.agentName && f.severity === 'error').length
         const hints = props.findings.filter((f) => f.agentName === a.agentName && f.severity === 'hint').length
-        const tag = layerTag(a.source)
-        return (
-          <div
+        const common = {
+          agent: a,
+          selected: props.selected === a.agentName,
+          errs,
+          hints,
+          onSelect: () => props.onSelect(a.agentName),
+        }
+        return isOpen(a.agentName) ? (
+          <AgentDetail
             key={a.agentName}
-            className={`agent-card${props.selected === a.agentName ? ' selected' : ''}`}
-            onClick={() => props.onSelect(a.agentName)}
-          >
-            <div className="agent-card-head">
-              <span className="agent-avatar" style={a.frontmatter.color ? { background: a.frontmatter.color } : undefined}>
-                {a.frontmatter.emoji ?? a.agentName[0]}
-              </span>
-              <span className="agent-name">{a.frontmatter.name ?? a.agentName}</span>
-              {(errs > 0 || hints > 0) && (
-                <span className={`agent-badge ${errs > 0 ? 'err' : 'warn'}`} title="诊断数（详见顾问面板）">
-                  {errs > 0 ? `${errs}E` : ''}{hints > 0 ? `${hints}H` : ''}
-                </span>
-              )}
-            </div>
-            <div className="agent-desc">{a.frontmatter.description || <span className="dim">（无 description）</span>}</div>
-            <div className="agent-tags">
-              <span className={`tag tag-${tag}`}>{layerLabel(a.source)}</span>
-              <span className="tag">{a.agentName}</span>
-              {(a.frontmatter.modelOrder ?? []).map((m) => (
-                <span key={m} className="tag tag-accent">{m}</span>
-              ))}
-              {(a.frontmatter.model ?? []).length > 0 && <span className="tag tag-warn">raw model</span>}
-            </div>
-          </div>
+            {...common}
+            onCollapse={() => setOverrides((o) => ({ ...o, [a.agentName]: false }))}
+          />
+        ) : (
+          <AgentCard
+            key={a.agentName}
+            {...common}
+            onExpand={() => setOverrides((o) => ({ ...o, [a.agentName]: true }))}
+          />
         )
       })}
     </aside>

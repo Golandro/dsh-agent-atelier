@@ -26,7 +26,7 @@ TS/TSX、CSS 修改会由 Vite 自动处理并热更新。无持久化：全部�
 
 ## P1 标注还原点
 
-- **A 区**：Agent List 卡片（层标签 workspace/user/bundled + 诊断徽标）。
+- **A 区**：Agent List 双视图——「详情」为扁平双列 label/value 字段列表；「半卡片」为详情的折叠态（自带边框约束）；切换在列表头，单项可用 ▸/▾ 独立展开/折叠。层标签 workspace/user/bundled + 诊断徽标。
 - **B 区**：Agent Edit 组合文本编辑器——front-matter 块打头；body 的 `$ clip-name` 引用行展开为 clip 块（header 行 + 内容行）；块间强制空行 = 各块 Header；行号全局连续；**保存一次回写涉及的每个文件**（见 Inspector 的「最近写入」）；**compact 开关**折叠 clip 内容只留 header（行号重算）。
 - 顶栏：workspace 选择器、`+ Add Prompt Section ▾`、`+ Add Agent ▾`；页签行右缘 `Edit Tools ⋯`（顾问面板 / 模拟外部改文件 / invalidate 重读）。
 
