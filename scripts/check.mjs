@@ -6,7 +6,7 @@
  *   self-test  自身有牙：用合成坏输入断言下面每条判定都能报错
  *   scratch    已知探针目录不得残留（被 .gitignore 隐藏，`git status` 看不出来）
  *   build      `lib/` 必须存在且不旧于 `src/`（profile 装的是 lib/，不是 src/）
- *   bundle     `package.json` 运行时依赖必须为空（profile 是软链本目录，缺依赖会装崩 row）
+ *   bundle     `package.json` 运行时依赖不得含 `@deepseek-ai/*` 宿主包（ADR-0001 import 边界，宿主共享实例走 peer+dev；第三方库允许——2026-10-17 维护者裁决，install_bundle 随装入解析）
  *   deps       声明的每个 devDependency 必须已安装
  *   anchors    `.scratch`/`docs` 里每一处 `path:line` 断言都必须能解析且行号在范围内
  *
@@ -72,9 +72,9 @@ export function buildFresh(root = ROOT) {
   return { ok: true }
 }
 
-/** 运行时依赖必须为空：本包以软链装进 profile，缺运行时依赖会直接装崩那一行 */
-export function runtimeDeps(pkg) {
-  return Object.keys(pkg.dependencies ?? {})
+/** 运行时依赖里不得出现宿主包：`@deepseek-ai/*` 须走 peerDependencies + devDependencies（宿主 publish 纪律；ADR-0001 import 边界）。第三方库允许进 `dependencies`：install_bundle 装入时随 pnpm add 进 profile 解析（2026-10-17 维护者裁决「我们需要这些依赖」）。 */
+export function hostRuntimeDeps(pkg) {
+  return Object.keys(pkg.dependencies ?? {}).filter((dep) => dep.startsWith('@deepseek-ai/'))
 }
 
 /** 声明了但没装的 devDependency */
@@ -149,7 +149,7 @@ function selfTest() {
     check('buildFresh 新增未编译文件应报错', buildFresh(tmp).ok === false)
     mkdirSync(join(tmp, '.probe'))
     check('findScratchDirs 能发现 .probe', findScratchDirs(tmp).includes('.probe/'))
-    check('runtimeDeps 能发现运行时依赖', runtimeDeps({ dependencies: { x: '1' } }).length === 1 && runtimeDeps({}).length === 0)
+    check('hostRuntimeDeps 能发现宿主运行时依赖', hostRuntimeDeps({ dependencies: { 'js-yaml': '1', '@deepseek-ai/cordis': '2' } }).length === 1 && hostRuntimeDeps({ dependencies: { 'js-yaml': '1', zod: '2' } }).length === 0)
     check('parseAnchors 抽得到范围锚点', parseAnchors('`a/b.ts:10-20`')[0]?.line === 20)
     check('resolveAnchor 对不存在路径报 missing', resolveAnchor({ path: 'nope/not-here.ts', line: 1 }, { root: tmp, dshSource: tmp }).status === 'missing')
     check('resolveAnchor 对超范围行号报 out-of-range', resolveAnchor({ path: 'src/index.ts', line: 999 }, { root: tmp, dshSource: tmp }).status === 'out-of-range')
@@ -184,11 +184,11 @@ function main() {
   if (!fresh.ok) problems.push(`build 不新鲜：${fresh.reason} → 跑 \`npm run build\``)
 
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
-  const deps = runtimeDeps(pkg)
-  if (deps.length > 0) problems.push(`package.json 出现运行时依赖：${deps.join(', ')}（本包以软链装入 profile，必须保持零运行时依赖）`)
+  const hostDeps = hostRuntimeDeps(pkg)
+  if (hostDeps.length > 0) problems.push(`package.json 运行时依赖出现宿主包：${hostDeps.join(', ')}（@deepseek-ai/* 须走 peerDependencies + devDependencies，ADR-0001；第三方库允许——2026-10-17 裁决）`)
 
   const missingDeps = missingDevDeps(pkg)
-  if (missingDeps.length > 0) problems.push(`devDependency 未安装：${missingDeps.join(', ')} → 跑 \`npm install --cache "$PWD/.npm-cache"\``)
+  if (missingDeps.length > 0) problems.push(`devDependency 未安装：${missingDeps.join(', ')} → 跑 \`pnpm install\`（沙箱内注意 store 陷阱，见 docs/agents/harness-facts.md）`)
 
   const anchors = collectAnchors()
   const dshMissing = !existsSync(DSH_SOURCE)

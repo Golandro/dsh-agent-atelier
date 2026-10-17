@@ -25,7 +25,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "check:static": "node scripts/check.mjs",
-    "check": "node scripts/check.mjs && npm run typecheck && npm test"
+    "check": "node scripts/check.mjs && pnpm run typecheck && pnpm test"
   },
   "engines": {
     "node": ">=24"
@@ -40,5 +40,9 @@
     "@types/node": "^24.19.2",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
+  },
+  "dependencies": {
+    "js-yaml": "^5.5.0",
+    "zod": "^4.6.7"
   }
 }

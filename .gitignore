@@ -3,4 +3,5 @@ lib/
 .npm-cache/
 .pnpm-store/
 .probe/
+.vendor/
 *.tsbuildinfo
