@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseAgentDocument } from '../src/frontmatter.ts'
+import { parseAgentDocument } from '../src/core/catalog/frontmatter.ts'
 
 /** Build a fenced document the way an author would write one. */
 function document(frontmatter: string, body = ''): string {

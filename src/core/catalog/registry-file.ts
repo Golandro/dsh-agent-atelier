@@ -21,7 +21,7 @@
  */
 import { flowInner, splitTopLevel, stripComment, unquote } from './yaml-scalar.ts'
 
-import type { AliasDeclaration, AliasDiagnosticCode, ModelDeclaration } from './types.ts'
+import type { AliasDeclaration, AliasDiagnosticCode, ModelDeclaration } from '../../contract/index.ts'
 
 /**
  * Name of the built-in alias that follows the DSH sub-agent default pair.

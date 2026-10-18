@@ -10,7 +10,7 @@
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
-import type { AgentFileSystem } from './file-system.ts'
+import type { AgentFileSystem } from '../ports.ts'
 
 /** Environment variable overriding the DeepSeek Harness home (native `DSH_HOME_ENV`). */
 export const DSH_HOME_ENV = 'DSH_HOME'

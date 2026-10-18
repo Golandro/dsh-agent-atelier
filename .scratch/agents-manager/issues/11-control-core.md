@@ -24,10 +24,10 @@ Blocked by: —
 
 ## 宿主现状（动工前必须知道）
 
-- 读面已存在、已冻结：`parseAgentDocument`（`src/frontmatter.ts:84`）、`AgentFrontmatter`（`src/frontmatter.ts:22`）、`readRegistryLayer`（`src/registry-file.ts:104`）、两个服务在 `src/index.ts:45` 的 `apply` 里注册（`ctx.agentRegistry` / `ctx.aliasRegistry`）。
+- 读面已存在、已冻结：`parseAgentDocument`（`src/core/catalog/frontmatter.ts:84`）、`AgentFrontmatter`（`src/core/catalog/frontmatter.ts:22`）、`readRegistryLayer`（`src/core/catalog/registry-file.ts:104`）、两个服务在 `src/dsh/host/plugin.ts:29` 的 `apply` 里注册（`ctx.agentRegistry` / `ctx.aliasRegistry`）。
 - **写面完全不存在**：全 `src/` 无 `writeFile` / `rename` / 原子写（grep 为空）。原型的 `serializeFrontmatter` 是唯一的序列化实现，且只认识已知键 ＋ `extra` 原文、无转义、不可往返（D14 要求原文回写）。
 - **原型不在 `tsconfig.json` 的 include**（`"include": ["src", "test"]`）⇒ 原型的类型漂移不受 `pnpm run check` 保护，两套同名类型长期共存无人报警。
-- 「零运行时依赖」的注释在 `src/frontmatter.ts:6`、`src/yaml-scalar.ts:6`、`src/registry-file.ts:15` 已与 2026-10-17 的依赖裁决（`js-yaml` / `zod` 保留在 `dependencies`，05 票 Q4「我们需要这些依赖」）不一致，但代码仍未引用这两个包 ⇒ 声明按裁决保留，本票要**改三处注释**，并决定写面/校验是用这两个包还是扩展现有 `yaml-scalar.ts`（二选一，只留一份实现）。
+- 「零运行时依赖」的注释在 `src/core/catalog/frontmatter.ts:6`、`src/core/catalog/yaml-scalar.ts:6`、`src/core/catalog/registry-file.ts:15` 已与 2026-10-17 的依赖裁决（`js-yaml` / `zod` 保留在 `dependencies`，05 票 Q4「我们需要这些依赖」）不一致，但代码仍未引用这两个包 ⇒ 声明按裁决保留，本票要**改三处注释**，并决定写面/校验是用这两个包还是扩展现有 `yaml-scalar.ts`（二选一，只留一份实现）。
 
 ## 现状分析（原型实现）
 
@@ -73,9 +73,9 @@ Blocked by: —
 
 | 原型形状 | 冻结契约／宿主现状 | 处置 |
 |---|---|---|
-| `AgentDoc.frontmatter: AgentFrontmatter` 嵌套 ＋ `extra` | `AgentDefinition` 是**扁平**的（`src/types.ts:54`）；宿主已有 `AgentFrontmatter`（`src/frontmatter.ts:22`）与 `parseAgentDocument`（`src/frontmatter.ts:84`） | 主线不得出现第二份 frontmatter 模型；编辑器要的原始 YAML 以显式字段（如 `frontmatterText`）出现在 compose 输出 |
-| registry 层复用 `AgentSource`（含 `'bundled'`） | registry 层是 `AliasRegistrySource`（`src/types.ts:132`），只 3 值 | 原型 `SOURCE_RANK` 混两套方言；主线直接用 `ModelDefinition`（`src/types.ts:153`）/ `AliasDefinition`（`src/types.ts:169`） |
-| `Finding` 合成三族（4 别名码 ＋ 2 新增警告码） | `AgentDiagnostic`（7 码，`src/types.ts:37`）与 `AliasFinding`（4 码，`src/types.ts:252`）分族 | 核心派生**一个归一化视图类型**（带 `origin` 判别），UI 不得自行归并 |
+| `AgentDoc.frontmatter: AgentFrontmatter` 嵌套 ＋ `extra` | `AgentDefinition` 是**扁平**的（`src/contract/types.ts:54`）；宿主已有 `AgentFrontmatter`（`src/core/catalog/frontmatter.ts:22`）与 `parseAgentDocument`（`src/core/catalog/frontmatter.ts:84`） | 主线不得出现第二份 frontmatter 模型；编辑器要的原始 YAML 以显式字段（如 `frontmatterText`）出现在 compose 输出 |
+| registry 层复用 `AgentSource`（含 `'bundled'`） | registry 层是 `AliasRegistrySource`（`src/contract/types.ts:132`），只 3 值 | 原型 `SOURCE_RANK` 混两套方言；主线直接用 `ModelDefinition`（`src/contract/types.ts:153`）/ `AliasDefinition`（`src/contract/types.ts:169`） |
+| `Finding` 合成三族（4 别名码 ＋ 2 新增警告码） | `AgentDiagnostic`（7 码，`src/contract/types.ts:37`）与 `AliasFinding`（4 码，`src/contract/types.ts:252`）分族 | 核心派生**一个归一化视图类型**（带 `origin` 判别），UI 不得自行归并 |
 | `AgentDoc.disabled?: boolean` | 契约无此字段；05 票 Q1 裁决启停 v1 不做 | 删除，不得进主线 |
 | `PromptClip` / `DocBlock` / `BlockRange` | 无冻结契约（P1 提案） | **动工前必须裁决**（Q1）；裁决后先冻结形状再实现 |
 | `ComposedDocument.text` ＋ `ranges`（编辑器字符偏移） | 域概念里不存在 | 偏移属**编辑器视图模型**；域形状只有 `blocks[]` ＋ `frontmatterText` |
@@ -128,7 +128,7 @@ Blocked by: —
 
 ## 动工前必须裁决
 
-- **Q1（阻断）clip 切片模型**：`{% include clip <name> %}` 模板 ＋ `sections/<name>.md` 独立文件是原型提案，而 01 冻结契约的 body 是单文件。三选一：(A) 引入切片文件并冻结新契约（01 需修订）；(B) 只做单文件 body，不引入切片（`compose` 退化为 frontmatter ＋ body 两块）；(C) 切片只存在于 UI 概念层、落盘保持单文件。**推荐 (A)**——P1 标注的「编辑 Clip 保存时改涉及的所有 clip 文件」只有切片成文件才成立；但这是产品决定，不是实现细节。（2026-10-18 诊断补：原型切片落点是 `<发现根>/sections/<name>.md`，而 `src/discovery.ts:195` 起把根下每个 kebab 目录都当 agent 候选 ⇒ `sections/` 会被判 `missing-document`，用户根每次扫描一条诊断、受信 bundled 根更会直接抛错。选 A 必须同时改发现面（保留目录名）或改用点号目录；成本落在 `discoverDirectory`，**不动** `src/types.ts` 的冻结读面。维护者追问后补：`~/repo/ChunkStellar/.harness` 的组装是先例，但属**交付层**；作者层仍用 include（可嵌套、禁参数化）。落点取点号目录 `.sections/` 则 `src/discovery.ts:197` 直接跳过 ⇒ 发现面零改动。详见诊断记录「Q1 目标评价」。）
+- **Q1（阻断）clip 切片模型**：`{% include clip <name> %}` 模板 ＋ `sections/<name>.md` 独立文件是原型提案，而 01 冻结契约的 body 是单文件。三选一：(A) 引入切片文件并冻结新契约（01 需修订）；(B) 只做单文件 body，不引入切片（`compose` 退化为 frontmatter ＋ body 两块）；(C) 切片只存在于 UI 概念层、落盘保持单文件。**推荐 (A)**——P1 标注的「编辑 Clip 保存时改涉及的所有 clip 文件」只有切片成文件才成立；但这是产品决定，不是实现细节。（2026-10-18 诊断补：原型切片落点是 `<发现根>/sections/<name>.md`，而 `src/core/catalog/discovery.ts:200` 起把根下每个 kebab 目录都当 agent 候选 ⇒ `sections/` 会被判 `missing-document`，用户根每次扫描一条诊断、受信 bundled 根更会直接抛错。选 A 必须同时改发现面（保留目录名）或改用点号目录；成本落在 `discoverDirectory`，**不动** `src/types.ts` 的冻结读面。维护者追问后补：`~/repo/ChunkStellar/.harness` 的组装是先例，但属**交付层**；作者层仍用 include（可嵌套、禁参数化）。落点取点号目录 `.sections/` 则 `src/core/catalog/discovery.ts:202` 直接跳过 ⇒ 发现面零改动。详见诊断记录「Q1 目标评价」。）
 - **Q2 front-matter 编辑形态**：(A) 文本编辑 ＋ 写前用 D23 解析器校验、按原文回写（保注释/未知键）；(B) 字段表单（每字段一个控件，写入时序列化）。**推荐 (A)**——与 P1 标注一致，且 D14 的 1:1 回写只有文本形态能满足。（2026-10-18 诊断补：原型 `model.ts` 行 175-193 的 `serializeFrontmatter` 不转义 `name`/`description`、丢注释与键序，B 形态无法满足 D14 原文回写；选 B 需先推翻 D14，不是自由二选一。）
 - **Q3 归属**：本票与 05 的关系。**推荐**：本票 = 05 的后端优先第一刀，05 的 brief 继续有效并收到本票指针。（2026-10-18 诊断补：05 正文范围 6 仍把写器写作「本票新增」、范围 3 仍认领数据通道，且 05 现为 `ready-for-agent` 且无 `Blocked by: 11` ⇒ 边界不落，先领 05 的 agent 会造出第二份写器/通道；另本票内部 seam 第 11 项 `MasterDetailPane` 是组件实现，与本票范围「不含 UI 组件实现（05）」自相矛盾，需一并裁决。）
 
@@ -151,10 +151,10 @@ Blocked by: —
 
 - 沙箱内不做依赖变更（pnpm store 陷阱 ＋ 敏感操作，见 `docs/agents/harness-facts.md`）；需要新依赖时由维护者在沙箱外安装。
 - 写盘面必须与 05 票的 Q3-A 通道定案一致（宿主自管文件；client 只经 12 票的 HTTP 适配器）。
-- 01/02 的冻结读面**只读**：`ctx.agentRegistry`（`src/types.ts:112`）与 `ctx.aliasRegistry`（`src/types.ts:219`）不因本票而改；本票只加写面与组合面。
+- 01/02 的冻结读面**只读**：`ctx.agentRegistry`（`src/contract/types.ts:112`）与 `ctx.aliasRegistry`（`src/contract/types.ts:219`）不因本票而改；本票只加写面与组合面。
 - CodeMirror 侧的可测性阻断点已定位：StateField 构造依赖 React ref/callback（`DocumentEditor.tsx` 行 452–453），改成普通参数后该文件约 409 行可在 Node 里 headless 测（`@codemirror/state` 本身 DOM-free）——这条给 13 票用。
 - **链解析归 03，不归本票**：`modelOrder` → 别名 → 模型条目的解析、`available: false` 的跳过与沿声明顺序回退、链耗尽硬错，都是 03 票解析引擎的语义。本票的 `snapshot` 只消费其结果（链展示与 findings）；若动工时 03 尚未落地，本票**不**自行实现一套平行解析器，宁可在 UI 上显式标注「链解析待 03」。原型的三处 `available` 断言无实现支撑（见上），正是「UI 抢了引擎职责」的后果。
-- **层合并不许 UI 重算**：接通后必须删掉 UI 侧的重算（原型 `model.ts` 行 137–148），因为宿主 `ctx.aliasRegistry.getAlias` / `getModel`（`src/types.ts:219`）已经解析过层；否则两份真相必然漂移。
+- **层合并不许 UI 重算**：接通后必须删掉 UI 侧的重算（原型 `model.ts` 行 137–148），因为宿主 `ctx.aliasRegistry.getAlias` / `getModel`（`src/contract/types.ts:219`）已经解析过层；否则两份真相必然漂移。
 
 ## Comments
 
@@ -183,7 +183,7 @@ Blocked by: —
 - 缺片占位串当文件名：`model.ts` 行 274 把 ``（未找到切片 ${clipName}）`` 展示串写进 `DocBlock.file`，`saveWrites` 与 Inspector 还拿它当文件键。
 - 重复引用未定义：同一 body 两次引用同一 clip 时块 id 都是 `clip-${name}`，`layoutBlocks` 的 `ranges[block.id]` 后写覆盖前写 ⇒ 编辑/保存只认一块（嵌套与重复引用的语义要在契约里显式定为诊断或 fail-fast）。
 - 序列化不可往返：`model.ts` 行 175-193 的 `serializeFrontmatter` 只写已知键 + `extra` 原文，`name`/`description` 不转义、注释与键序全丢 ⇒ 满足不了 D14 的 1:1 原文回写（❓Q2 的硬约束）。
-- Q1 的具体代价：原型切片落点是 `<发现根>/sections/<name>.md`（`prototype/settings-ui/src/fixtures.ts` 第 109 行；`App.tsx` 的「外部手改」演示也用同路径），而 `src/discovery.ts:195` 起把根下每个 kebab 目录都当 agent 候选 ⇒ `sections/` 会被判 `missing-document`（用户根每次扫描一条诊断；若出现在受信 bundled 根会直接抛错）⇒ 选 A 必须同时改发现面（保留目录名）或改用点号目录（点号目录在 `src/discovery.ts:197` 直接被跳过 ⇒ 零发现面改动）。
+- Q1 的具体代价：原型切片落点是 `<发现根>/sections/<name>.md`（`prototype/settings-ui/src/fixtures.ts` 第 109 行；`App.tsx` 的「外部手改」演示也用同路径），而 `src/core/catalog/discovery.ts:200` 起把根下每个 kebab 目录都当 agent 候选 ⇒ `sections/` 会被判 `missing-document`（用户根每次扫描一条诊断；若出现在受信 bundled 根会直接抛错）⇒ 选 A 必须同时改发现面（保留目录名）或改用点号目录（点号目录在 `src/core/catalog/discovery.ts:202` 直接被跳过 ⇒ 零发现面改动）。
 - 票面事实漂移（已就地修正）：主线 `dependencies` 只剩 `js-yaml`/`zod`（`hostRuntimeDeps` 合规）；`codemirror`/`@codemirror/*`/`@tanstack/react-table` 只在 `proto/settings-ui` 的 `package.json`，**未进主线**；05 票 Q4 裁决「我们需要这些依赖」已定 js-yaml/zod 保留 ⇒ 原文「原型专用依赖会装进任何使用者的 profile」「要么把声明去掉」已过时，本票只剩三处注释要改。
 - 冗余检查：`src/`、`test/`、`bundled/` 无 control/compose/write 实现；`.out-of-scope/` 不存在 ⇒ 无既有实现、无历史拒绝记录。
 

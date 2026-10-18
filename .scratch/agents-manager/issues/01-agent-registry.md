@@ -149,12 +149,12 @@ export interface AgentDefinition {
 
 **已交付**
 
-- `src/types.ts`：冻结契约本体——`AgentRegistry`（`list`/`get`/`diagnostics`/`invalidate`）、`AgentDefinition` 全字段（含 `source`/`origin`/`extra`/`path`）、`AgentDiagnostic` + 7 个 code、`AgentLookupOptions`/`AgentDiagnosticsOptions`。
-- `src/frontmatter.ts`：最小 YAML 子集解析器（D23），零运行时依赖——`---` 围栏、标量/引号串、流式与块式字符串数组、`{provider, model}` 流式（及无括号 `provider: x, model: y`）映射；已知键类型化，未知键原文进 `extra`；已知键的不支持构造产出 `problems`。
-- `src/file-system.ts`：发现层的 fs 端口 + 两个实现（Node / ctx `fs` 服务）+ `optionalFileSystem(ctx)`；缺路径一律降级为 `undefined`/`false`（照抄原生 absence 语义）。
-- `src/discovery.ts`：四根 + bundled 根表（rank 100/200/400/500/600，低 rank 胜，CUSTOM 300 预留）、`findProjectRoot` 上溯、目录制布局与全部诊断、软诊断 + `logger.warn`、受信根硬错、`invalidate()` 与按项目根记忆化的懒发现（含 in-flight 去重）；`resolveDshHome`/`resolveAgentsHome` 语义照抄。
-- `src/registry.ts`：哑容器保留为扫描的内部存储与单测载体（`createAgentRegistry` 未删），`size` 不在服务面。
-- `src/index.ts`：`apply(ctx)` 组装服务（注入 `optionalFileSystem(ctx)` + `ctx.logger.warn` + 由 `import.meta.url` 推出的 `bundled/`），仍只注册 `agentRegistry` 一个 key。
+- `src/contract/types.ts`（ticket 16 前为 `src/types.ts`）：冻结契约本体——`AgentRegistry`（`list`/`get`/`diagnostics`/`invalidate`）、`AgentDefinition` 全字段（含 `source`/`origin`/`extra`/`path`）、`AgentDiagnostic` + 7 个 code、`AgentLookupOptions`/`AgentDiagnosticsOptions`。
+- `src/core/catalog/frontmatter.ts`（ticket 16 前为 `src/frontmatter.ts`）：最小 YAML 子集解析器（D23），零运行时依赖——`---` 围栏、标量/引号串、流式与块式字符串数组、`{provider, model}` 流式（及无括号 `provider: x, model: y`）映射；已知键类型化，未知键原文进 `extra`；已知键的不支持构造产出 `problems`。
+- fs 端口与适配器（ticket 01 交付时在 `src/file-system.ts` 单文件；ticket 16 拆分）：端口在 `src/core/ports.ts`，Node/host 两个实现在 `src/providers/fs/`，`optionalFileSystem(ctx)` 在 `src/dsh/host/fs.ts`；缺路径一律降级为 `undefined`/`false`（照抄原生 absence 语义）。
+- `src/core/catalog/discovery.ts`（ticket 16 前为 `src/discovery.ts`）：四根 + bundled 根表（rank 100/200/400/500/600，低 rank 胜，CUSTOM 300 预留）、`findProjectRoot` 上溯、目录制布局与全部诊断、软诊断 + `logger.warn`、受信根硬错、`invalidate()` 与按项目根记忆化的懒发现（含 in-flight 去重）；`resolveDshHome`/`resolveAgentsHome` 语义照抄。
+- `src/core/catalog/registry.ts`（ticket 16 前为 `src/registry.ts`）：哑容器保留为扫描的内部存储与单测载体（`createAgentRegistry` 未删），`size` 不在服务面。
+- `src/index.ts`：`apply(ctx)` 组装服务（注入 `optionalFileSystem(ctx)` + `ctx.logger.warn` + 由 `import.meta.url` 推出的 `bundled/`），仍只注册 `agentRegistry` 一个 key（apply 本体现挂 `src/dsh/host/plugin.ts`，见 ticket 16）。
 - `bundled/default/default.agent.md`：内置默认 agent（`name: 默认`、`modelOrder: [dsh-default]`、空正文），走同一条文档管线，无 if-default 分支。
 - 单测 4 文件 40 用例：`test/frontmatter.test.ts`（9）、`test/discovery.test.ts`（22）、`test/plugin.test.ts`（5）、`test/registry.test.ts`（4）。
 
@@ -185,7 +185,7 @@ export interface AgentDefinition {
 - `invalidate()` 后重扫 / `{cwd, signal}` 形状：`lazy memoisation` 4 例（含并发去重、abort、user-only 与 project 分开记忆化）。
 - 未注册进 `ctx.skills`、未新增运行时依赖、`npm run check` 通过：`test/plugin.test.ts` 第 3 例 + check 的 bundle/anchors/self-test 项。
 
-**移交下游**：契约即票面「契约（冻结）」节，也是 `src/types.ts` 的导出；03/05/06 直接消费 `ctx.agentRegistry`。**成员名以「修复轮」为准**：`AgentDefinition.agentName` / `AgentDefinition.body` / `AgentDiagnostic.agentName`（`id` 只留给已废弃的 frontmatter 键）。03 票动工前需按本轮语义同步其「modelOrder 条目为 raw」旧读法（链 = 别名在前、`model` 兜底在后）。
+**移交下游**：契约即票面「契约（冻结）」节，也是 `src/contract/types.ts` 的导出；03/05/06 直接消费 `ctx.agentRegistry`。**成员名以「修复轮」为准**：`AgentDefinition.agentName` / `AgentDefinition.body` / `AgentDiagnostic.agentName`（`id` 只留给已废弃的 frontmatter 键）。03 票动工前需按本轮语义同步其「modelOrder 条目为 raw」旧读法（链 = 别名在前、`model` 兜底在后）。
 
 ### 修复轮（/code-review 两轴 + /implement，2026-10-15）
 
@@ -209,10 +209,10 @@ export interface AgentDefinition {
 
 **接受为偏差 / 记为债务（不阻塞关闭）**
 
-- **(a)1 未缩进的块序列**（合法 YAML 的 `model:` + 顶格 `- {…}`）按 `unparseable-frontmatter` 处理。spec §5.1 的示例形状是缩进块，D23 只承诺最小子集 ⇒ 接受为限制；将来若要收，动 `src/frontmatter.ts` 的 `INDENTED_RE` 块收集逻辑。
+- **(a)1 未缩进的块序列**（合法 YAML 的 `model:` + 顶格 `- {…}`）按 `unparseable-frontmatter` 处理。spec §5.1 的示例形状是缩进块，D23 只承诺最小子集 ⇒ 接受为限制；将来若要收，动 `src/core/catalog/frontmatter.ts` 的 `INDENTED_RE` 块收集逻辑。
 - **`CUSTOM_RANK` 死导出**：范围第 1 条明写「CUSTOM 300 预留」⇒ 有意保留（原生 `roots()` 亦恒推入 custom 目录）。
 - **`AgentRoot.rank` 写而不读**：rank 常量值照抄原生根表（ADR-0001），保留字段让根表一眼可对；实际顺序来自数组序。
-- **`source`/`origin`/`trusted` 共变、`src/frontmatter.ts` 双职责、三个手写引号扫描器**：判断项坏味道；解析器小而测得住，重构收益/回归风险不划算，记为债务（若要收，先补 frontmatter 边界例）。
+- **`source`/`origin`/`trusted` 共变、`src/core/catalog/frontmatter.ts` 双职责、三个手写引号扫描器**：判断项坏味道；解析器小而测得住，重构收益/回归风险不划算，记为债务（若要收，先补 frontmatter 边界例）。
 - **`src/index.ts` 多导出的内部件、`@types/node` devDependency**：前者供测试与下游直接引用，后者是源码类型所需（运行时依赖仍为空），均保留。
 
 **修复轮证据**：`npm run build` + `npm run check` 全绿（4 文件 46 用例 / 44 锚点 / typecheck / 运行时零依赖）。构建产物真机 smoke（`lib/index.js` + 真实 Cordis `Context`，`DSH_HOME`/`DSH_AGENTS_HOME` 指向临时 home）：`apply` 后服务面 = `diagnostics,get,invalidate,list`；`get('default')` → `{agentName:'default', name:'默认', source:'bundled', origin:'built-in', modelOrder:['dsh-default'], body:''}`；`list()` → 只有 `default@bundled`；`diagnostics()` → `[]`；`ctx.get('skills')` → `undefined`；`lib/*.js` 只 import `node:` 与包内相对路径。
@@ -221,7 +221,7 @@ export interface AgentDefinition {
 
 > *This was generated by AI during implementation.*
 
-**Standards 复评**：第 1–4 项 RESOLVED（`agentName`/`body` 改名、每查询单次 `findProjectRoot`、根 `README.md` + `package.json` 描述更新）；第 5–8 项维持「已记债务」。本轮再收两处残留：服务实现里 `get` 的参数名 `id` → `agentName`；`bundled/README.md` 末段「scaffold only…」自相矛盾句改写。仍留的文档标准判断项：诊断码 `reserved-id`（票面范围第 5 条冻结的 7 个 code 之一，改它要动 05 的呈现面 ⇒ 保留）与 `src/frontmatter.ts` 三个守卫正则的轻微漂移（`/^[|>&*!%]/` vs `/^[[{|>&*!]/` vs `/^[[|>&*!]/`；上下文差异是有意的，但 `%`/`}` 不齐属邋遢 ⇒ 记债务，收前先补边界例）。
+**Standards 复评**：第 1–4 项 RESOLVED（`agentName`/`body` 改名、每查询单次 `findProjectRoot`、根 `README.md` + `package.json` 描述更新）；第 5–8 项维持「已记债务」。本轮再收两处残留：服务实现里 `get` 的参数名 `id` → `agentName`；`bundled/README.md` 末段「scaffold only…」自相矛盾句改写。仍留的文档标准判断项：诊断码 `reserved-id`（票面范围第 5 条冻结的 7 个 code 之一，改它要动 05 的呈现面 ⇒ 保留）与 `src/core/catalog/frontmatter.ts` 三个守卫正则的轻微漂移（`/^[|>&*!%]/` vs `/^[[{|>&*!]/` vs `/^[[|>&*!]/`；上下文差异是有意的，但 `%`/`}` 不齐属邋遢 ⇒ 记债务，收前先补边界例）。
 
 **Spec 复评**：a2 / b3 / c1 / c2 / c3 全部 RESOLVED，零回归；a1（未缩进块序列）、b1（`@types/node`）、b2（`src/index.ts` 多导出内部件——测试与下游直接引用）维持「接受 / 已记」。本轮新增处置三条：
 

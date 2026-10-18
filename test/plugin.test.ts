@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 
 import { AGENT_REGISTRY_SERVICE, ALIAS_REGISTRY_SERVICE, apply } from '../src/index.ts'
-import type { AgentRegistry, AliasRegistry } from '../src/types.ts'
+import type { AgentRegistry, AliasRegistry } from '../src/contract/types.ts'
 
 async function mounted(): Promise<{ ctx: Context; registry: AgentRegistry; aliasRegistry: AliasRegistry }> {
   const ctx = new Context()

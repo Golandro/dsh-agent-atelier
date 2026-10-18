@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { readRegistryLayer, DEFAULT_ALIAS_NAME } from '../src/registry-file.ts'
+import { readRegistryLayer, DEFAULT_ALIAS_NAME } from '../src/core/catalog/registry-file.ts'
 
 /** The spec §5.2 example: block and flow entries, comments, a quoted sysPrompt. */
 const SPEC_LAYER = `models:                        # 真实模型条目：调优层挂这里（D6）

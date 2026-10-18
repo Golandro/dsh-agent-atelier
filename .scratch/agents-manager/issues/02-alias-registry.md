@@ -14,7 +14,7 @@ Blocked by: 10（`10` 已于 2026-10-14 `resolved` ⇒ 本票现可开工）
    - `dsh-default:` 内置别名，**装载时**从 DSH 子代理默认对读取（懒装载快照，`invalidate()` 后重读——D24 同构；原「启动时」措辞按裁决 Q1 修订，2026-10-15）。目标 = 与默认对 provider+model 相等的已声明 models 条目（多个条目同 pair ⇒ 合并结果稳定序第一个），无匹配 ⇒ **隐式合成条目**（无 sysPrompt、`available: true`）——保「别名=纯指针」不变式（裁决 Q2）。运行时读取面 = Cordis 服务 `ctx.agentDefaultModel` 的 `currentSelection()`（不可 import 原生包，ADR-0001；该服务已装配进本 profile；锚点 `core/agent-default-model/src/index.ts:24` 为其 Config 定义）。
 2. **合并规则**：profile 全局（`$DSH_HOME/agents/registry.yaml`）+ workspace（`$WORKSPACE/.dsh/agents/registry.yaml`）覆盖合并；别名/模型同名 workspace 胜。**错误面（裁决 Q4）**：某层文件解析/校验失败 ⇒ 该层弃用 + 诊断记录，另一层照常参与合并；两层全坏 ⇒ 空注册表（只含 dsh-default）+ 诊断（软诊断，D21 同构，无硬错）。
 3. **校验与 lint**（spec §8；产出一律为 finding 数据，不在 02 运行时硬抛）：
-   - modelOrder 引用不存在的别名 = **错误级 finding**（裁决 Q5）：跨层校验以**纯函数**提供——agent 的 `modelOrder`/`model` 数组作入参注入（01 已交付 `src/types.ts:64-66`），02 不扫 agent 根、不消费 `ctx.agentRegistry`；运行时硬错仍归 03 的链耗尽（D8）。逃逸口只指 raw `{provider,model}` 条目，见 03。
+   - modelOrder 引用不存在的别名 = **错误级 finding**（裁决 Q5）：跨层校验以**纯函数**提供——agent 的 `modelOrder`/`model` 数组作入参注入（01 已交付 `src/contract/types.ts:64-66`），02 不扫 agent 根、不消费 `ctx.agentRegistry`；运行时硬错仍归 03 的链耗尽（D8）。逃逸口只指 raw `{provider,model}` 条目，见 03。
    - `dsh-default` 为**保留字**（裁决 Q3）：用户在 registry.yaml 写它 ⇒ 校验错误（与 agent `default` 保留字同构）。
    - 多别名同指一模型 = lint 提示（允许）。
    - raw 条目建议 lint："建议改用别名"。
@@ -119,7 +119,7 @@ export interface AliasFinding {
 - 锚点核验：`core/agent-default-model/src/index.ts:24` 经 DSH 源码树（`~/repo/deepseek-harness`）解析成功，`:24` 恰为 `export interface Config {`（provider/model/reasoningEffort 三个 Volatile 字段）⇒ 锚点有效无漂移。
 - **运行时读取面（票面未写，实施必读）**：本插件不能 import 该包（ADR-0001 import 边界）；live 读取面是 Cordis 服务 `ctx.agentDefaultModel` 的 `currentSelection(): {provider, model, reasoningEffort?}`。该服务已装配进本 profile（`~/.dsh/profiles/web/cordis.patch.yml` 第 49-52 行，当前默认对 = `volcengine-plan` / `glm-5.3`，无 reasoningEffort）。
 - 解析器能力边界：`src/frontmatter.ts`（D23 最小 YAML 子集）只覆盖围栏文档 + 标量/引号串/字符串数组/双键 `{provider, model}` 流映射；registry.yaml 需要**布尔**（`available`）、**两层块映射**（models→条目→字段）、**四键流映射**（spec §5.2 示例的 `{provider, model, sysPrompt, available}`）⇒ 需为本票新写最小解析器（D23 原则；零运行时依赖由 `scripts/check.mjs` 的 bundle 项强制，`yaml` 包不可用）。
-- 跨层校验输入已就绪：01 交付的 `AgentDefinition.modelOrder` / `model` 字段（`src/types.ts:64-66`）即「modelOrder 引用不存在的别名」校验所需输入。
+- 跨层校验输入已就绪：01 交付的 `AgentDefinition.modelOrder` / `model` 字段（`src/contract/types.ts:64-66`）即「modelOrder 引用不存在的别名」校验所需输入。
 - `.out-of-scope/` 不存在 ⇒ 无历史拒绝记录可比对。
 - 现状守卫：`npm run check` 全绿（44 锚点 / 46 用例 / build 新鲜 / 运行时零依赖）。
 
@@ -179,7 +179,7 @@ Status 维持 `ready-for-agent`，本票可开工；agent brief 挂票（见下�
 
 - `ctx.agentDefaultModel` 服务键与 `currentSelection()` 签名在 `core/agent-default-model/src/index.ts:67` 核对：同步、返回 `{provider, model, reasoningEffort?}`、不抛。本 profile 的 patch 里该服务带 `provider: volcengine-plan` / `model: glm-5.3`，故真机上默认对可读。
 - 服务键 `aliasRegistry` 在 DSH 源码、装好的 dsh lib bundle、profile patch 三处 grep 均无占用。本会话没有 `cordis_inspect_query` 工具，故未走 harness-facts 推荐的 `listService` 探针——该探针按 harness-facts 本身也照不到 plain-object service。
-- 票面锚点漂移由守卫 anchors 项兜住（50 处全解析，含本票新增的 `core/agent-default-model/src/index.ts:24`、`src/types.ts:64-66`、`agent-control-prototype.html:209`）。
+- 票面锚点漂移由守卫 anchors 项兜住（50 处全解析，含本票新增的 `core/agent-default-model/src/index.ts:24`、`src/contract/types.ts:64-66`、`agent-control-prototype.html:209`）。
 
 **两轴 `/code-review`**：fixed point `5bfa19b` ⇒ `git diff 5bfa19b...HEAD` 只含本票那一笔（`85fa97d`）；两轴各跑一个子代理（`deepseek-official/deepseek-flash`）。
 
@@ -228,7 +228,7 @@ Status 维持 `ready-for-agent`，本票可开工；agent brief 挂票（见下�
 **Key interfaces:**
 - 服务键 `aliasRegistry`（原生无占用，已核验 2026-10-15；参照 01 避开 `agents` 的教训）。
 - `ctx.agentDefaultModel.currentSelection(): {provider, model, reasoningEffort?}`——默认对读取面（ADR-0001：不可 import 原生包）。
-- 跨层校验纯函数入参：`AgentDefinition.modelOrder` / `model`（`src/types.ts:64-66`，01 已交付）。
+- 跨层校验纯函数入参：`AgentDefinition.modelOrder` / `model`（`src/contract/types.ts:64-66`，01 已交付）。
 - 原型领域参照：`agent-control-prototype.html:209`（REAL_MODELS 条目）与 `:266`（aliases 映射）——注意原型别名是字符串单目标，v1 schema 是单目标数组；`resolveModel`（`:282-285`）属 03 的规格参照，不在本票。
 - 契约（读面形状 / finding 类型）实施期冻结并回写本票（01 票 Q4 先例）。
 

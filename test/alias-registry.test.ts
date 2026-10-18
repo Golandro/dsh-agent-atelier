@@ -4,10 +4,10 @@ import { dirname, join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { createAliasRegistryService, inspectAliasRegistry, type AliasRegistryDependencies } from '../src/alias-registry.ts'
-import { createNodeFileSystem } from '../src/file-system.ts'
-import { DEFAULT_ALIAS_NAME } from '../src/registry-file.ts'
-import type { AgentModelTarget, AliasDefinition, AliasRegistrySnapshot, ModelDefinition } from '../src/types.ts'
+import { createAliasRegistryService, inspectAliasRegistry, type AliasRegistryDependencies } from '../src/core/catalog/alias-registry.ts'
+import { createNodeFileSystem } from '../src/providers/fs/index.ts'
+import { DEFAULT_ALIAS_NAME } from '../src/core/catalog/registry-file.ts'
+import type { AgentModelTarget, AliasDefinition, AliasRegistrySnapshot, ModelDefinition } from '../src/contract/types.ts'
 
 const tempDirs: string[] = []
 
@@ -46,8 +46,8 @@ function projectLayerPath(workspace: string): string {
 }
 
 /** A service whose global layer lives in a throwaway home, never the machine's. */
-function service(home: string, dependencies: AliasRegistryDependencies = {}) {
-  return createAliasRegistryService(dependencies, { dshHome: home })
+function service(home: string, dependencies: Partial<AliasRegistryDependencies> = {}) {
+  return createAliasRegistryService({ nodeFileSystem: createNodeFileSystem(), ...dependencies }, { dshHome: home })
 }
 
 const USER_LAYER = `models:
@@ -230,6 +230,7 @@ describe('the alias registry read model', () => {
     let reads = 0
     const node = createNodeFileSystem()
     const registry = service(home, {
+      nodeFileSystem: node,
       resolveFileSystem: () => ({
         ...node,
         readTextFile: async (path, signal) => {
@@ -256,6 +257,7 @@ describe('the alias registry read model', () => {
   it('reads through the host fs service when the context has one', async () => {
     const home = homeDir()
     const registry = service(home, {
+      nodeFileSystem: createNodeFileSystem(),
       resolveFileSystem: () => ({
         listDirectory: async () => [],
         pathExists: async () => true,

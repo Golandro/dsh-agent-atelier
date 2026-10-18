@@ -8,6 +8,7 @@
  *   build      `lib/` 必须存在且不旧于 `src/`（profile 装的是 lib/，不是 src/）
  *   bundle     `package.json` 运行时依赖不得含 `@deepseek-ai/*` 宿主包（ADR-0001 import 边界，宿主共享实例走 peer+dev；第三方库允许——2026-10-17 维护者裁决，install_bundle 随装入解析）
  *   deps       声明的每个 devDependency 必须已安装
+ *   matrix     src/ 的 import 矩阵（ticket 16）：跨层只准公共入口；`@deepseek-ai/*` 只在 dsh/host 且 type-only；node:fs 只在 providers/dsh
  *   anchors    `.scratch`/`docs` 里每一处 `path:line` 断言都必须能解析且行号在范围内
  *
  * 用法：`npm run check`（全量）| `npm run check:static`（只跑本脚本）| `--self-test`
@@ -80,6 +81,91 @@ export function hostRuntimeDeps(pkg) {
 /** 声明了但没装的 devDependency */
 export function missingDevDeps(pkg, root = ROOT) {
   return Object.keys(pkg.devDependencies ?? {}).filter((dep) => !existsSync(join(root, 'node_modules', dep)))
+}
+
+/** 公共入口：跨层 import 只准落在这些文件上（ticket 16 的矩阵白名单）。 */
+export const PUBLIC_ENTRIES = [
+  'src/contract/index.ts',
+  'src/core/index.ts',
+  'src/core/ports.ts',
+  'src/providers/fs/index.ts',
+  'src/dsh/host/index.ts',
+]
+
+/**
+ * 每层的依赖面：`dir` 内部深引用随便；跨层只准 `entries`；
+ * `node` 列出允许的 `node:` 模块（true = 全部）；`cordis` = 允许 `@deepseek-ai/cordis`
+ * 且仅 type-only（Q5 的运行期 `Service` 例外在 P2 生效）。
+ */
+const IMPORT_MATRIX = [
+  { name: 'contract', dir: 'src/contract/', entries: [], node: [], cordis: false },
+  { name: 'core', dir: 'src/core/', entries: ['src/contract/index.ts'], node: ['node:path', 'node:os'], cordis: false },
+  { name: 'providers', dir: 'src/providers/', entries: ['src/contract/index.ts', 'src/core/index.ts', 'src/core/ports.ts'], node: true, cordis: false },
+  { name: 'dsh', dir: 'src/dsh/', entries: ['src/contract/index.ts', 'src/core/index.ts', 'src/core/ports.ts', 'src/providers/fs/index.ts'], node: true, cordis: true },
+  { name: 'entry', dir: null, entries: PUBLIC_ENTRIES, node: [], cordis: false },
+]
+
+/** 扫一个文件的 import：静态（head 行 `import type`/`export type` 判 type-only）、副作用、动态。 */
+export function scanImports(text) {
+  const lines = text.split('\n')
+  const out = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    for (const m of line.matchAll(/import\(\s*['"]([^'"]+)['"]/g)) out.push({ line: index + 1, source: m[1], runtime: true })
+    const sideEffect = /^import\s+['"]([^'"]+)['"]/.exec(line)
+    if (sideEffect !== null) {
+      out.push({ line: index + 1, source: sideEffect[1], runtime: true })
+      continue
+    }
+    const from = /\sfrom\s*['"]([^'"]+)['"]/.exec(line)
+    if (from === null) continue
+    let head = index
+    while (head > 0 && !/^\s*(?:import|export)\b/.test(lines[head])) head -= 1
+    const typeOnly = /^\s*(?:import|export)\s+type\b/.test(lines[head] ?? '')
+    out.push({ line: index + 1, source: from[1], runtime: !typeOnly })
+  }
+  return out
+}
+
+/** src/ 文件属于哪一层；不在任何层返回 undefined（本身就是要报的问题）。 */
+function layerOf(file) {
+  for (const layer of IMPORT_MATRIX) {
+    if (layer.dir === null ? file === 'src/index.ts' : file.startsWith(layer.dir)) return layer
+  }
+  return undefined
+}
+
+/** import 矩阵判定（ticket 16）。@returns {string[]} 违规清单，每条 `矩阵：<file>:<line> …` */
+export function checkImportMatrix(root = ROOT) {
+  const problems = []
+  const srcDir = join(root, 'src')
+  for (const file of listFiles(srcDir, srcDir).filter((f) => f.endsWith('.ts')).sort()) {
+    const rel = `src/${file}`
+    const layer = layerOf(rel)
+    if (layer === undefined) {
+      problems.push(`矩阵：${rel} 不在任何层（contract/core/providers/dsh，或入口 src/index.ts）`)
+      continue
+    }
+    for (const imp of scanImports(readFileSync(join(srcDir, file), 'utf8'))) {
+      const where = `${rel}:${imp.line}`
+      const source = imp.source
+      if (source.startsWith('.')) {
+        const target = `src/${relative(srcDir, resolve(srcDir, dirname(file), source)).split('\\').join('/')}`
+        const within = layer.dir !== null && target.startsWith(layer.dir)
+        if (within || layer.entries.includes(target)) continue
+        problems.push(`矩阵：${where} 相对引用 "${source}" 越层（${layer.name} 层跨层只准 ${layer.entries.join(', ') || '无'}）`)
+      } else if (source.startsWith('node:')) {
+        if (layer.node !== true && !layer.node.includes(source)) {
+          problems.push(`矩阵：${where} 引用 "${source}"（${layer.name} 层只准 ${Array.isArray(layer.node) && layer.node.length > 0 ? layer.node.join('/') : '无 node:'}）`)
+        }
+      } else if (layer.cordis && source === '@deepseek-ai/cordis') {
+        if (imp.runtime) problems.push(`矩阵：${where} 运行期引用 "${source}"（dsh 层本票只准 type-only，Q5 的运行期例外在 P2）`)
+      } else {
+        problems.push(`矩阵：${where} 引用外部包 "${source}"（${layer.name} 层不准依赖任何包）`)
+      }
+    }
+  }
+  return problems
 }
 
 /** 从 markdown 文本抽取 `path:line` 断言 */
@@ -159,6 +245,40 @@ function selfTest() {
     writeFileSync(join(tmp, 'packages', 'a', 'x.ts'), '\n\n')
     writeFileSync(join(tmp, 'packages', 'b', 'x.ts'), '\n\n')
     check('resolveAnchor 对同名多命中报 ambiguous', resolveAnchor({ path: 'x.ts', line: 1 }, { root: tmp, dshSource: tmp }).status === 'ambiguous')
+
+    // import 矩阵：干净的四层树零违规；七种合成越界都必须报错（ticket 16）。
+    const mtmp = mkdtempSync(join(tmpdir(), 'check-matrix-'))
+    try {
+      const put = (file, content) => {
+        mkdirSync(dirname(join(mtmp, file)), { recursive: true })
+        writeFileSync(join(mtmp, file), content)
+      }
+      put('src/contract/types.ts', 'export interface A { a: string }\n')
+      put('src/contract/index.ts', 'export * from \'./types.ts\'\n')
+      put('src/core/ports.ts', 'export interface P { p: string }\n')
+      put('src/core/catalog/inner.ts', 'import type { A } from \'../../contract/index.ts\'\nimport { join } from \'node:path\'\nexport function f(): string { return join(\'a\', \'b\') }\n')
+      put('src/core/index.ts', 'export * from \'./ports.ts\'\nexport * from \'./catalog/inner.ts\'\n')
+      put('src/providers/fs/node.ts', 'import { readFile } from \'node:fs/promises\'\nimport type { P } from \'../../core/ports.ts\'\nexport function r(): Promise<unknown> { return readFile(\'x\') }\n')
+      put('src/providers/fs/index.ts', 'export * from \'./node.ts\'\n')
+      put('src/dsh/host/plugin.ts', 'import type { Context } from \'@deepseek-ai/cordis\'\nimport { r } from \'../../providers/fs/index.ts\'\nexport function apply(ctx: Context): void { void r }\n')
+      put('src/dsh/host/index.ts', 'export * from \'./plugin.ts\'\n')
+      put('src/index.ts', 'export { A } from \'./contract/index.ts\'\n')
+      check('matrix 干净四层树应零违规', checkImportMatrix(mtmp).length === 0)
+      const violation = (name, file, content, needle) => {
+        put(file, content)
+        check(name, checkImportMatrix(mtmp).some((p) => p.includes(needle)))
+      }
+      violation('matrix core+node:fs 应报错', 'src/core/catalog/bad-fs.ts', 'import { readFileSync } from \'node:fs\'\n', 'bad-fs.ts:1')
+      violation('matrix core 走 providers 深路径应报错', 'src/core/catalog/bad-deep.ts', 'import { r } from \'../../../providers/fs/index.ts\'\n', 'bad-deep.ts:1')
+      violation('matrix providers type-only cordis 应报错', 'src/providers/fs/bad-cordis.ts', 'import type { Context } from \'@deepseek-ai/cordis\'\n', 'bad-cordis.ts:1')
+      violation('matrix dsh 运行期 cordis 应报错', 'src/dsh/host/bad-runtime.ts', 'import { Context } from \'@deepseek-ai/cordis\'\n', 'bad-runtime.ts:1')
+      violation('matrix contract 任何 import 应报错', 'src/contract/bad-import.ts', 'import type { P } from \'../core/ports.ts\'\n', 'bad-import.ts:1')
+      violation('matrix dsh 走 core 深路径应报错', 'src/dsh/host/bad-core-deep.ts', 'import { f } from \'../../core/catalog/inner.ts\'\n', 'bad-core-deep.ts:1')
+      put('src/index.ts', 'export { f } from \'./core/catalog/inner.ts\'\n')
+      check('matrix 入口走深路径应报错', checkImportMatrix(mtmp).some((p) => p.includes('src/index.ts:1')))
+    } finally {
+      rmSync(mtmp, { recursive: true, force: true })
+    }
   } finally {
     rmSync(tmp, { recursive: true, force: true })
   }
@@ -189,6 +309,10 @@ function main() {
 
   const missingDeps = missingDevDeps(pkg)
   if (missingDeps.length > 0) problems.push(`devDependency 未安装：${missingDeps.join(', ')} → 跑 \`pnpm install\`（沙箱内注意 store 陷阱，见 docs/agents/harness-facts.md）`)
+
+  const matrix = checkImportMatrix()
+  console.log(matrix.length === 0 ? '  ✓ import 矩阵：四层依赖方向零违规' : `  ✗ import 矩阵：${matrix.length} 处违规`)
+  problems.push(...matrix)
 
   const anchors = collectAnchors()
   const dshMissing = !existsSync(DSH_SOURCE)

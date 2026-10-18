@@ -15,7 +15,7 @@ assembly belong to tickets 03–07.
 | --- | --- |
 | Package | `dsh-plugin-agents-manager` |
 | Bundle patch | `cordis.patch.yml` (`insert:` one Host row) |
-| Host entry | `apply(ctx)` in `src/index.ts` |
+| Host entry | `apply(ctx)` in `src/dsh/host/plugin.ts` (re-exported by the compat entry `src/index.ts`) |
 | Service key | `agentRegistry` |
 | Service face | `list(options)` / `get(agentName, options)` / `diagnostics(options)` / `invalidate()` |
 | Document layout | `<root>/<agent-name>/<agent-name>.agent.md` (ADR-0002) |
@@ -62,9 +62,10 @@ This repo has no CI and no remote, so `scripts/check.mjs` runs from
 `npm run check` and from `.githooks/pre-commit`. It fails on: a leftover probe
 directory (`.probe/` is gitignored, so `git status` stays silent about it), a
 `lib/` older than `src/`, a runtime `dependency` (this package is symlinked into
-the profile and must stay dependency-free), an uninstalled `devDependency`, and
-a `path:line` anchor in `.scratch/` or `docs/` that no longer resolves. Wire the
-hook once per clone:
+the profile and must stay dependency-free), an uninstalled `devDependency`, a
+`src/` import that crosses layers outside the public entries (the ticket-16
+import matrix), and a `path:line` anchor in `.scratch/` or `docs/` that no
+longer resolves. Wire the hook once per clone:
 
 ```bash
 git config core.hooksPath .githooks

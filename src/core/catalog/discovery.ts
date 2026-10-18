@@ -12,7 +12,7 @@
  */
 import { join, resolve } from 'node:path'
 
-import { createNodeFileSystem, type AgentDirEntry, type AgentFileSystem } from './file-system.ts'
+import type { AgentDirEntry, AgentFileSystem } from '../ports.ts'
 import { parseAgentDocument } from './frontmatter.ts'
 import { createLazyLoad } from './lazy-load.ts'
 import { createAgentRegistry, type AgentDefinitionContainer } from './registry.ts'
@@ -25,7 +25,7 @@ import type {
   AgentOrigin,
   AgentRegistry,
   AgentSource,
-} from './types.ts'
+} from '../../contract/index.ts'
 
 /** Project-level root inside the workspace's `.dsh` directory. */
 export const PROJECT_DSH_RANK = 100
@@ -70,6 +70,11 @@ export interface AgentRegistryDependencies {
    * `optionalFileSystem(ctx)` read (`skill/skill-filesystem/src/index.ts:849`).
    */
   readonly resolveFileSystem?: (() => AgentFileSystem | undefined) | undefined
+  /**
+   * Node filesystem used for trusted roots — read directly, like the native
+   * `trustedHost` path — and as the fallback when no host `fs` port resolves.
+   */
+  readonly nodeFileSystem: AgentFileSystem
   /** Diagnostic sink; `undefined` discards the log line. */
   readonly warn?: ((message: string) => void) | undefined
 }
@@ -115,10 +120,10 @@ interface EntryResult {
  * queries share the in-flight scan.
  */
 export function createAgentRegistryService(
-  dependencies: AgentRegistryDependencies = {},
+  dependencies: AgentRegistryDependencies,
   options: AgentRegistryOptions = {},
 ): AgentRegistry {
-  const nodeFileSystem = createNodeFileSystem()
+  const nodeFileSystem = dependencies.nodeFileSystem
   const resolveHostFileSystem = dependencies.resolveFileSystem
   const warn = dependencies.warn ?? (() => {})
   const env = options.env ?? process.env

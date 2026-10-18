@@ -20,7 +20,7 @@ Blocked by: 11
    - `POST /agents-manager/registry` `{ edit }` → registry 写结果（判别联合与 11 一致）
    - `POST /agents-manager/invalidate` → 重读（D24；无 watcher）
    上限：请求体大小、单次 edits 数量；响应里带 `cwd` 与扫描代号，防串台。
-2. **宿主侧**：`ctx.webServer` exact route（05 Q3-A）；handler 只做「校验入参 → 调 11 的核心 → 序列化结果」，不重复领域规则；读走 `ctx.agentRegistry`（`src/types.ts:112`）与 `ctx.aliasRegistry`（`src/types.ts:219`）；`@deepseek-ai/*` 一律不 import（ADR-0001）。
+2. **宿主侧**：`ctx.webServer` exact route（05 Q3-A）；handler 只做「校验入参 → 调 11 的核心 → 序列化结果」，不重复领域规则；读走 `ctx.agentRegistry`（`src/contract/types.ts:112`）与 `ctx.aliasRegistry`（`src/contract/types.ts:219`）；`@deepseek-ai/*` 一律不 import（ADR-0001）。
 3. **client 侧**：fetch 适配器实现与内存适配器**同一接口**；`settings.section` 整页注册（05 brief 的双面面包：`dsh.client` ＋ `exports['./client']` ＋ 构建产物）；页面加载/失败/重试状态。
 4. **错误语义**（逐条有测试或手测记录）：
    - `400` — 逐条 edit 的拒绝原因（未知块、跨 agent 块、字段越界）
@@ -45,7 +45,7 @@ Blocked by: 11
 ## 已知约束
 
 - **复用现成 wire 形状**：写入结果用原型已经定过的 `FileWrite` 形状（`prototype/settings-ui/src/types.ts` 的 `FileWrite` ＋ `model.ts` 的 `saveWrites` 语义），别新造第二套；`plan` 返回的每文件 `content` 让客户端不必知道块→文件路由。
-- **两个必删项（否则两份真相）**：① UI 侧的层合并重算（原型 `model.ts` 行 137–148）——宿主 `ctx.aliasRegistry.getAlias` / `getModel`（`src/types.ts:219`）已解析层；② 客户端按 `block.kind` 的写路由（原型 `App.tsx` 行 135–149）——改由宿主 `plan`/`commit` 决定。
+- **两个必删项（否则两份真相）**：① UI 侧的层合并重算（原型 `model.ts` 行 137–148）——宿主 `ctx.aliasRegistry.getAlias` / `getModel`（`src/contract/types.ts:219`）已解析层；② 客户端按 `block.kind` 的写路由（原型 `App.tsx` 行 135–149）——改由宿主 `plan`/`commit` 决定。
 - **键对齐**：v1 无切片，原型的 `clip-${name}` 存储编码不进 route；`EntityKey` seam 只保留 entry / registry 键（见 11 票）。
 - **不新建 Remote 命名空间**（strict codec ＋ Typert monorepo 布局缺口，05 票 out of scope）；只用 `ctx.webServer` exact route ＋ client fetch。宿主读面已 provide 但 **HTTP 投影不存在**（`cordis_inspect_query` 读不到 plain-object service，见 `docs/agents/harness-facts.md`）⇒ 本票第一件产物是宿主 side route，不是改 UI。
 - 依赖归置：client 第三方库走 bundle 内容（tsdown 内联／shell platform 表），与宿主共享实例的 dsh 包走 peer ＋ dev；沙箱内不改依赖（敏感操作，见 `docs/agents/harness-facts.md`）。

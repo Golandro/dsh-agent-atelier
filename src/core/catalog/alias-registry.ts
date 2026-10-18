@@ -20,7 +20,7 @@
  */
 import { join, resolve } from 'node:path'
 
-import { createNodeFileSystem, type AgentFileSystem } from './file-system.ts'
+import type { AgentFileSystem } from '../ports.ts'
 import { createLazyLoad } from './lazy-load.ts'
 import { DEFAULT_ALIAS_NAME, readRegistryLayer } from './registry-file.ts'
 import { findProjectRoot, resolveDshHome } from './roots.ts'
@@ -35,7 +35,7 @@ import type {
   AliasRegistrySnapshot,
   AliasRegistrySource,
   ModelDefinition,
-} from './types.ts'
+} from '../../contract/index.ts'
 
 /** File name of a registry layer inside an agents directory (spec §5.2). */
 export const REGISTRY_FILE_NAME = 'registry.yaml'
@@ -49,6 +49,11 @@ export interface AliasRegistryDependencies {
    * `optionalFileSystem(ctx)` read (`skill/skill-filesystem/src/index.ts:849`).
    */
   readonly resolveFileSystem?: (() => AgentFileSystem | undefined) | undefined
+  /**
+   * Node filesystem used as the fallback when no host `fs` port resolves;
+   * every registry layer is user content, so none of them bypasses the host.
+   */
+  readonly nodeFileSystem: AgentFileSystem
   /**
    * Reads the DSH sub-agent default pair. Called once per load, so the built-in
    * alias is a load-time snapshot that only `invalidate()` refreshes (triage
@@ -88,10 +93,10 @@ interface AliasLayer {
  * queries share the in-flight load.
  */
 export function createAliasRegistryService(
-  dependencies: AliasRegistryDependencies = {},
+  dependencies: AliasRegistryDependencies,
   options: AliasRegistryOptions = {},
 ): AliasRegistry {
-  const nodeFileSystem = createNodeFileSystem()
+  const nodeFileSystem = dependencies.nodeFileSystem
   const resolveHostFileSystem = dependencies.resolveFileSystem
   const readDefaultPair = dependencies.readDefaultPair
   const warn = dependencies.warn ?? (() => {})

@@ -8,11 +8,11 @@ import {
   AgentDocumentError,
   createAgentRegistryService,
   type AgentRegistryOptions,
-} from '../src/discovery.ts'
-import { findProjectRoot, resolveAgentsHome, resolveDshHome } from '../src/roots.ts'
-import type { AgentFileSystem } from '../src/file-system.ts'
-import { createNodeFileSystem } from '../src/file-system.ts'
-import type { AgentDefinition, AgentDiagnostic } from '../src/types.ts'
+} from '../src/core/catalog/discovery.ts'
+import { findProjectRoot, resolveAgentsHome, resolveDshHome } from '../src/core/catalog/roots.ts'
+import type { AgentFileSystem } from '../src/core/ports.ts'
+import { createNodeFileSystem } from '../src/providers/fs/index.ts'
+import type { AgentDefinition, AgentDiagnostic } from '../src/contract/types.ts'
 
 let tmp = ''
 
@@ -65,6 +65,7 @@ function harness(overrides: Partial<AgentRegistryOptions> = {}, resolveFileSyste
   const warnings: string[] = []
   const registry = createAgentRegistryService(
     {
+      nodeFileSystem: createNodeFileSystem(),
       warn: (message) => warnings.push(message),
       ...(resolveFileSystem !== undefined ? { resolveFileSystem } : {}),
     },
@@ -279,7 +280,7 @@ describe('agent document layout', () => {
 
 describe('bundled root trust', () => {
   it('loads the shipped default through the same document pipeline', async () => {
-    const registry = createAgentRegistryService({}, {
+    const registry = createAgentRegistryService({ nodeFileSystem: createNodeFileSystem() }, {
       dshHome: join(tmp, 'homes', 'dsh'),
       agentsHome: join(tmp, 'homes', 'agents'),
       env: {},

@@ -16,7 +16,7 @@
  */
 import { flowInner, splitTopLevel, stripComment, unquote } from './yaml-scalar.ts'
 
-import type { AgentModelTarget } from './types.ts'
+import type { AgentModelTarget } from '../../contract/index.ts'
 
 /** Typed view of a document's frontmatter block. */
 export interface AgentFrontmatter {

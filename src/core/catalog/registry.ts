@@ -12,7 +12,7 @@
  * surface for focused unit tests, while the service face is the frozen
  * `AgentRegistry` contract and has no `size`.
  */
-import type { AgentDefinition } from './types.ts'
+import type { AgentDefinition } from '../../contract/index.ts'
 
 /**
  * Storage for discovered definitions, addressable by agent name.
