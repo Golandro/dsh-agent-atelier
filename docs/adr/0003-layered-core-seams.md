@@ -1,18 +1,19 @@
-# 0003 — Core 按层隔离，端口/适配器插件化，不做运行期插件加载
+# 0003 — Core 按层隔离，跨 bundle 能力经 Cordis 服务组合
 
-包内按六层隔离：`contract`（types only）、`core`（目录 / 编排 / 写面）、`providers`（来源与写入适配器）、`dsh`（宿主 / 浏览器连接器）、`ui-core`（界面核心）、`ui-react`（React 组件库）。依赖单向指向 `contract`；宿主翼（core ＋ providers）与界面翼（ui-core ＋ ui-react）不共享实现，只共享 `contract`，wire 是它的投影。跨层只准走对方 `index.ts`，由 `scripts/check.mjs` 的 import 矩阵强制执行。插件化的单位是**一个可安装的 Cordis bundle**，不是每一层：运行期 provider 注册只在「第三方 provider 或跨 harness 适配器 ≥ 2」时做；物理拆 workspace 包只在构建 / 复用触发时做。详见 `docs/core-design.md`。本 ADR 只定边界与升级方向，不改 01/02 冻结读面、11 的 6 成员与 12 的 wire 语义。
+包内按六层隔离：`contract`（types only）、`core`（目录 / 编排 / 写面）、`providers`（来源与写入适配器）、`dsh`（宿主 / 浏览器连接器）、`ui-core`（界面核心）、`ui-react`（React 组件库）。依赖单向指向 `contract`；宿主翼与界面翼不共享实现，只共享 `contract`，wire 是它的投影。跨 bundle 的能力一律做成 Cordis 服务：`agentProviders`（provider 注册表）、`agentRegistry` / `aliasRegistry`（已冻结读面）、`agentOrchestrator`（编排）、`agentControl`（写面）；纯算法、sink、UI 内部 module 不 provide。Provider 实例由 provider bundle 通过 `ctx.agentProviders.registerAgentProvider(...)` 注册（镜像原生 `ctx.skills.registerProvider`），core 的 catalogs 只消费注册表，不认识具体 provider 包。使用 Cordis 的 `inject` / `ctx.get` / `ctx.provide` / `ctx.effect` / `ctx.on`；不造自定义插件加载器。`Service` 基类需要运行期 import `@deepseek-ai/cordis`，与 ADR-0001 冲突，暂不用（plain object ＋ `ctx.provide` 同样可被 inject）。物理形态先单包多插件行（子路径导出 ＋ patch 多行），拆包与第三方 provider 由触发条件决定。详见 `docs/core-design.md`。
 
 ## Considered Options
 
-- **立即 pnpm workspace 多包**：与 `install_bundle` 装目录的方式冲突（`workspace:*` 在 profile 里不可解析，必须发布或内联），构建复杂度先于收益；推迟到触发条件。
-- **每层一个 Cordis 插件 / 服务**：当前只有自家连接器消费，服务契约未经验证就会被冻结；且宿主服务目录读回本身有限制（`docs/agents/harness-facts.md`）。只保留 `agentRegistry` / `aliasRegistry` 两个冻结提供面。
-- **只按文件分层、不做端口**：provider 无法替换，宿主 fs 与 Node fs 的差异会继续与领域规则缠在一起，跨 harness / 装配源没有落点；采用端口 ＋ 静态装配作为折中。
-- **不做分层、继续平铺**：03/04/07/11/12 会把客户端与服务端逻辑混进同一批文件，原型已经证明界面会重算宿主语义。
+- **单体插件、静态装配 provider**（2026-10-18 首版提案）：无法让 provider / control / UI 成为不同 bundle；用户已裁决改为 Cordis 服务组合。
+- **每层一个 Cordis 插件 / 服务**：过度；纯算法与 UI 内部没有跨 bundle 消费者，provide 会冻结未验证接口。采用「按 bundle 边界部分服务化」。
+- **每个 provider 提供自己的 service key，消费者按配置枚举**：Cordis 服务目录不枚举任意 key，顺序 / 去重 / 生命周期都要自己拼；原生 `skills.registerProvider` 已有注册表先例，直接镜像。
+- **自定义 provider 加载器 / 注册中心**：重复 Cordis 的职责；只保留一个 provider 注册表，绑定 / 卸载交给 `ctx.effect`。
+- **运行期 import `@deepseek-ai/cordis` 以继承 `Service`**：软链安装下宿主包解析不可靠（ADR-0001），且 `ctx.provide` 已满足 inject；暂不重开边界，列为 Q5。
 
 ## Consequences
 
-- P1 是机械搬移：约 29 处 `src/...` 锚点、测试 import 与 README 路径陈述要一起改；一次性提交、`pnpm check` 全绿，不保留中间态。
-- `contract` 必须保持 types only；任何需要环境 API 的代码都不能进来，否则浏览器翼被污染。
-- `core/orchestrator` 的公开性待 Q1：默认包内深模块，不 provide；出现第二个消费者再升级为服务。
-- `dsh` 是 adapter 层，不追求深度；领域规则留在 `core`，否则连接器会变成不可测的上帝模块。
-- 拆包与运行期注册写有触发条件（`docs/core-design.md` §7）；触发前不建空壳、不预埋注册表。
+- 服务 key 与 `apiVersion` 成为跨 bundle 契约；`agentProviders` / `agentOrchestrator` / `agentControl` 已核无 catalogued 占用。plain object 服务不进 `Service.listService`，注册点用 loader entry ＋ 单测证明。
+- Provider 有生命周期：注册返回 disposer（插件用 `ctx.effect` 挂载）、`ProviderControl.signal` 卸载时 abort、`invalidate()` 触发 catalog 清缓存；重复 `id` / `source` 直接 throw。
+- `core` 完全不碰 `node:fs` / `process.env` / project root；workspace 解析下沉到文件系统 provider，catalog 按 `cwd` 记忆化。
+- P1 机械搬移仍要一次性更新约 29 处 `src/...` 锚点、测试 import 与 README 路径陈述，守卫全绿后再落服务行。
+- 拆包 / 第三方 provider 前不建空壳；服务契约先放进 `contract`，拆包时 key 与 apiVersion 不变。

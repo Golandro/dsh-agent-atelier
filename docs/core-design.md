@@ -1,49 +1,59 @@
-# Core 设计：分层、端口与插件化
+# Core 设计：分层、Cordis 服务与插件化
 
-状态：**提案**（2026-10-18）；待 §9 的 Q1–Q3 裁决，裁决前不建票、不动代码。
-配套：`docs/adr/0003-layered-core-seams.md`；产品范围见票 11 的裁决；数据模型见 `spec.md` §5；宿主事实见 `docs/agents/harness-facts.md`。
+状态：**提案**（2026-10-18）。已裁决：**Q1 = 部分 A / 部分 B**（按 bundle 边界服务化）、**Q2 = 优先使用 Cordis 特性，Provider 实例经 Cordis 服务注册与传递**。待裁决：Q3 分层落位时机、Q4 v1 物理打包、Q5 `Service` 基类边界（§9）。裁决前不动代码。
+配套：`docs/adr/0003-layered-core-seams.md`；产品范围见票 11；数据模型见 `spec.md` §5；宿主事实见 `docs/agents/harness-facts.md`。
 
-本文用 `codebase-design` 的词表，并严格按该词表说话：**module**（模块：一个接口＋一份实现，尺度不限）、**interface**（调用方必须知道的一切：类型、不变量、顺序、错误、配置、性能）、**implementation**、**depth**（接口上的杠杆：小接口藏大行为）、**seam**（可以替换行为的位置）、**adapter**（填缝的具体实现）。不用「组件 / 服务 / API / 边界」替代这些词。
+本文用 `codebase-design` 的词表：**module**（接口＋实现，尺度不限）、**interface**（调用方必须知道的一切）、**implementation**、**depth**（接口上的杠杆）、**seam**（可替换行为的位置）、**adapter**（填缝的具体实现）。不用「组件 / 服务 / API / 边界」替代它们——但 **Cordis Service** 是专有名词，保留大写并加引号。
 
-「插件化」在本设计里指两件事：**可替换的 adapter**（provider / writer / port）与**单向的层依赖**。它不等于运行期加载器；运行期插件加载只留给「第三方 provider」这一真实需求。
+「插件化」= **Cordis 插件行 ＋ 服务契约 ＋ 单向层依赖**，不造自定义加载器。插件行由 bundle patch 插入，服务是跨 bundle 的唯一集成面。
 
 ## 0. 结论
 
-1. **插件单位是 bundle，不是层。** 宿主只安装一个 Cordis bundle（`dsh-plugin-agents-manager`）；包内六层按 module + seam 隔离。把每层做成 Cordis 插件会过早冻结一份还没被消费验证的服务接口，v1 不做。
-2. **六层**：`contract`（types only）、`core`（目录 / 编排 / 写面）、`providers`（来源与写入适配器）、`dsh`（宿主 / 浏览器连接器）、`ui-core`（界面核心）、`ui-react`（React 组件库）。依赖单向指向 `contract`；**宿主翼与界面翼不共享实现，只共享 `contract`**（wire 是它的投影）。
-3. **四个深模块（catalog 计作一族）**：
-   - `core/catalog`：01/02 冻结的两个读面（4 ＋ 5 成员），继续作为目录查询接口；
-   - `core/orchestrator`：**新**，接口 1 个方法 `prepare(agentName, options?)`，藏「解析 → 组装 → 工具/能力检查 → 归一化警告」的顺序与 provenance；07 消费，11 可选消费；
-   - `core/control`：11 票冻结的 6 成员写面与组合视图；
-   - `ui-core/session`：界面侧唯一状态机，接口 4 成员，藏加载、草稿、保存、冲突、取消、过期响应。
-4. **Provider 先做端口 ＋ 静态装配。** 现有真实两适配器的缝：fs（Node / host）与 writer（Node 原子写 / 内存）。`AgentSource` 先一个文件系统适配器 ＋ 多配置（5 个根），**不为它造注册表**；第一个非文件来源（装配源 / 跨 harness）出现时再升级。
-5. **物理形态先单包分层**（维护者裁决「初期可以只按层隔离」）。拆 workspace 包由具体构建 / 复用触发（§7），不按日期。
+1. **插件单位是 Cordis 插件行，不是层。** 一个包可以暴露多个子入口（`name` 允许子路径），一个 bundle patch 可以插入多行；服务 key 是跨 bundle 的唯一契约。把每层强绑成一个插件仍然不做——纯算法留在 module 内部，只有被其他 bundle 消费的能力才 provide。
+2. **六层**：`contract`（types only）、`core`（目录 / 编排 / 写面）、`providers`（来源与写入适配器）、`dsh`（宿主 / 浏览器连接器）、`ui-core`（界面核心）、`ui-react`（React 组件库）。依赖单向指向 `contract`；宿主翼与界面翼不共享实现，只共享 `contract`（wire 是它的投影）。
+3. **能力切分（Q1 的「部分 A / 部分 B」）**：
+
+   | 能力 | A（module 内部） | B（Cordis 服务） | 理由 |
+   | --- | --- | --- | --- |
+   | 目录读面 `agentRegistry` / `aliasRegistry` | — | ✔（已冻结） | 06 / UI / 第三方都要读 |
+   | Provider 注册表 `agentProviders` | — | ✔（新增） | provider bundle 的扩展点 |
+   | 编排 `agentOrchestrator.prepare` | — | ✔（新增） | summon / UI 顾问 / 第三方消费 |
+   | 写面 `agentControl`（6 成员） | — | ✔（新增） | UI host route / CLI / 第三方消费 |
+   | 链解析、组装规划、工具差集、目录注入渲染 | ✔ | — | 纯算法，只被本 bundle 的 module 调用 |
+   | 连接器 sinks / routes | ✔ | — | 每个能力插件自己的效果面 |
+   | UI session / view models / 组件 | ✔ | — | 界面 bundle 内部 |
+
+4. **Provider 经 `agentProviders` 服务注册**，镜像原生 `ctx.skills.registerProvider`：provider bundle 在 `apply` 里 `ctx.agentProviders.registerAgentProvider(create)`，工厂拿到 `ProviderControl`（`signal` / `invalidate`）并返回实例；core 的 catalogs 只消费注册表，不认识任何具体 provider 包。默认 provider（文件系统 / 内置 / 模型层 / DSH 默认对）随包提供，拆分到独立行。
+5. **物理形态先单包多插件行**（子路径导出 ＋ patch 多行），拆包由独立发布 / 第三方 provider / 客户端构建触发（§7），不按日期。
 
 ### 0.1 用户词与落点
 
 | 用户词 | 设计落点 |
 | --- | --- |
-| 编排服务 | `core/orchestrator`（内部缝 `core/resolve` / `core/assemble`） |
-| DSH 连接器 | `dsh/host`（Cordis 入口 / 服务 / routes / sinks）＋ `dsh/client`（`settings.section` / 浏览器入口） |
-| 用户界面核心 | `ui-core`：`AgentDocPort`、`SettingsSession`、view models、内存 / HTTP 适配器 |
+| 编排服务 | `core/orchestrator`，provide 为 `agentOrchestrator` |
+| DSH 连接器 | `dsh/host` ＋ `dsh/client` 的插件行；共享的 DSH 结构读取助手 |
+| 用户界面核心 | `ui-core`：`AgentDocPort`、`SettingsSession`、view models、适配器 |
 | 用户界面 React 组件库 | `ui-react`：pane / 编辑器 / 基础控件 ＋ CSS |
-| 各种 Provider | `providers`：`AgentSource` / `ModelLayerSource` / `DefinitionWriter` 的适配器；运行期注册见 Q2 |
-| （设计新增）契约 | `contract`：两翼共享的数据形状 |
+| 各种 Provider | `providers`：注册进 `agentProviders` 的 `AgentSourceProvider` / `ModelLayerProvider` / `DefaultModelProvider` |
+| （设计新增）契约 | `contract`：跨 bundle 的数据形状与服务契约 |
 
-### 0.2 四条端到端流（验证分层闭合）
+### 0.2 四条端到端流
 
-1. **读取与列表**：`providers` → `core/catalog` → `core/control.snapshot`（含可选 resolution view）→ `dsh/host` route → `ui-core` session → `ui-react` panes。
+1. **读取与列表**：provider bundle 注册 → `agentProviders` → `core/catalog` → `agentControl.snapshot`（含可选 resolution view）→ `dsh/host` route → `ui-core` session → `ui-react` panes。
 2. **目录注入（06）**：`core/catalog` → `core/catalog-injection`（纯渲染 ＋ digest）→ `dsh/host` pre-step sink（last-digest / offered message id 留在连接器）→ 主 Agent 上下文。
-3. **召唤（07）**：`dsh/host` tool → `core/orchestrator.prepare` → `core/resolve` ＋ `core/assemble` → `PreparedAgent` → 连接器翻译成 `ctx.subagents.start` 的 request；链耗尽 → tool `isError`。
-4. **编辑（11/12/05）**：`ui-react` → `ui-core` session → `AgentDocPort`（HTTP）→ `dsh/host` route → `core/control` → `providers` writer；逐文件结果回写 session，冲突保留草稿。
+3. **召唤（07）**：`dsh/host` tool → `agentOrchestrator.prepare`（调用方传入 effective tools / capability）→ `core/resolve` ＋ `core/assemble` → `PreparedAgent` → 连接器翻译成 `ctx.subagents.start`；链耗尽 → tool `isError`。
+4. **编辑（11/12/05）**：`ui-react` → `ui-core` session → `AgentDocPort`（HTTP）→ `dsh/host` route → `agentControl` → `providers` writer；逐文件结果回写 session，冲突保留草稿。
 
 ## 1. 约束（设计输入）
 
-- **安装面**：`plugin_manager install_bundle` 装的是目录；bundle 运行时不能依赖 `workspace:*` 或未发布的兄弟包，沙箱内也不做依赖变更（`docs/agents/harness-facts.md`）。
-- **import 面**：ADR-0001 —— 运行期不得 import `@deepseek-ai/*` 宿主包；宿主服务只按形状结构读取。这条边界是分层的前提，不是可以商量的风格问题。
-- **冻结面**：01/02 的读面、11 的 6 成员、12 的 wire 形状。本设计只改**落位**，不改语义；新形状进 `contract`，不改冻结文件里的旧类型（票 11 已如此要求）。
-- **浏览器面**：`ui-core` / `ui-react` / `dsh/client` 不得 import `node:*`、`core`、`providers`；React 只出现在界面翼。
-- **产品面**：v1 只支持标准 Agent 文件（单文件 body），不引入切片 / 装配源 / 跨 harness / 动态模式。这些是未来的 provider 与 format 扩展，**v1 不建空壳**。
+- **Cordis 能力**：用 `inject`（硬依赖，等待服务出现）、`ctx.get`（可选依赖）、`ctx.provide`（提供服务）、`ctx.effect`（可逆副作用）、`ctx.on` / waterfall（事件）、`ctx.logger`。2026-10-18 本仓探针验证：`ctx.provide` 的 plain object 可被 `inject` 消费（只是不进 Service 目录）。
+- **`Service` 基类不用**：它需要运行期 `import '@deepseek-ai/cordis'`，与 ADR-0001 冲突（软链安装下宿主包不可达）。`ctx.provide` 的 plain object 一样可被 `inject` / `ctx.get` 消费；代价是不进 `Service.listService` 目录（`docs/agents/harness-facts.md`），注册点用 loader entry ＋ 单测证明。若 Q5 裁决重开 ADR-0001 再议。
+- **插件行**：bundle patch 的 `insert[].name` 可以是包名子路径（原生先例 `@deepseek-ai/dsh-plugin-manager/tools`），所以一个包可以承载 core / providers / control / summon / catalog / ui-host 多行；`inject` 写服务 key。
+- **安装面**：`install_bundle` 装目录；运行时不能依赖 `workspace:*` 或未发布兄弟包；沙箱内不做依赖变更。
+- **import 面**：运行期零 `@deepseek-ai/*`；宿主服务只按形状结构读取（ADR-0001）。
+- **冻结面**：01/02 读面、11 的 6 成员、12 的 wire 语义；本设计只改落位与暴露方式，不改语义。
+- **浏览器面**：`ui-core` / `ui-react` / `dsh/client` 不得 import `node:*`、`core`、`providers`；React 只在界面翼。
+- **产品面**：v1 只支持标准 Agent 文件（单文件 body），不引入切片 / 装配源 / 跨 harness。
 
 ## 2. 层图与依赖规则
 
@@ -62,42 +72,75 @@ dsh/host                                         dsh/client
 | 层 | 可 import | 禁止 | 备注 |
 | --- | --- | --- | --- |
 | `contract` | 无（TS 类型与字面量常量） | 任何运行时 import | 环境中立，浏览器可安全引用 |
-| `core` | `contract` | `providers`、`dsh`、`ui-*`、`node:fs` 直接（走端口）、React | 可用 `node:path`；I/O 一律经端口 |
-| `providers` | `contract`、`core` 的 ports 子入口 | `dsh`、`ui-*` | 只做 I/O 适配，不含领域规则 |
-| `dsh/host` | `contract`、`core`、`providers` | `ui-*`、`node:fs` 直接（走 providers） | 唯一可 `import type` Cordis 的宿主层 |
+| `core` | `contract` | `providers`、`dsh`、`ui-*`、`node:fs`（完全无 I/O） | I/O 全在 provider；core 连 project root 都不解析 |
+| `providers` | `contract`、`core` 的 ports 子入口 | `dsh`、`ui-*` | 只做 I/O 适配；环境策略在这里 |
+| `dsh/host` | `contract`、`core`、`providers` | `ui-*` | 唯一可 `import type` Cordis 的宿主层 |
 | `ui-core` | `contract` | `core`、`providers`、`dsh`、React / DOM | 浏览器安全；fetch 作为注入端口 |
 | `ui-react` | `contract`、`ui-core` | `core`、`providers`、`dsh` | 纯 props；只有页面 / hook 碰 session |
 | `dsh/client` | `contract`、`ui-core`、`ui-react` | `core`、`providers`、`dsh/host`、`node:*` | 唯一懂 `settings.section` 与 client slots 的层 |
 
 规则：
 
-1. **跨层只准走对方声明的 public entry**（`index.ts`，或显式列出的子入口，如 `core/ports.ts`）；层内可以深 import。这条用 `scripts/check.mjs` 的 import 矩阵强制执行（含自测），不靠自觉。
-2. **`import type` 也算依赖**，按上表判定；唯一例外是 `dsh/host` 对 `@deepseek-ai/*` 的类型引用。
-3. **禁止 `common/`、`utils/`、`shared/` 垃圾抽屉**：共享代码必须属于某个 module，并由该 module 的接口解释。
-4. **禁止跨翼 import**（`core`/`providers` ↔ `ui-core`/`ui-react`）；两翼只通过 `contract` 里的 DTO 对齐。
-5. `src/index.ts` 保持为 bundle 入口（`package.json` 的 `main` 不变），内部 re-export `dsh/host` 的 `apply`；它属于连接器层，不承载领域逻辑。
+1. **跨层只准走对方声明的 public entry**（`index.ts`，或显式列出的子入口，如 `core/ports.ts`）；层内可以深 import。`scripts/check.mjs` 的 import 矩阵强制执行（含自测）。
+2. **`import type` 也算依赖**；唯一例外是 `dsh/host` 对 `@deepseek-ai/*` 的类型引用。
+3. **禁止 `common/`、`utils/`、`shared/` 垃圾抽屉**：共享代码必须属于某个 module。
+4. **禁止跨翼 import**；两翼只通过 `contract` 的 DTO 对齐。
+5. `src/index.ts` 保持为兼容入口（`package.json` 的 `main` 暂不变）：它组合已有插件行或 re-export `dsh/host` 的 all-in-one `apply`；不承载领域逻辑。
+
+### 2.1 部署：插件行与服务
+
+| 行（子路径） | 职责 | provide | inject / 可选 get |
+| --- | --- | --- | --- |
+| `core` | catalogs、provider 注册表、orchestrator | `agentProviders`、`agentRegistry`、`aliasRegistry`、`agentOrchestrator` | — |
+| `providers/default` | 默认 provider：4 个文件根、bundled、模型层、DSH 默认对 | （注册进 `agentProviders`） | `agentProviders`；可选 `fs`、`agentDefaultModel` |
+| `control` | 控制核心 ＋ writer | `agentControl` | `agentRegistry`、`aliasRegistry`；可选 `agentOrchestrator` |
+| `summon` | `summon_agent` 工具 ＋ 原生替换 | — | `agentOrchestrator`、`tools`、`subagents` |
+| `catalog`（06） | 目录注入 digest ＋ 工具警告 | — | `agentRegistry`、`aliasRegistry`、`tools` |
+| `ui-host`（12） | HTTP exact route | — | `agentControl`；可选 `agentOrchestrator`、`webServer` |
+| `ui-client` | `settings.section` 整页 | — | HTTP fetch（12 的 route；客户端不拿宿主服务） |
+
+行是**能力边界**，不是文件边界；一个行可以很小（只做注册）。**同一个服务只 provide 一次**：patch 在 `src/index.ts` 的 all-in-one 行与 granular 行之间二选一，不能同时插入。v1 先落 `core` ＋ `providers/default`；`control` / `summon` / `catalog` / `ui-*` 随 11/12/07/06/05 落地，期间 `src/index.ts` 保持 all-in-one 兼容，P2 起切 granular。
+
+### 2.2 服务契约
+
+| key | 成员数 | apiVersion | 消费者 |
+| --- | --- | --- | --- |
+| `agentProviders` | 注册 3 ＋ 读 3 ＋ change 1 | 1 | provider 行、catalogs |
+| `agentRegistry` | 4（冻结） | —（形状即契约） | 06、ui-host、第三方 |
+| `aliasRegistry` | 5（冻结） | —（形状即契约） | 03、06、ui-host |
+| `agentOrchestrator` | 1 | 1 | summon、ui-host、第三方 |
+| `agentControl` | 6 | 1 | ui-host、CLI、第三方 |
+
+约定：**新增**服务对象带 `readonly apiVersion: 1`；既有两读面保持冻结形状、不加字段（它们就是契约本身）。消费方取到新服务后先校验版本，不匹配按「能力缺失」处理（不猜）。跨 bundle 只传契约对象（服务对象、provider 实例）与可序列化领域的子集；不传 `ctx` / fiber / 宿主活对象；`apiVersion` 之外的破坏性变更换新 key。
 
 ## 3. 各层设计
 
 ### 3.1 `contract`
 
-**内容**：只放**跨翼共享**的形状——现有冻结类型（`AgentDefinition`、`AgentRegistry`、`AliasRegistry` 及其诊断 / findings）＋ 控制面 DTO（`ControlSnapshot`、`ComposedAgentDocument`、`DocumentEdit`、`WritePlan`、`WriteReport`、`RegistryEdit`，11 票）＋ 跨翼信号视图（归一化 `Warning`、`resolution view`，`snapshot` 要用）。12 票的 wire 是这些类型的 HTTP 投影，不另造第三份形状。
+**内容**：跨 bundle / 跨翼的形状与契约，types only。
 
-**不进 `contract`**（留在拥有它的 module）：`PrepareOptions` / `PreparedAgent` / `ResolutionResult` / `AssemblyPlan` / `ToolPlan`（宿主翼内部，`core/orchestrator` 拥有）；`AgentSource` / `ModelLayerSource` / `DefinitionWriter` / `HostPorts` 端口（**缝由消费方拥有**，分别归 `core` 与 `dsh`）；`SettingsState` / `SettingsAction` / `AgentDocPort`（`ui-core` 拥有，`ui-react` 从 `ui-core` 取）。
+- 目录：`AgentDefinition`、`AgentRegistry`、`AliasRegistry` 及其诊断 / findings（01/02 冻结）；
+- 控制：`ControlSnapshot`、`ComposedAgentDocument`、`DocumentEdit`、`WritePlan`、`WriteReport`、`RegistryEdit`（11）；
+- 编排：`PrepareOptions`、`PreparedAgent`、`ResolutionResult`、`AssemblyPlan`、`ToolPlan`、归一化 `Warning`（服务边界，所以进 contract）；
+- provider：`AgentProviders`、`ProviderControl`、`AgentSourceProvider`、`ModelLayerProvider`、`DefaultModelProvider`、`ProviderLookupOptions`、`SourceEntry`、`SourceDocument`；
+- 服务：`AgentOrchestrator`、`AgentControl` 的接口形状、服务 key 常量、`SERVICE_API_VERSION`；
+- 界面：`AgentDocPort` 的 **DTO 部分**（wire 投影）；`SettingsState` / `SettingsAction` 留在 `ui-core`。
+
+**不进 `contract`**：`resolveChain` / `planAssembly` / `tool-capability` / `catalog-injection` 的内部签名；`DefinitionWriter`（control 内部端口）；`HostPorts`（连接器内部）；`SettingsState` / `SettingsAction` / `AgentDocPort` 接口本身（`ui-core` 拥有）。
 
 **接口不变量**：
 
 - 无 I/O、无环境 API、无 React / DSH import，types only；
-- **一概念一形状**；`AgentDiagnostic` 与 `AliasFinding` 分族保留，归一化视图只做带 `origin` 的联合，不合并成一个 `Finding` 模型（11 票的教训）；
-- 编辑类类型必须携带原文 / 原块信息，保证 D14 回写；展示串不得进入 `file` 一类字段；
-- 新类型只有在**至少两个 module**消费时才进 `contract`，否则留在定义它的 module 里；
-- **运行期校验不进 `contract`**：control 的编辑校验归 `core/control`，HTTP 请求校验与上限归 `dsh/host` 的 route（12 票），contract 只描述形状。
+- **一概念一形状**；`AgentDiagnostic` 与 `AliasFinding` 分族，归一化视图只做带 `origin` 的联合，不合并成 `Finding` 模型；
+- 编辑类类型携带原文 / 原块信息（D14 回写）；展示串不得进入 `file` 一类字段；
+- 运行期校验不进 `contract`：control 的编辑校验归 `core/control`，HTTP 请求校验归 route；
+- 新类型只有在**跨 bundle 或跨翼**被消费时才进 `contract`。
 
-**删除测试**：删掉 `contract`，宿主与界面各造一套形状（原型已经发生过数据形状漂移），wire 也会长出第二份。
+**删除测试**：删掉它，每个 bundle 各造一套形状，服务 key 与 wire 长出多份。
 
 ### 3.2 `core/catalog`
 
-保留两个冻结接口：
+两个冻结读面不变：
 
 ```ts
 interface AgentRegistry {          // ctx.agentRegistry
@@ -115,172 +158,184 @@ interface AliasRegistry {          // ctx.aliasRegistry
 }
 ```
 
-内部由 `createAgentCatalog({ sources, fs?, warn }, options)` 与 `createModelCatalog({ layers, defaultPair, fs?, warn }, options)` 组装；两个服务面只是这些 module 的薄壳。
+组装：`createAgentCatalog({ providers, warn })` 与 `createModelCatalog({ providers, warn })`。**core 不做任何 I/O**：不解析 project root、不碰 `process.env`、不 import `node:fs`。provider 收到 `{ cwd?, signal? }`，自己解析根（文件系统 provider 内部走 `findProjectRoot`）。
 
-**内部缝**（不进跨层接口，供自带测试）：`scanAgentSources`、`classifyEntry`、`parseAgentDocument`、`readRegistryLayer`、`mergeLayers`、`inspectAliasRegistry`、`createLazyLoad`。
+**内部缝**：`scanAgentProviders`、`classifyEntry`、`parseAgentDocument`、`mergeModelLayers`、`inspectAliasRegistry`、`createLazyLoad`。
 
-**接口不变量**（沿用 01/02 的冻结语义，重构不得改变）：
+**接口不变量**（冻结语义不变）：
 
-- 首次查询按 project root 扫描并记忆化；失败不缓存；并发查询共享 in-flight；
-- 无 watcher，`invalidate()` 是唯一刷新点；
-- rank 低者胜，整层合并 / 整层弃用，绝不半合并；
-- 受信根（bundled）的坏文档是硬错误，其余是软诊断数据；
-- `diagnostics()` 与 `list()` 来自同一次扫描；
+- 查询按 `cwd` 记忆化（project root 的解析下沉到 provider；不同子目录各扫一次，结果正确；将来可用 provider 的 `workspaceKey` 优化）；
+- 失败不缓存；并发查询共享 in-flight；无 watcher，`invalidate()` 是唯一刷新点；
+- provider 集合变化或 provider 调 `control.invalidate()` ⇒ 注册表通知 ⇒ catalogs 清缓存；
+- rank 低者胜；模型层整层合并 / 整层弃用，绝不半合并；
+- 受信 provider 的坏文档是硬错误，其余是软诊断；`diagnostics()` 与 `list()` 来自同一次扫描；
 - 目录排序稳定（rank 升序，再按名称）。
 
-**删除测试**：没有它，providers 与连接器会各自解析 / 合并 / 判定信任，冻结语义分叉。
+**删除测试**：没有它，provider 与连接器会各自分类 / 解析 / 合并 / 判信任，冻结语义分叉。
 
 ### 3.3 `core/orchestrator`（编排服务）
 
-这是宿主侧新增的深模块，也是「编排服务」的落点：
-
 ```ts
-interface Orchestrator {
+interface AgentOrchestrator {          // ctx.agentOrchestrator
+  readonly apiVersion: 1
   prepare(agentName: string, options?: PrepareOptions): Promise<PreparedAgent>
 }
 
 interface PrepareOptions {
   readonly cwd?: string
   readonly signal?: AbortSignal
-  readonly flavor?: 'spawn' | 'fork'          // 调用点覆盖 agent.md 的默认
-  readonly capability?: RuntimeCapability      // 调用方（07）能兑现的能力
+  readonly flavor?: 'spawn' | 'fork'
+  readonly capability?: RuntimeCapability
+  readonly effectiveTools?: readonly string[]   // 调用方（07）从 ctx.tools 取；core 不碰 ctx
 }
 
 interface PreparedAgent {
   readonly agent: AgentDefinition
   readonly flavor: 'spawn' | 'fork'
-  readonly resolution: ResolutionResult        // ok | failed（链耗尽等，不 throw）
-  readonly assembly: AssemblyPlan              // 04 的规划器输出
-  readonly tools: ToolPlan                     // 过滤结果＋缺失的 requiredTools
-  readonly warnings: readonly Warning[]        // origin: agent | model | runtime
+  readonly resolution: ResolutionResult          // ok | failed（链耗尽等，不 throw）
+  readonly assembly: AssemblyPlan
+  readonly tools: ToolPlan                       // 过滤结果＋缺失的 requiredTools
+  readonly warnings: readonly Warning[]          // origin: agent | model | runtime
 }
 ```
 
 **藏起来的行为**（顺序固定，provenance 始终在）：
 
-1. 从 `AgentRegistry` / `AliasRegistry` 读一次快照；
-2. 链解析（03）：`modelOrder` 别名展开、`available:false` 跳过、raw `model:` 兜底、白名单、effort 优先级；
+1. 从两个 catalog 各读一次快照；
+2. 链解析（03）：别名展开、`available:false` 跳过、raw `model:` 兜底、白名单、effort 优先级；
 3. 组装规划（04）：节列表、通道、缓存断点；
-4. 工具检查（06 的数据面）：`requiredTools` 与 effective tools 的差集；
+4. 工具差集：调用方传入的 `effectiveTools`（06 与 orchestrator 共用 `core/tool-capability`）；
 5. 能力降级：`capability` 不满足 persona / toolFilter / depth 时的降级项；
 6. 归一化警告：三族信号映射成统一视图，保留原始 code 与来源。
 
 **接口不变量**：
 
-- **域结果是数据，不是异常**：链耗尽返回 `resolution.ok=false`，07 映射成 tool `isError`；只有 catalog 的意外 I/O 才 throw。理由：11 的 `snapshot` 要展示链错误而不能被 try/catch 绑架，DSH 的 isError 语义在连接器边界兑现。
-- 确定性：同样输入（catalog 快照、policy、channels、capability）⇒ 同样输出；
-- 一次 `prepare` 只读一次 catalog 快照，绝不跨调用拼接半新半旧的状态；
+- **域结果是数据，不是异常**：链耗尽 `resolution.ok=false`，07 映射成 tool `isError`；只有 catalog 的意外错误才 throw；
+- 确定性：同样输入（快照、policy、channels、capability、effectiveTools）⇒ 同样输出；
+- 一次 `prepare` 只读一次快照，不拼半新半旧状态；
 - 绝不发明 provider/model 对；绝不隐藏诊断；警告顺序稳定；
-- 不写盘、不碰 `ctx`、不注册副作用。
+- 不写盘、不碰 `ctx`、不注册副作用；不缓存（catalog 已缓存）。
 
-**依赖**：`AgentRegistry`、`AliasRegistry`、`ModelPolicy`（路由白名单）、`ChannelConfig`、`RuntimeCapability`，全部构造期注入。
+**内部缝**：`resolveChain`（03）、`planAssembly`（04）、`tool-capability`、`normalizeWarnings`；纯函数，各自直接测试，不从 `core/index.ts` 暴露。
 
-**内部缝**：`resolveChain`（03）、`planAssembly`（04）、`normalizeWarnings`；纯函数，各自有直接测试，但不从 `core/index.ts` 对外暴露。`PrepareOptions` / `PreparedAgent` / `ResolutionResult` / `AssemblyPlan` / `ToolPlan` 只属于宿主翼，定义在 `core`，不进 `contract`。
+**消费关系**：summon（07）注入 `agentOrchestrator`；control（11）用 `ctx.get` **可选**注入，03 未落地时 `snapshot` 显式标注「链解析待 03」；06 不消费它（06 只依赖目录与 `tool-capability`，不因 03 未落地而受阻）。
 
-工具差集不藏在 orchestrator 里：它同时被 06（目录警告）与 orchestrator（召唤前检查）消费，落成一个小 module `core/tool-capability`（接口只有「输入 requiredTools ＋ effective tools，输出缺失列表」），06 因而**不需要**依赖 03。
+### 3.4 `core/control`（写面服务）
 
-**删除测试**：删掉它，07 与 11 会各自重排「解析 → 组装 → 警告」并重造 provenance；而 06 **不**消费它（06 只依赖目录与工具检查，不能因 03 未落地而受阻），所以它只对 07 / 11 承担杠杆。
+接口与语义以票 11 为准（`snapshot` / `compose` / `plan` / `commit` / `applyRegistryEdit` / `invalidate`），provide 为 `agentControl`。位置与不变量：
 
-**消费关系**：
+- provide 方 = `control` 插件行；依赖：两个 catalog（inject）、可选 `agentOrchestrator`（get）、`DefinitionWriter`；
+- `compose` 返回域形状（无编辑器偏移）；`plan` 纯函数；`commit` 逐文件原子写、写后重校验、覆盖冲突明确报错；`applyRegistryEdit` 藏住层解析 / 删除回退 / 路径推导；
+- 只写由 catalog / 层文件推导出的路径，绝不接受请求里的任意路径；`agentName` 先验证再拼；
+- 多文件保存**不是事务**：逐文件结果、失败可重试、不承诺回滚；
+- 全仓一份 frontmatter 模型、一份序列化、一份块 → 文件路由；D14 往返是接口不变量；
+- 只有它 provide `agentControl`；ui-host 只消费，不重复领域规则。
 
-- 07：`prepare` → 连接器把 `PreparedAgent` 翻译成 `ctx.subagents.start` 的 request；
-- 11：作为**可选**依赖注入 control（`ControlDeps.orchestrator?`）；03 未落地时 `snapshot` 显式标注「链解析待 03」，不自行实现平行解析器。
+**删除测试**：删掉它，12 的 route 会重新发明组合与写路由（原型已在客户端做过一次）。
 
-### 3.4 `core/control`
+### 3.5 `providers`：注册表与默认 provider
 
-接口与语义以票 11 为准（6 成员：`snapshot` / `compose` / `plan` / `commit` / `applyRegistryEdit` / `invalidate`），此处只定它在分层里的位置与不变量：
-
-- 依赖：两个 catalog、可选 `Orchestrator`、`DefinitionWriter`、唯一的序列化实现；
-- `compose` 返回域形状（无编辑器偏移）；`plan` 是纯函数（同输入同输出）；`commit` 逐文件原子写、写后重校验、覆盖冲突返回明确错误；`applyRegistryEdit` 把层解析 / 删除回退 / 路径推导全部藏住；
-- 只写由 catalog / 层文件推导出的路径，**绝不接受请求里的任意路径**；`agentName` 先验证再拼路径；
-- 多文件保存**不是事务**：返回逐文件结果，失败可重试，不承诺回滚（写进接口文档，UI 文案据此）；
-- 全仓只有一份 frontmatter 模型、一份序列化、一份块 → 文件路由；D14 往返是接口不变量（注释 / 未知键 / 键序保留）。
-
-**删除测试**：删掉它，12 的 route 会重新发明组合与写路由（原型已经在客户端做过一次），第二份形状必然漂移。
-
-### 3.5 `providers`
-
-**端口**（定义在 `core`，由本层实现）：
+**注册表服务**（core 提供；镜像 `ctx.skills.registerProvider`）：
 
 ```ts
-interface AgentSource {
-  readonly id: string
-  readonly root: string
-  readonly rank: number
-  readonly trust: 'trusted' | 'untrusted'
-  listEntries(options?): Promise<readonly SourceEntry[] | undefined>   // undefined = 根本不存在
-  readDocument(agentName, options?): Promise<SourceDocument | undefined>
+interface AgentProviders {                 // ctx.agentProviders
+  readonly apiVersion: 1
+  registerAgentProvider(create: (control: ProviderControl) => AgentSourceProvider): () => void
+  registerModelProvider(create: (control: ProviderControl) => ModelLayerProvider): () => void
+  registerDefaultModelProvider(create: (control: ProviderControl) => DefaultModelProvider): () => void
+  listAgentProviders(): readonly AgentSourceProvider[]     // rank 升序，再按注册顺序
+  listModelProviders(): readonly ModelLayerProvider[]
+  defaultModelProvider(): DefaultModelProvider | undefined
+  onChange(listener: () => void): () => void
 }
 
-interface ModelLayerSource {
-  readonly id: AliasRegistrySource        // 'project-dsh' | 'user-dsh'
-  read(options?): Promise<RegistryLayerRead | undefined>
-}
-
-interface DefinitionWriter {
-  replaceText(path, text): Promise<void>   // 逐文件原子；0600
+interface ProviderControl {
+  readonly signal: AbortSignal
+  invalidate(): void          // provider 数据变化 ⇒ 通知 catalogs 清缓存
 }
 ```
 
-**适配器**：
+**Provider 契约**：
 
-| 端口 | 适配器 | 说明 |
+```ts
+interface AgentSourceProvider {
+  readonly id: string
+  readonly source: AgentSource            // v1 仍是闭合标签；第三方标签等 contract v2
+  readonly rank: number
+  readonly trust: 'trusted' | 'untrusted'
+  listEntries(options: ProviderLookupOptions): Promise<readonly SourceEntry[] | undefined>
+  readDocument(agentName: string, options: ProviderLookupOptions): Promise<SourceDocument | undefined>
+}
+
+interface ModelLayerProvider {
+  readonly id: string
+  readonly source: AliasRegistrySource
+  read(options: ProviderLookupOptions): Promise<SourceDocument | undefined>   // 只交原文＋路径；解析与整层弃用在 core
+}
+
+interface DefaultModelProvider {
+  readonly id: string
+  read(options: ProviderLookupOptions): Promise<AgentModelTarget | undefined>   // DSH 默认对
+}
+
+interface SourceEntry {
+  readonly name: string
+  readonly kind: 'file' | 'directory' | 'other'
+  readonly path: string              // provider 解析后的绝对路径；诊断与 provenance 都用它
+}
+
+interface SourceDocument { readonly path: string; readonly text: string }
+
+interface ProviderLookupOptions { readonly cwd?: string; readonly signal?: AbortSignal }
+```
+
+**生命周期与不变量**：
+
+- 工厂**同步**执行（注册期完成构造）；异步初始化放在 `listEntries` / `read`；工厂拿到 `control.signal`，卸载时 abort；
+- 返回的 disposer 由 provider 插件用 `ctx.effect` 挂到自己的 fiber：卸载 ⇒ 从注册表移除 ＋ abort ＋ 通知；`control.invalidate()` 只通知，不注销；
+- **`id` 唯一**；agent provider 的 `source` 标签唯一；model provider 每层一个；默认对 provider 最多一个；重复即 throw（对齐原生 skills 的 duplicate 语义）；
+- 注册顺序稳定；rank 相同的按注册顺序；注册 / 注销 / invalidate 都触发 `onChange`；
+- provider 的 `trusted` 只给随包资产；第三方 provider 默认 `untrusted`，`trusted` 需要核心配置显式允许（v2 策略，v1 只有随包 provider）；
+- provider 可以读 `process.env` / config（它是环境适配器）；core 不读；
+- provider 错误：缺席 = `undefined`；意外错误上抛，由 core 决定信任语义。
+
+**默认 provider 行**（随包，`providers/default`）：
+
+| provider | 注册 | 说明 |
 | --- | --- | --- |
-| `AgentFileSystem` | Node fs | 无宿主 `fs` 服务时的回退 |
-| `AgentFileSystem` | host `ctx.fs` | 沙箱 / 远端工作区，按 `optionalFileSystem` 形状结构读取 |
-| `AgentSource` | 文件系统源（4 个用户根配置） | project `.dsh` / `.agents`、user `$DSH_HOME` / `$DSH_AGENTS_HOME` |
-| `AgentSource` | 内置源（bundled） | 同一工厂＋Node fs＋`trusted`，走自己的资产 |
-| `ModelLayerSource` | 文件层 | workspace / user 两个配置 |
-| `DefinitionWriter` | Node 原子写 | temp ＋ rename；测试用内存适配器 |
+| 文件系统 ×4 | project `.dsh` / `.agents`、user `$DSH_HOME` / `$DSH_AGENTS_HOME` | 每个一个 provider；内部解析 project root，host `fs` 可用则走 host，否则 Node |
+| bundled ×1 | 随包资产 | `trusted`，Node 读取，rank 600 |
+| 模型层 ×2 | workspace / global `registry.yaml` | 工作区层压过全局层 |
+| 默认对 ×1 | `ctx.agentDefaultModel` | 只提供 pair；`dsh-default` 的合成 / 匹配逻辑仍在 catalog（D6 不变式） |
 
-**接口不变量**：
-
-- 不认识 `process.env`，只收绝对路径；env / home 解析留在 `core`（纯函数）或连接器（选择配置）；
-- 缺席是 `undefined`，不是 throw；意外 I/O 错误原样上抛，由 core 决定信任语义；
-- **不做分类 / 排名 / 合并 / 保留字判断**——那些是 core 的领域规则；
-- writer 是纯 sink：只负责原子替换；冲突检测的原文读取走 `AgentFileSystem`（不造第二条读路）；
-- writer 的原子性是适配器不变量；`plan` 不依赖它，`commit` 依赖它。
-
-**命名**：Provider ＝ 来源适配器。连接器里的副作用面叫 **sink**（system prompt 节、pre-step、tools、subagents、web routes），不叫 provider；LLM provider（DeepSeek / OpenAI…）在本项目里只是字符串，R1/R2 研究的是它们的关联，不是本层。
+**命名**：Provider ＝ 定义来源适配器；连接器副作用面叫 **sink**；LLM provider 只是字符串（R1/R2 研究其关联），不是本层。
 
 ### 3.6 `dsh`（连接器）
 
-**host 入口** `apply(ctx)`：
+连接器不再是一个单体插件，而是**每个能力行**的 DSH 适配代码；共享的结构读取助手（`ctx.fs`、`agentDefaultModel`、`webServer`、`subagents`、`tools`）留在 `dsh/host`。
 
-1. 从 `ctx` 取端口：`fs`（按用时解析）、`agentDefaultModel` 默认对（按用时）、`warn`；
-2. 选 provider 配置（根 / rank / trust / bundled 目录），构造 catalogs、orchestrator、control；
-3. `ctx.effect(() => ctx.provide('agentRegistry', …))`、`aliasRegistry`（冻结 key）；其余深模块**不** provide（除非 Q1 裁决）；
-4. 注册 sink：04 的 system prompt 节（persona 委托原生 `deployment:persona-prefix`，不重复发明）、06 的 pre-step digest（last-digest / offered message id 等会话状态留在连接器，core 只渲染条目与算哈希）、07 的 tool ＋ `subagents.start`、12 的 `ctx.webServer` exact route；每个注册都包在 `ctx.effect` 里，卸载即撤；
-5. 能力门控：把 `capability` 传给 orchestrator；07 的 request 翻译与 isError 回显都在这里；
-6. 错误翻译：401/404/409/5xx（12 票）、链耗尽（07）、能力降级（警告）。
-
-**端口形状**（连接器拥有的适配器面，不进 `contract`）：
-
-```ts
-interface HostPorts {
-  fs(): AgentFileSystem | undefined          // ctx.get('fs')，按用时解析
-  defaultPair(): AgentModelTarget | undefined // ctx.get('agentDefaultModel')
-  warn(message: string): void
-  sinks: RuntimeSinks                        // 04/06/07/12 的副作用面，形状由各票拥有
-}
-```
-
-`ctx.fs` 的结构读取留在 `dsh/host`，包装成 `AgentFileSystem` 的函数在 `providers`——连接器不做领域包装。
-
-**client 入口**：注册 `settings.section` 整页，构造 HTTP `AgentDocPort`（12 的 wire），创建 session，渲染 `<SettingsPage session={…}>`；加载 / 失败 / 重试状态在这一层兜底。
+- `core` 行：构造 `agentProviders` 注册表 → provide → 构造 catalogs → provide → 构造 orchestrator → provide。**没有 DSH 副作用**。
+- `control` 行：构造 writer、catalog 依赖、可选 orchestrator；provide `agentControl`。
+- `providers/default` 行：注册默认 provider；`ctx.get('fs')` / `ctx.get('agentDefaultModel')` 按用时读。
+- `summon`（07）：注册 `summon_agent` tool；把 `PreparedAgent` 翻译成 `ctx.subagents.start` 的 request；`system-prompt/assemble` 过滤原生工具；链耗尽 → tool isError；能力降级 → 警告放行。
+- `catalog`（06）：pre-step digest；last-digest / offered message id 等会话状态留在本行；core 只渲染条目与算哈希。
+- `ui-host`（12）：`ctx.webServer` exact route；校验请求 → 调 `agentControl` → 序列化；错误 400/404/409/5xx；请求上限。
+- `ui-client`：`settings.section` 整页；构造 HTTP `AgentDocPort`，创建 session，渲染 `<SettingsPage>`；加载 / 失败 / 重试兜底。
+- persona 委托原生 `deployment:persona-prefix`，不重复发明。
 
 **接口不变量**：
 
 - 唯一可以 `import type` DSH 的层；运行期零 `@deepseek-ai/*` import；
-- 宿主服务按用时结构读取（`ctx.get`），绝不在 `apply` 时捕获（01 修复轮的教训）；
-- 只有映射、能力门控、错误翻译、生命周期，**没有领域规则**；删掉连接器，core 仍可完整测试；
-- 每个端口在测试里都有 fake；连接器自己的测试用假 `ctx`（`test/plugin.test.ts` 的形状），不要求真实 profile。
+- 宿主服务按用时结构读取（`ctx.get`），绝不在 `apply` 时捕获；
+- 只有映射、能力门控、错误翻译、生命周期，**没有领域规则**；
+- 每个服务依赖都能用 fake 替代；插件行测试用假 `ctx`，不要求真实 profile；
+- 每行只 provide 自己声明的 key，不偷偷占用原生 key（`agentProviders` / `agentOrchestrator` / `agentControl` 已核无 catalogued 占用；plain object 不进目录，证明走 loader entry ＋ 测试）。
 
-**删除测试**：删掉它，core 在 DSH 里不可用，但它的接口仍然成立——这正是 adapter 的职责，不追求深度。
+**删除测试**：删掉连接器，core 仍可完整测试——adapter 的职责，不追求深度。
 
 ### 3.7 `ui-core`（界面核心）
 
-**文档端口**（12 票 wire 的投影；内存与 HTTP 两适配器）：
+**文档端口**（12 wire 的投影；内存 / HTTP 两适配器）：
 
 ```ts
 interface AgentDocPort {
@@ -304,148 +359,146 @@ interface SettingsSession {
 }
 ```
 
-**藏起来的行为**：加载 / 刷新的单飞与过期响应丢弃（generation guard）、按 agent 保存草稿、脏判定、`plan → commit` 的保存流程、冲突时保留草稿、切换 agent 的未保存策略、400/404/409/5xx 的 typed error 映射、在途请求取消（AbortSignal）、`invalidate` 后对账。
+藏住：加载 / 刷新单飞与过期响应丢弃、按 agent 的草稿、脏判定、`plan → commit` 保存、冲突保留草稿、切换 agent 的未保存策略、400/404/409/5xx typed error、AbortSignal 取消、`invalidate` 后对账。
 
-**接口不变量**：
+**不变量**：不 import React / DOM / DSH / core；`fetch` 注入；同一查询只有一个在途加载；保存只经 `AgentDocPort`；**不重算宿主语义**（层合并 / 链解析 / 块路由都不在这里）；`dispose()` 后不再发状态或请求。
 
-- 不 import React / DOM / DSH / core；`fetch` 作为构造参数注入；
-- 同一查询同时只有一个在途加载；过期响应按 generation 丢弃，不覆盖新状态；
-- 保存只经 `AgentDocPort`；组件不得直接 fetch；
-- **不重算宿主语义**：层合并、链解析、块 → 文件路由都不在这里（原型的三处 `available` 断言是反例）；
-- `dispose()` 之后不再发状态、不再发请求。
+**内部缝**：`reduce`、`selectAgentList`、`selectRegistryView`、`buildEditorModel`、`selectAdvisor`、`computePaneLayout`、`mapPortError`。
 
-**内部缝**（纯函数，各自测试）：`reduce(state, action)`、`selectAgentList`、`selectRegistryView`、`buildEditorModel`（块视图 / 行号 / 折叠 / dirty）、`selectAdvisor`、`computePaneLayout`、`mapPortError`。
-
-**删除测试**：删掉它，异步、过期、草稿、冲突逻辑会退回组件（原型的 `App.tsx` 三个内存 map 就是证据）。
+**删除测试**：删掉它，异步 / 过期 / 草稿 / 冲突逻辑会退回组件（原型的三个内存 map 是证据）。
 
 ### 3.8 `ui-react`（组件库）
 
-**内容**：`MasterDetailPane`、`AgentListPane`、`AgentDocumentEditor`、`ModelLinksPane`、`RegistryPanel`、`AdvisorPanel`、`SettingsPage`、基础控件与 CSS。
+内容：`MasterDetailPane`、`AgentListPane`、`AgentDocumentEditor`、`ModelLinksPane`、`RegistryPanel`、`AdvisorPanel`、`SettingsPage`、基础控件与 CSS。
 
-**接口契约**：
+契约：pane 只收只读 view model ＋ 回调；只有 `SettingsPage` / `useSettingsSession` 接触 session（`useSyncExternalStore`）；编辑器只持纯 UI 临时态；无 fetch / 定时器 / localStorage / 领域计算；CSS 变量带 fallback；交互元素带稳定 `data-*`。
 
-- pane 组件只收**只读 view model ＋ 回调**（`state` 切片、`onAction`）；不 import session / adapter / port；
-- 只有 `SettingsPage`（及其 `useSettingsSession` hook）接触 `SettingsSession`：`subscribe` ＋ `dispatch`，用 `useSyncExternalStore` 绑定；
-- 编辑器允许持有**纯 UI 临时态**（光标、滚动、折叠），文档 / 脏 / 保存状态全部来自 props；
-- 无 fetch、无定时器、无 localStorage、无领域计算；主题 token 用 CSS 变量并带 fallback；交互元素带稳定 `data-*` 供 13 的组件测试。
-
-**诚实的说明**：这是全系统最浅的一层（props 接口几乎就是它的实现规模）。这是刻意的——深度在 `ui-core`；把领域逻辑推进组件只会让测试面变成 DOM，并重现原型的泄漏。
+**诚实的说明**：全系统最浅的一层，深度在 `ui-core`；把领域逻辑推进组件只会把测试面变成 DOM。
 
 ## 4. 缝清单（真缝 vs 假想缝）
 
 | 缝 | 接口 | 现有适配器 | 判定 |
 | --- | --- | --- | --- |
-| 文件系统 | `AgentFileSystem` | Node fs / host `ctx.fs` | 真缝（2），保留 |
-| 定义来源 | `AgentSource` | 文件系统（多根配置）/ 内置（trusted＋Node fs） | 真缝（后端＋信任两维），但**一个工厂**；不建注册表 |
-| 模型层 | `ModelLayerSource` ＋ default pair 端口 | workspace / user / 内置对 | 真缝（3 配置＋1 非文件） |
+| Provider 注册 | `AgentProviders` 服务 | 文件系统 / 内置 / 模型层 / 默认对（随包）＋ 第三方（后续） | 真缝；Cordis 服务注册，不建自定义加载器 |
+| 文件系统 | `AgentFileSystem` | Node fs / host `ctx.fs` | 真缝（2） |
+| 定义来源 | `AgentSourceProvider` | 4 根 ＋ bundled | 真缝（5 个 provider），provider 各自解析 workspace |
+| 模型层 | `ModelLayerProvider` | workspace / user ＋ 默认对 | 真缝（3） |
 | 写入 | `DefinitionWriter` | Node 原子写 / 内存 | 真缝（2），测试与未来远端 |
 | 文档端口 | `AgentDocPort` | 内存 / HTTP | 真缝（2），12/13 已定 |
 | 宿主环境 | `HostPorts` | 真 `ctx` / 测试 fake | 真缝（2） |
-| 定义格式 | `DefinitionFormat` | 仅标准 Agent 文件 | **假想缝**：v1 不建接口；跨 harness 落地时再开 |
-| 运行期 provider 注册 | — | 无 | **不做**（Q2） |
-
-一个适配器只是假想缝；上表里没有第二个适配器的，都不建接口、不建空壳。
+| 定义格式 | `DefinitionFormat` | 仅标准 Agent 文件 | **假想缝**：v1 不建接口；跨 harness 时再开 |
+| 自定义插件加载器 | — | 无 | **不做**：用 Cordis patch 行 |
 
 ## 5. 深度审计
 
 | module | 接口规模 | 藏住的行为 | 删除测试 | 判定 |
 | --- | --- | --- | --- | --- |
-| `contract` | types only | 形状 / 分族 / wire 对齐 | 两翼各造一套形状 | 必要，非行为模块 |
-| `core/catalog` | 4＋5 成员（冻结） | 发现、解析、rank、信任、懒加载、诊断 | 解析与合并分叉 | 深（已冻结） |
-| `core/orchestrator` | 1 方法 | 解析→组装→检查→provenance | 07/11 各自重排 | 深（本设计新增） |
-| `core/control` | 6 成员 | 组合、写计划、原子写、registry 编辑 | route 重造写路由 | 深（11 冻结） |
-| `providers` | 4 个端口 | I/O 差异（fs / 信任 / 原子性） | 每个来源在 core 里长分支 | 适配器层，不追求深 |
-| `dsh` | 2 个入口 | DSH 映射、能力、生命周期 | core 不可用但仍可测 | 适配器层，不追求深 |
-| `ui-core/session` | 4 成员 | 加载/草稿/保存/冲突/取消 | 逻辑退回组件 | 深（本设计新增） |
+| `contract` | types only | 形状 / 服务契约 / wire 对齐 | 每个 bundle 各造一套 | 必要，非行为模块 |
+| `agentProviders` | 7 方法 | 注册 / 生命周期 / 排序 / 通知 | 每个 provider 自己找消费者 | 扩展点，宽是本质，不追求深 |
+| `core/catalog` | 4＋5（冻结） | 发现、解析、rank、信任、懒加载、诊断 | 语义分叉 | 深（已冻结） |
+| `agentOrchestrator` | 1 方法 | 解析→组装→检查→provenance | summon / control 各自重排 | 深（新增） |
+| `agentControl` | 6 成员 | 组合、写计划、原子写、registry 编辑 | route 重造写路由 | 深（11 冻结） |
+| `providers` | 3 个 provider 契约 | I/O 差异（fs / 信任 / 原子性 / workspace） | 每个来源在 core 里长分支 | 适配器层，不追求深 |
+| `dsh` | 多行适配 | DSH 映射、能力、生命周期 | core 可测但宿主不可用 | 适配器层，不追求深 |
+| `ui-core/session` | 4 成员 | 加载/草稿/保存/冲突/取消 | 逻辑退回组件 | 深（新增） |
 | `ui-react` | props | 无（只做渲染） | 组件库消失、页面内联 | 刻意浅 |
 
 ## 6. 测试策略（接口即测试面）
 
-- **`contract`**：只由 `tsc` 保护；类型测试不进运行时。
-- **`core`**：纯函数用假 catalog / 假 fs；catalog 用临时目录做一层薄集成；orchestrator 用固定快照断言确定性、顺序、provenance；control 用内存 writer 断言 D14 往返与冲突（11 票）。
-- **`providers`**：同一套 adapter 契约套件跑 Node fs 与假 host fs；writer 套件跑 Node 与内存（含失败注入）。
-- **`dsh`**：假 `ctx`（服务 / logger / webServer / subagents）断言注册、撤销、能力降级、错误翻译；`test/plugin.test.ts` 保留为安装点证明。
-- **`ui-core`**：session 状态转移用内存 port；同一套用例再跑 HTTP 假 port（13 票的适配器契约套件）；不 mock 内部函数。
-- **`ui-react`**：jsdom ＋ testing-library，只断言渲染与用户可见行为；不碰组件内部 state。
-- **守卫**：`scripts/check.mjs` 增加 import 矩阵判定 ＋ 自测；锚点、`hostRuntimeDeps`、`build` 新鲜度照旧。
+- **`contract`**：`tsc` 保护；服务 key / apiVersion 常量有静态断言。
+- **`core`**：假 `agentProviders` 注册表（内存 provider）；catalog 断言注册后再查询会重扫、注销 / invalidate 会清缓存、rank 决胜；orchestrator 固定快照断言确定性、顺序、provenance；control 内存 writer 断言 D14 往返与冲突（11）。
+- **`providers`**：provider 契约套件跑真实临时目录 ＋ 假 host fs；project root 解析、缺失即 `undefined`、意外错误上抛。
+- **`dsh`**：假 `ctx`（provide/get/logger/webServer/subagents）断言每行 provide/inject、卸载撤销、能力降级、错误翻译；loader entry ＋ 单测证明 plain object 服务可被 `inject`。
+- **`ui-core`**：session 状态转移用内存 port，再跑 HTTP 假 port（13 的适配器契约套件）；不 mock 内部函数。
+- **`ui-react`**：jsdom ＋ testing-library，只断言渲染与用户可见行为。
+- **守卫**：`scripts/check.mjs` 增加 import 矩阵 ＋ 服务契约静态检查（key/apiVersion 字面量）＋ 自测。
 
-## 7. 物理形态与升级触发
+## 7. 物理形态与升级
 
-### 7.1 目标目录（单包）
+### 7.1 目标目录（单包，多子入口）
 
 ```
 src/
-  index.ts                 # bundle 入口：re-export dsh/host 的 apply
-  contract/                # types only
+  index.ts                 # 兼容入口：all-in-one apply / re-export
+  contract/                # types only（数据 + 服务契约）
   core/
-    catalog/               # 01/02 的模块
+    catalog/               # 01/02
     resolve/               # 03
     assemble/              # 04
     control/               # 11
-    orchestrator.ts        # 编排服务
-    ports.ts               # fs / source / writer 端口
-  providers/               # fs、source、writer 适配器
+    orchestrator.ts
+    providers-registry.ts
+    ports.ts               # 内部端口（fs 等）
+  providers/
+    default/               # 默认 provider 行
+    fs/                    # Node / host fs、workspace 解析
+    writer/                # Node 原子写
   dsh/
-    host/                  # Cordis 入口、services、routes、sinks
-    client/                # settings.section 入口（12 之后）
-  ui-core/                 # port、session、view models（12 之后）
+    host/                  # 共享结构读取 + 各能力行的 apply
+    client/                # settings.section（12 后）
+  ui-core/                 # port / session / view models（12 后）
   ui-react/                # 组件库（05/13）
-test/                      # 按层镜像；适配器契约套件单列
+test/
 ```
 
-`tsconfig.json` 现在 `include: ["src", "test"]`；界面文件落地时加 `tsconfig.client.json`（JSX／DOM lib），宿主构建排除 `src/ui-*`、`src/dsh/client`，`package.json` 增 `./client` export 与 `dsh.client` 声明（12 票已定）。
+`package.json` 的 `exports` 增子路径（`./core`、`./providers/default`、`./control`、`./summon`、`./catalog`、`./ui-host`、`./client`）；`cordis.patch.yml` 按行插入。宿主构建 `tsc` 排除 `src/ui-*` / `src/dsh/client`，客户端用 `tsconfig.client.json` ＋ 独立构建（12 票）。
 
 ### 7.2 拆 workspace 包的触发条件（不按日期）
 
-满足任意一条才拆：
+1. **独立发布节奏**：provider / control / UI 需要各自版本与回退；
+2. **第三方 provider**：外部作者要独立发布 provider 包；
+3. **客户端构建**：客户端依赖清单与宿主必须分开（12 落地时验证）。
 
-1. **构建需要**：客户端产物不能与宿主共用一份 `tsconfig` / 依赖清单（12 落地前后验证）；
-2. **复用出现**：第二个插件或外部项目消费 `ui-core` / `ui-react` / `contract`；
-3. **第三方 provider**：外部作者要提供自己的 source / format，必须独立发布。
+拆时按 `contract / core / providers / dsh / ui-core / ui-react` 切；根包退化为元包。**安装约束**：`install_bundle` 装根目录，运行期不能依赖 `workspace:*`；兄弟包要么一起发布，要么根包内联。服务契约（key ＋ apiVersion）在拆包后不变，这是现在就把契约放进 `@contract` 的原因。
 
-拆的时候按 `contract / core / providers / dsh / ui-core / ui-react` 切；根包退化为元包。**安装约束**：`install_bundle` 装根目录，运行期不能依赖 `workspace:*`；兄弟包要么一起发布，要么在根包内联。
+### 7.3 不使用自定义加载器
 
-### 7.3 运行期 provider 注册（Q2）
-
-只有出现「第三方 provider」或「跨 harness 适配器 ≥ 2」时才做：为 source 定义 Cordis 子服务契约（注册 / 版本 / 生命周期 / 错误隔离），连接器从注册表取而不是读静态列表。之前不做——一个适配器的注册表是纯负债。
+插件行、依赖注入、生命周期、事件全部交给 Cordis；provider 注册是唯一自建的注册表，且形状镜像 `ctx.skills.registerProvider`。运行期服务缺失 = 能力缺失（`inject` 等待或 `ctx.get` 返回 undefined），不抛自定义错误。
 
 ## 8. 迁移阶段与现有票的落位
 
 | 阶段 | 内容 | 票 / 前置 | 验收 |
 | --- | --- | --- | --- |
-| P0 | 本设计与 ADR | —（当前） | 裁决 Q1–Q3 |
-| P1 | **机械分层**：搬 01/02 模块（含 `types.ts` → `contract/`）；拆 fs 端口与适配器；加 import 矩阵守卫；更新锚点与测试 import | 新票候选（Q3） | 行为零变化；`pnpm check` 全绿 |
-| P2 | `core/resolve`（03）＋ `core/assemble`（04）＋ `orchestrator` | 03、04 | 纯函数单测；`prepare` 确定性 |
-| P3 | 06 的目录注入（core 纯逻辑 ＋ host pre-step sink）；07 的 tool ＋ `subagents.start` | 06、07 | 假 ctx 集成测试 |
-| P4 | 11 control → `core/control`；12 的 host route / client 入口 / ui-core；05 的 ui-react；13 的测试 | 11、12、05、13 | 适配器契约套件；真机 |
-| P5 | 拆包 / 运行期注册 | 触发条件（§7） | 安装与回退实测 |
+| P1 | **机械分层**：搬 01/02 模块（含 `types.ts` → `contract/`）；拆 fs 端口与 provider；加 import 矩阵守卫；更新锚点与测试 import；仍单行 apply | 新票（Q3） | 行为零变化；`pnpm check` 全绿 |
+| P2 | `core` ＋ `providers/default` 两行；`agentProviders` 注册表上线；catalogs 改消费注册表；`src/index.ts` 保持 all-in-one 兼容 | 01/02 | 注册 / 注销 / invalidate 重扫；真机安装 |
+| P3 | `core/resolve`（03）＋ `core/assemble`（04）＋ `agentOrchestrator` 行；`summon`（07）＋ `catalog`（06）行 | 03、04、06、07 | 假 ctx 集成；链耗尽 isError |
+| P4 | `control` 行（11）＋ `ui-host` / `ui-client`（12）＋ `ui-core` / `ui-react`（05/13） | 11、12、05、13 | 适配器契约套件；真机编辑落盘 |
+| P5 | 拆包 / 第三方 provider | §7.2 触发 | 安装与回退实测 |
 
-**票的落位**（不改语义，只改归属）：
+**票的落位**：
 
 | 票 | 落到 |
 | --- | --- |
-| 01 / 02 | `core/catalog`（＋ fs/source 适配器拆到 `providers`） |
-| 03 | `core/resolve` |
-| 04 | `core/assemble`（纯规划）＋ `dsh/host` 的 sink（注册） |
-| 06 | `core/catalog-injection`（纯 digest / 渲染）＋ `core/tool-capability`（与 orchestrator 共用）＋ `dsh/host` 的 pre-step sink |
-| 07 | `core/orchestrator`（决策）＋ `dsh/host` 的 tool / subagent 翻译（效果） |
-| 11 | `core/control` |
-| 12 | `dsh/host` route ＋ `dsh/client` 入口 ＋ `ui-core` 的 HTTP port |
+| 01 / 02 | `core/catalog` ＋ `providers/default`（fs / bundled / 模型层 / 默认对） |
+| 03 | `core/resolve`（内部）→ `agentOrchestrator` |
+| 04 | `core/assemble`（内部）＋ sink 注册在 summon / dsh 行 |
+| 06 | `core/catalog-injection` ＋ `core/tool-capability` ＋ `catalog` 行 |
+| 07 | `agentOrchestrator` 消费 ＋ `summon` 行（tool / subagents / 原生过滤） |
+| 11 | `core/control` → `agentControl` 服务 |
+| 12 | `ui-host` 行 ＋ `ui-client` 入口 ＋ `ui-core` HTTP port |
 | 13 | 各层测试 ＋ 适配器契约套件 |
 | 05 | `ui-react` ＋ `SettingsPage` |
 
-**P1 的具体代价**：约 29 处 `src/...` 锚点、测试 import、README 的路径陈述要一起改；一次性提交、守卫全绿，避免「移动中」的中间态。锚点是断言不是合同——移动时逐条重验，不照抄行号。
+**P1 的代价**：约 29 处 `src/...` 锚点、测试 import、README 路径陈述要一起改；一次性提交、守卫全绿。锚点是断言不是合同，移动时逐条重验。
 
-## 9. 未决问题
+## 9. 裁决记录与待决
 
-- **Q1（编排服务的公开面）**：`core/orchestrator` 是**包内深模块**（推荐；07 / 11 在包内消费，不 provide），还是 provide 成 `ctx.agentOrchestrator` 供第三方插件消费？推荐前者：当前只有自家连接器消费，公开服务会冻结一份未被使用验证的接口；出现第二个消费者时再 provide。
-- **Q2（Provider 的时机）**：v1 只做「端口 ＋ 静态装配」（推荐：文件系统 / 内置两配置，writer 两适配器），还是现在就做运行期 provider 注册表？推荐前者（一个适配器的注册表是负债；触发条件见 §7.3）。
-- **Q3（P1 的时机）**：先落一张机械分层票（推荐：import 矩阵从第一天起约束后续 03/04/11/12 的落位），还是等 03 或 06 动工时顺带搬？推荐先落；否则每张票都要先猜目录。
+**已裁决（2026-10-18）**
+
+- **Q1 = 部分 A / 部分 B**：按上表切分——读面、provider 注册表、orchestrator、control 服务化（B）；纯算法、sink、UI 内部保持 module（A）。因为一些能力包是不同插件 bundle，服务是唯一集成面。
+- **Q2 = 优先 Cordis 特性**：provider 实例经 `agentProviders` 服务注册与传递；用 `inject` / `ctx.get` / `ctx.provide` / `ctx.effect` / `ctx.on`。不造自定义加载器；`Service` 基类因 ADR-0001 暂不用（见 Q5）。
+
+**待决**
+
+- **Q3（分层落位时机）**：先落 P1 机械分层票（推荐：import 矩阵从第一天约束 03/04/11/12），还是等 03 或 06 动工时顺带搬？
+- **Q4（v1 物理打包）**：单包多插件行（推荐：子路径导出 ＋ patch 多行，安装面不变），还是现在就拆多个包（provider / control / ui 各自安装）？
+- **Q5（`Service` 基类）**：保持 plain object ＋ `ctx.provide`（推荐：零 ADR-0001 风险，inject 语义已够用；代价是不进 Service 目录），还是重开 ADR-0001、允许运行期 `import '@deepseek-ai/cordis'` 以使用 `Service` / Config schema / 目录可见性？
 
 ## 10. 非目标
 
-- 运行期插件加载器、provider 注册表、版本化服务契约（Q2 触发前）；
+- 自定义插件加载器 / 版本化服务注册中心（用 Cordis patch ＋ 服务契约）；
 - 跨 harness provider、装配源 provider、切片 / include / `.sections/`（票 11 已裁决延后）；
+- 第三方 provider 的 `source` 标签扩展（等 contract v2，随跨 harness 一起做）；
 - pnpm workspace 拆包与发布流水线（§7.2 触发前）；
 - 依赖变更（沙箱内不做，由维护者在沙箱外执行）；
-- 改 01/02 的冻结读面语义、改 11 的 6 成员、改 12 的 wire 形状。
+- 改 01/02 冻结读面语义、改 11 的 6 成员、改 12 的 wire 形状。
