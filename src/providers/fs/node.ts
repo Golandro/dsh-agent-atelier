@@ -1,7 +1,7 @@
 /** Node-backed port, used when the host has no `fs` service. */
 import { access, readFile, readdir } from 'node:fs/promises'
 
-import { absentAs, dirEntry } from './absence.ts'
+import { absentAs, dirEntry, dirKind } from './absence.ts'
 
 import type { AgentFileSystem } from '../../core/ports.ts'
 
@@ -10,7 +10,7 @@ export function createNodeFileSystem(): AgentFileSystem {
     listDirectory: (path, signal) => absentAs(async () => {
       const entries = await readdir(path, { withFileTypes: true })
       signal?.throwIfAborted()
-      return entries.map((entry) => dirEntry(entry.name, entry.isDirectory() ? 'directory' : entry.isFile() ? 'file' : 'other'))
+      return entries.map((entry) => dirEntry(entry.name, dirKind(entry)))
     }),
     readTextFile: (path, signal) => absentAs(() => readFile(
       path,

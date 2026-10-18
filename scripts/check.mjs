@@ -8,7 +8,7 @@
  *   build      `lib/` 必须存在且不旧于 `src/`（profile 装的是 lib/，不是 src/）
  *   bundle     `package.json` 运行时依赖不得含 `@deepseek-ai/*` 宿主包（ADR-0001 import 边界，宿主共享实例走 peer+dev；第三方库允许——2026-10-17 维护者裁决，install_bundle 随装入解析）
  *   deps       声明的每个 devDependency 必须已安装
- *   matrix     src/ 的 import 矩阵（ticket 16）：跨层只准公共入口；`@deepseek-ai/*` 只在 dsh/host 且 type-only；node:fs 只在 providers/dsh
+ *   matrix     src/ 的 import 矩阵（ticket 16）：跨层只准公共入口；`@deepseek-ai/*` 只在 dsh/host 且 type-only（P1 现状，运行期放开归 P2/ADR-0004）；node:fs 只在 providers/dsh/host
  *   anchors    `.scratch`/`docs` 里每一处 `path:line` 断言都必须能解析且行号在范围内
  *
  * 用法：`npm run check`（全量）| `npm run check:static`（只跑本脚本）| `--self-test`
@@ -100,8 +100,8 @@ export const PUBLIC_ENTRIES = [
 const IMPORT_MATRIX = [
   { name: 'contract', dir: 'src/contract/', entries: [], node: [], cordis: false },
   { name: 'core', dir: 'src/core/', entries: ['src/contract/index.ts'], node: ['node:path', 'node:os'], cordis: false },
-  { name: 'providers', dir: 'src/providers/', entries: ['src/contract/index.ts', 'src/core/index.ts', 'src/core/ports.ts'], node: true, cordis: false },
-  { name: 'dsh', dir: 'src/dsh/', entries: ['src/contract/index.ts', 'src/core/index.ts', 'src/core/ports.ts', 'src/providers/fs/index.ts'], node: true, cordis: true },
+  { name: 'providers', dir: 'src/providers/', entries: ['src/contract/index.ts', 'src/core/ports.ts'], node: true, cordis: false },
+  { name: 'dsh/host', dir: 'src/dsh/host/', entries: ['src/contract/index.ts', 'src/core/index.ts', 'src/core/ports.ts', 'src/providers/fs/index.ts'], node: true, cordis: true },
   { name: 'entry', dir: null, entries: PUBLIC_ENTRIES, node: [], cordis: false },
 ]
 
@@ -274,6 +274,7 @@ function selfTest() {
       violation('matrix dsh 运行期 cordis 应报错', 'src/dsh/host/bad-runtime.ts', 'import { Context } from \'@deepseek-ai/cordis\'\n', 'bad-runtime.ts:1')
       violation('matrix contract 任何 import 应报错', 'src/contract/bad-import.ts', 'import type { P } from \'../core/ports.ts\'\n', 'bad-import.ts:1')
       violation('matrix dsh 走 core 深路径应报错', 'src/dsh/host/bad-core-deep.ts', 'import { f } from \'../../core/catalog/inner.ts\'\n', 'bad-core-deep.ts:1')
+      violation('matrix providers 走 core/index 应报错（设计只准 ports 子入口）', 'src/providers/fs/bad-core-index.ts', 'import { f } from \'../../core/index.ts\'\n', 'bad-core-index.ts:1')
       put('src/index.ts', 'export { f } from \'./core/catalog/inner.ts\'\n')
       check('matrix 入口走深路径应报错', checkImportMatrix(mtmp).some((p) => p.includes('src/index.ts:1')))
     } finally {

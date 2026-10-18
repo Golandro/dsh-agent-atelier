@@ -6,11 +6,11 @@
 import type { AgentDirEntry } from '../../core/ports.ts'
 
 /** Run one read, reporting a missing path as absence instead of an error. */
-export async function absentAs<T>(read: () => Promise<T>, alsoAbsent?: string): Promise<T | undefined> {
+export async function absentAs<T>(read: () => Promise<T>, alsoAbsentCode?: string): Promise<T | undefined> {
   try {
     return await read()
   } catch (error) {
-    if (isAbsentPathError(error) || (alsoAbsent !== undefined && hasErrorCode(error, alsoAbsent))) return undefined
+    if (isAbsentPathError(error) || (alsoAbsentCode !== undefined && hasErrorCode(error, alsoAbsentCode))) return undefined
     throw error
   }
 }
@@ -19,12 +19,14 @@ export function dirEntry(name: string, kind: AgentDirEntry['kind']): AgentDirEnt
   return { name, kind }
 }
 
-export function dirKind(type: string): AgentDirEntry['kind'] {
+/** Map a dirent (or its plain `type` string) onto the port's directory-entry kind. */
+export function dirKind(source: string | { isDirectory(): boolean; isFile(): boolean }): AgentDirEntry['kind'] {
+  const type = typeof source === 'string' ? source : source.isDirectory() ? 'directory' : source.isFile() ? 'file' : 'other'
   return type === 'directory' ? 'directory' : type === 'file' ? 'file' : 'other'
 }
 
 /** Codes that mean "this path is not there", across Node and the host `fs` service. */
-export function isAbsentPathError(error: unknown): boolean {
+function isAbsentPathError(error: unknown): boolean {
   return hasErrorCode(error, 'ENOENT')
     || hasErrorCode(error, 'ENOTDIR')
     || hasErrorCode(error, 'EISDIR')
@@ -32,6 +34,6 @@ export function isAbsentPathError(error: unknown): boolean {
     || hasErrorCode(error, 'FS_NOT_DIRECTORY')
 }
 
-export function hasErrorCode(error: unknown, code: string): boolean {
+function hasErrorCode(error: unknown, code: string): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === code
 }
