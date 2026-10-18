@@ -49,7 +49,7 @@ DSH 没有面向用户的「Agent（专家）」层：子代理不带预设人�
 | D19 | agent 布局 = 目录制：`<发现根>/<agent-name>/<agent-name>.agent.md`；身份 = 目录名（小写 kebab，保留字 `default`）；显示名 `name` 缺省回退目录名；frontmatter `id` 废弃（仍写 ⇒ `unexpected-id` 诊断，值进 extra）；平铺 `*.md` 不再是 agent 位置 | 01 票二轮 grilling Q3/Q12；修订 D3 的 id 必填与平铺布局；ADR-0002 |
 | D20 | `includes` 重义并改名 `skills`：预置技能名数组（按名引用原生 skills 注册表），召唤时预置以省发现/加载轮次；存在性 06 警告（只警告不保证）；投递方式（内容预注入 vs 目录标记）= 04/07 设计题 | Q9/Q13；旧义「相对路径引用 markdown 资源」废弃 |
 | D21 | 错误面 = 软诊断：发现/解析期跳过 + `diagnostics()` + 日志，不阻断启动；坏 agent 不可见即不可用；UI（05）后补呈现。唯一硬错：受信 bundled 根（自家资产）解析失败 | Q5/Q6；与 D9 警告哲学同构 |
-| D22 | 「尽量委托」条件裁决 = 结构照抄（ADR-0001）：运行时 import 原生包不可达（软链 realpath 解析链 + 零依赖守卫）+ locator 硬编码 `SKILL.md` + `ctx.skills` 注册 = 类型 launder 与读面污染 ⇒ `src/discovery.ts` 镜像原生形状（根表/rank/`{cwd,signal}` 查询/invalidate），不注册进 `ctx.skills` | Q2/Q11；把当日上午的「尽量委托」裁决落定为条件式并关闭 |
+| D22 | 「尽量委托」条件裁决 = 结构照抄（ADR-0001）：运行时 import 原生包不可达（软链 realpath 解析链 + 零依赖守卫）+ locator 硬编码 `SKILL.md` + `ctx.skills` 注册 = 类型 launder 与读面污染 ⇒ `src/core/catalog/discovery.ts` 镜像原生形状（根表/rank/`{cwd,signal}` 查询/invalidate），不注册进 `ctx.skills` | Q2/Q11；把当日上午的「尽量委托」裁决落定为条件式并关闭 |
 | D23 | frontmatter 解析 = 自写最小 YAML 子集（`---` 围栏；已知键类型化：标量/引号串/字符串数组/`{provider, model}` 流式映射；未知键原文进 `extra`）；不加运行时依赖 | Q14「用最小化轮子（只是yaml解析器）」 |
 | D24 | 注册表契约冻结：`AgentRegistry { list/get({cwd, signal}), diagnostics({cwd}), invalidate() }`，首次查询按项目根记忆化（无 watcher）；哑容器保留为内部类型；跨根覆盖不诊断（胜者 `source` 记录出处） | Q1/Q15；03/05/06 消费面 |
 

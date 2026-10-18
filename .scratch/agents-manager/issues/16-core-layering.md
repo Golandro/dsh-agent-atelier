@@ -30,7 +30,7 @@ Blocked by: —
 - [x] `pnpm run build` 产物新鲜；`lib/index.js` 仍可被 loader 加载，`package.json` 的 `main` / `exports` / service key 不变。
 - [x] import 矩阵有正反自测（合成违规必须报错），现有源码零违规。
 - [x] `core` 无 `node:fs` import；`@deepseek-ai/*` 在 `contract` / `core` / `providers` 为零；现有 `process.env` 默认参数与 project-root 解析暂留 core（P2 随 workspace 解析下沉到 provider）。
-- [x] 29 处 `src/...` 锚点全部解析；README 的路径陈述与新目录一致。
+- [x] 27 处 `src/...` 锚点全部解析（票面原估约 29）；README 的路径陈述与新目录一致。
 - [x] 无行为变化：诊断码 / 排序 / 懒加载 / 信任语义 / 冻结读面形状全部不动。
 
 ## 已知约束
@@ -61,6 +61,8 @@ Blocked by: —
 
 **发现但未扩大范围**（归 11 票顺带）：frontmatter/registry-file/yaml-scalar 三处头注释的「zero runtime dependencies (ADR-0001, `scripts/check.mjs:188`)」行号引用因本票在 check.mjs 增行而漂移（源码注释不进锚点守卫，守卫测不到）。
 
+**复核轮**（2026-10-18，两轴 `/code-review` vs `8537aac`）：Standards 零硬违规，三条 judgement call 记账不扩范围——fs 依赖三件套（`resolveFileSystem`/`nodeFileSystem`/`warn`）在两个 Dependencies 接口重复声明（Data Clumps）、`apply()` 内两段 deps 字面量与 `node.ts` 的 kind 三元映射同形（Duplicated Code）、`absentAs` 的 `alsoAbsent` 参数名未揭示其实为错误码（Mysterious Name）。Spec 轴三处漏网路径陈述本轮已补：`bundled/README.md`（随包分发文件的 `src/discovery.ts` 死路径）、`spec.md` D22 行、11 票 Q1/验收两处 `src/types.ts`（现挂 `src/contract/types.ts`）；验收计数修正为实际 27 处。`scanImports` 的 type-only 上溯不设语句边界（模板字符串内以 `import … from` 起行的行会被误判为静态 import）记为实现质量备注：现源码无此形态、方向保守（多报不漏报），不值得加复杂度。
+
 ## Comments
 
 - 来源：2026-10-18 `/codebase-design` core 设计（`docs/core-design.md` §8 P1）；裁决 Q3=A / Q4=A / Q5=B（ADR-0003 / ADR-0004）。
@@ -89,7 +91,7 @@ Blocked by: —
 - `pnpm run check` 全绿；83 用例行为不变；
 - 构建产物新鲜，入口模块可被 loader 加载；
 - import 矩阵自测覆盖四条边界（跨层公共入口、宿主包、文件系统直接读、跨翼）；
-- 约 29 处票面锚点全部解析；路径陈述更新；
+- 27 处票面锚点全部解析（票面原估约 29）；路径陈述更新；
 - 无服务行拆分、无 provider 注册表、无 `Service` 基类、无行为变更。
 
 **Out of scope:**

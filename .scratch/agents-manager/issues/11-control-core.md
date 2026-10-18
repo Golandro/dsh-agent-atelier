@@ -128,7 +128,7 @@ Blocked by: —
 
 ## 动工前必须裁决
 
-- **Q1（阻断）clip 切片模型**：`{% include clip <name> %}` 模板 ＋ `sections/<name>.md` 独立文件是原型提案，而 01 冻结契约的 body 是单文件。三选一：(A) 引入切片文件并冻结新契约（01 需修订）；(B) 只做单文件 body，不引入切片（`compose` 退化为 frontmatter ＋ body 两块）；(C) 切片只存在于 UI 概念层、落盘保持单文件。**推荐 (A)**——P1 标注的「编辑 Clip 保存时改涉及的所有 clip 文件」只有切片成文件才成立；但这是产品决定，不是实现细节。（2026-10-18 诊断补：原型切片落点是 `<发现根>/sections/<name>.md`，而 `src/core/catalog/discovery.ts:200` 起把根下每个 kebab 目录都当 agent 候选 ⇒ `sections/` 会被判 `missing-document`，用户根每次扫描一条诊断、受信 bundled 根更会直接抛错。选 A 必须同时改发现面（保留目录名）或改用点号目录；成本落在 `discoverDirectory`，**不动** `src/types.ts` 的冻结读面。维护者追问后补：`~/repo/ChunkStellar/.harness` 的组装是先例，但属**交付层**；作者层仍用 include（可嵌套、禁参数化）。落点取点号目录 `.sections/` 则 `src/core/catalog/discovery.ts:202` 直接跳过 ⇒ 发现面零改动。详见诊断记录「Q1 目标评价」。）
+- **Q1（阻断）clip 切片模型**：`{% include clip <name> %}` 模板 ＋ `sections/<name>.md` 独立文件是原型提案，而 01 冻结契约的 body 是单文件。三选一：(A) 引入切片文件并冻结新契约（01 需修订）；(B) 只做单文件 body，不引入切片（`compose` 退化为 frontmatter ＋ body 两块）；(C) 切片只存在于 UI 概念层、落盘保持单文件。**推荐 (A)**——P1 标注的「编辑 Clip 保存时改涉及的所有 clip 文件」只有切片成文件才成立；但这是产品决定，不是实现细节。（2026-10-18 诊断补：原型切片落点是 `<发现根>/sections/<name>.md`，而 `src/core/catalog/discovery.ts:200` 起把根下每个 kebab 目录都当 agent 候选 ⇒ `sections/` 会被判 `missing-document`，用户根每次扫描一条诊断、受信 bundled 根更会直接抛错。选 A 必须同时改发现面（保留目录名）或改用点号目录；成本落在 `discoverDirectory`，**不动** `src/contract/types.ts` 的冻结读面。维护者追问后补：`~/repo/ChunkStellar/.harness` 的组装是先例，但属**交付层**；作者层仍用 include（可嵌套、禁参数化）。落点取点号目录 `.sections/` 则 `src/core/catalog/discovery.ts:202` 直接跳过 ⇒ 发现面零改动。详见诊断记录「Q1 目标评价」。）
 - **Q2 front-matter 编辑形态**：(A) 文本编辑 ＋ 写前用 D23 解析器校验、按原文回写（保注释/未知键）；(B) 字段表单（每字段一个控件，写入时序列化）。**推荐 (A)**——与 P1 标注一致，且 D14 的 1:1 回写只有文本形态能满足。（2026-10-18 诊断补：原型 `model.ts` 行 175-193 的 `serializeFrontmatter` 不转义 `name`/`description`、丢注释与键序，B 形态无法满足 D14 原文回写；选 B 需先推翻 D14，不是自由二选一。）
 - **Q3 归属**：本票与 05 的关系。**推荐**：本票 = 05 的后端优先第一刀，05 的 brief 继续有效并收到本票指针。（2026-10-18 诊断补：05 正文范围 6 仍把写器写作「本票新增」、范围 3 仍认领数据通道，且 05 现为 `ready-for-agent` 且无 `Blocked by: 11` ⇒ 边界不落，先领 05 的 agent 会造出第二份写器/通道；另本票内部 seam 第 11 项 `MasterDetailPane` 是组件实现，与本票范围「不含 UI 组件实现（05）」自相矛盾，需一并裁决。）
 
@@ -136,7 +136,7 @@ Blocked by: —
 
 ## 验收
 
-- [ ] 契约冻结并回写本票 `## 契约（冻结）`；`src/types.ts` 未被改动（新形状进新文件）
+- [ ] 契约冻结并回写本票 `## 契约（冻结）`；`src/contract/types.ts` 未被改动（新形状进新文件）
 - [ ] 核心接口成员 ≤ 6；内部纯函数可单独测试（internal seam）
 - [ ] 写面存在且与既有读者配对：往返不丢注释/未知键（D14），有原子写与失败路径
 - [ ] 主线无第二份 frontmatter / registry 解析模型；registry 层类型用 `AliasRegistrySource`

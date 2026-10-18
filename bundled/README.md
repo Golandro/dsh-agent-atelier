@@ -9,4 +9,4 @@ after every user and workspace root, and a trusted root: a parse failure here
 is a hard error, not a soft diagnostic.
 
 Nothing here is business logic: the directory holds shipped assets only, and the
-discovery rules that read them live in `src/discovery.ts`.
+discovery rules that read them live in `src/core/catalog/discovery.ts`.
