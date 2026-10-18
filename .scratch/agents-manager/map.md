@@ -7,7 +7,8 @@
 - deck 闸恢复后可由 deck 接管本目录票据管理（文件已按 `docs/agents/issue-tracker.md` 约定落盘）。
 - 原型 `agent-control-prototype.html` 保留在仓库根，其纯逻辑模块是 M3 解析引擎的规格参照。
 - UI 设计原型在 throwaway 分支 `proto/settings-ui`（`prototype/settings-ui/`：React 19 + Vite + CodeMirror 6 + TanStack Table）；`/codebase-design` 分析（2026-10-17）把它的验证结论收敛成三票：`issues/11-control-core.md`、`issues/12-host-wiring.md`、`issues/13-frontend-tests.md`。
-- 领域文档已起步：`CONTEXT.md`（词汇表，随 grilling 增补）+ `docs/adr/`（0001 结构照抄、0002 目录制布局）。
+- 领域文档已起步：`CONTEXT.md`（词汇表，随 grilling 增补）+ `docs/adr/`（0001 结构照抄、0002 目录制布局、0003 Core 分层）。
+- Core 分层设计（2026-10-18，`/codebase-design`）：`docs/core-design.md` + ADR-0003。提案 = 单包六层（contract / core / providers / dsh / ui-core / ui-react）、宿主翼与界面翼只共享 contract、四个深模块（catalog / orchestrator / control / ui-core session）、provider 端口 + 静态装配；拆包与运行期 provider 注册留给触发条件。待 Q1–Q3 裁决，未建票。
 - 仓库守卫与事实文档（2026-10-14 retro 落地）：`pnpm run check`（`scripts/check.mjs`：探针残留 / `lib/` 陈旧 / 宿主包运行时依赖（`@deepseek-ai/*` 禁、第三方库允许——2026-10-17 修订）/ 未装 devDeps / 票面 `path:line` 锚点漂移，会先自测每条判定）+ `.githooks/pre-commit`（每 clone 接线一次：`git config core.hooksPath .githooks`）；harness 事实与实施期约定见 `docs/agents/harness-facts.md`。
 
 ## Decisions-so-far
@@ -38,12 +39,14 @@
 - 脚手架不再阻塞任何票（票 `10` 已 resolved、已装入本 profile）。遗留限制：Host `Service` 目录只收录**声明式契约** service，空壳 `agentRegistry` 无法 service 级读回；现证据 = loader entry 命中 + `application: applied` + 真实 Cordis 单测。若日后需要 service 级读回，另开小票给注册点补契约。
 - 03 票面「modelOrder 条目为 raw」旧读法待同步：新契约 = 链先 `modelOrder` 别名、耗尽后 `model` raw 兜底（spec §5.3 已改，03 票正文动工前修订）。
 - 预置技能（`skills`）投递方式未定（内容预注入 vs 目录标记）——04/07 设计题，不阻塞 01（01 只解析名字）。
-- deck 闸本轮仍 defer（`deck_*` 返回 `{"reason":"gate-defer"}`）：01 票二轮处理、修复轮与 02 票诊断+裁决回填+实施（2026-10-15）都按 `docs/agents/issue-tracker.md` 的 markdown 约定直接改票（`issues/01-agent-registry.md`、`issues/02-alias-registry.md`、本文件），未走 deck 上报；闸恢复后补报（挂账：#2 诊断、裁决回填与实施完毕，待补报）。05 票诊断+裁决+brief（2026-10-17）同样直改 `issues/05-settings-ui.md`（挂账追加：#5 诊断与裁决完毕、brief 已挂，待补报）。
+- deck 闸本轮仍 defer（`deck_*` 返回 `{"reason":"gate-defer"}`）：01 票二轮处理、修复轮与 02 票诊断+裁决回填+实施（2026-10-15）都按 `docs/agents/issue-tracker.md` 的 markdown 约定直接改票（`issues/01-agent-registry.md`、`issues/02-alias-registry.md`、本文件），未走 deck 上报；闸恢复后补报（挂账：#2 诊断、裁决回填与实施完毕，待补报）。05 票诊断+裁决+brief（2026-10-17）同样直改 `issues/05-settings-ui.md`（挂账追加：#5 诊断与裁决完毕、brief 已挂，待补报）。11 票诊断（2026-10-18）同样直改 `issues/11-control-core.md`（挂账追加：#11 诊断完毕、已转 `ready-for-agent`、deck 上报仍未走，待补报）。
 - ✅ 工作区未提交改动已处置（2026-10-17，05 票 Q4 裁决）：pnpm 迁移 + `.vendor` 软链 + js-yaml/zod 依赖保留，守卫零依赖判定修订为 `hostRuntimeDeps`，提交 `3ac2894`；守卫复绿（72 锚点 / 83 用例）。pnpm 沙箱 store 陷阱已记 harness-facts。
-- ⏳ 11 票两个阻断裁决待维护者：**clip 切片模型**（`{% include clip <name> %}` 模板 ＋ `sections/<name>.md` 独立文件 vs 单文件 body；推荐引入切片）、**front-matter 编辑形态**（raw 文本往返 vs 字段表单；推荐文本 ＋ 写前校验）；裁决后 11 转 `ready-for-agent`，12/13 随之解阻。
+- ✅ 11 票裁决落地（2026-10-18）：`needs-info` → `ready-for-agent`，Agent Brief 已挂。**Q1=B**：v1 只支持标准 Agent 文件（单文件 body ＋ 受支持 front-matter 扩展）；切片/`include`/`.sections/`/装配源/动态 provider/中性工具 id 延后；**Q5=A+B**（前端移植时定，core 以原文回写为唯一源）；**Q4=A** 记录给未来转换器；**Q2/Q3 暂不做**；**Q6=A（2026-10-18）**：写器归 11、通道归 12，05 范围 3/6 改指针 + `Blocked by: 11, 12`，`MasterDetailPane` 移出 11 归 05/13。维护者澄清：prototype 本意 = 装配源编辑器，host 长期只读装配源——v1 是时间受限的过渡，12/13 阻塞边不变。
+- 📌 长期方向与 v1 取舍（2026-10-18）：维护者澄清 **prototype 本意 = 装配源编辑器，host 长期只读装配源**；v1 因时机与公开标准不成熟（唯一较像跨 harness 标准的 `reachjalil/harness-config` 不流行；`AGENTS.md` 管指令、`SKILL.md` 管技能、MCP 管工具，均非逐 agent 定义标准）只支持**标准 Agent 文件（宿主原生格式 ＋ 受支持 front-matter 扩展）**；装配源编辑器、跨 harness 转换器/provider、动态模式、中性工具 id 延后（14/15 暂不建票，留 Fog）。
 - ⏳ `available: false` 的跳过与沿声明顺序回退归 **03 票解析引擎**；11 只消费其结果、不重实现（原型 UI 的三处断言无实现支撑即为反例）。若 03 先落地，11 的链展示直接接引擎。
 - ⏳ 前端测试基座缺失：原型不在 `tsconfig.json` 的 include、无 `.test.*`、devDeps 无 jsdom/@testing-library ⇒ 13 票先补基座（沙箱外安装）。
+- ⏳ Core 分层提案待裁决（2026-10-18，`docs/core-design.md` §9）：Q1 编排服务是否 provide 为 `ctx.agentOrchestrator`（推荐包内深模块）；Q2 是否现在做运行期 provider 注册表（推荐否）；Q3 是否先落 P1 机械分层票（推荐是）。裁决后建票并回写本文件。
 
 ## Children
 
-见 `issues/`。frontier 扫描（open + unblocked + unclaimed；2026-10-17 更新，守卫已复绿）：**05 优先开工**（Q5 裁决：D14 用户明示 UI 优先，agent brief 已挂）——03、06、08、09 亦可立即开工；04 待 03；07 待 03/04/06。**新增施工分解**：11（控制核心，`needs-triage`——两个阻断裁决待维护者）/ 12（接线，待 11）/ 13（前端测试，待 11）；11 裁决落地后即为新的第一优先（05 的施工切片）。
+见 `issues/`。frontier 扫描（open + unblocked + unclaimed；2026-10-18 更新，守卫全绿）：**11 现为第一优先**（裁决已落、Agent Brief 已挂）；12（接线，`Blocked by: 11`）、13（前端测试，`Blocked by: 11`）待 11；**05 待 11/12**（Q6=A：写器/通道归 11/12，05 只做 UI，`Blocked by: 11, 12`）；03、06、08、09 亦可开工；04 待 03；07 待 03/04/06。**延后不建票**：装配源编辑器、跨 harness 转换器/provider、动态模式、中性工具 id（记 Fog）。

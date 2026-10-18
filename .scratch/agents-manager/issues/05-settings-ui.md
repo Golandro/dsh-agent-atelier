@@ -2,7 +2,9 @@
 
 Status: ready-for-agent
 Type: task
-Blocked by: 10, 01, 02（均已 `resolved`：10 于 2026-10-14，01/02 于 2026-10-16 ⇒ 本票现为 frontier 可开工；2026-10-17 诊断核验）
+Blocked by: 10, 01, 02, 11, 12
+
+（阻塞现状：10 于 2026-10-14、01/02 于 2026-10-16 均 `resolved`；11/12 为 2026-10-18 Q6 裁决新增——写器归 11、通道归 12，本票只做 UI。）
 
 ## 范围
 
@@ -10,12 +12,12 @@ Blocked by: 10, 01, 02（均已 `resolved`：10 于 2026-10-14，01/02 于 2026-
 
 1. **注册面**（2026-10-17 诊断修正：原引 `SettingsProvider.installSection` 在现源码**不存在**，属已删除包 dsh-settings-file 的陈旧产物残迹；原引「Agency 设置页」不在 DSH 源码树、无法核验，先例改引在树页）：client 侧经 `ctx.slots` 注册 `settings.section` slot（声明 `client/ui-settings/src/client/contract/slots.ts:57`；注册选项 `{id, order, label, priority}` 见 `client/ui-slots/src/index.ts:777-783`；注册面 `client/ui-renderer/src/client/registry.ts:181`）。整页先例 = Models 设置页（`client/ui-settings-models/src/client/index.ts:136-146`）；既有页内插件卡片先例 = web-search 的 `plugins.item`（`client/ui-settings-web-search/src/client/index.ts:39`）。无自动设置页 client（`settings/settings/README.md:39` 明说 no shipped client does so yet）——UI 全部手写。
 2. **交付前置**（诊断新增）：双面面包——宿主面 `lib/index.js` + client 面 `package.json` 声明 `dsh.client: {platform: 'web'}` 且 `exports['./client']` 指向构建产物 `lib/client.js`（字段语义 `util/package-manifest/src/types.ts:80-93`；扫描加载 `client/modules/src/index.ts:845-878`，**缺构建产物激活期硬失败** MissingClientBundleError）。client 构建走 tsdown 共享 preset（`client/tsdown.client.ts`）——本仓现只 tsc，需扩构建链。运行中页面经宿主 client-hmr 轮询各 row 的 client.js 拾取重构建（默认 500ms；外仓包不在 dev:web watch 集合，须自带 watch）。
-3. **数据通道**（诊断新增）：既有 settings remote（`ctx.remote.settings.*`，`api/settings-controller/src/index.ts:76-166`）只写 profile patch（cordis.patch.yml）的 `config:` 节点，**不能**编辑本票的 agent.md / registry.yaml。1:1 自有文件读写 = 宿主侧自管文件（插件代码可直读写自己的 YAML/markdown，`boot/plugin-manager/README.md:31`）+ `ctx.webServer` exact route（`host/webserver/src/index.ts:366`）+ client fetch（Desktop 经 web-document 的 forwardWebRequest 转发任意 pathname，兼容）。自建 Remote 命名空间机制存在但受 strict codec + Typert 生成器 monorepo 布局约束、无文档无先例（缺口，v1 不推荐）。原子写自实现（temp+rename；不可 import `@deepseek-ai/dsh-atomic-write`，ADR-0001 import 边界）。configEditor 只作「直接落盘 + 注释保留 + 原子写」先例参照（`boot/config-editor/src/index.ts:87` 的 edit、`boot/config-editor/src/index.ts:34` 的 documentPath）。
+3. **数据通道（Q6 裁决 2026-10-18：由 12 实现，本票只消费）**：Q3-A 通道 = 宿主自管文件（`boot/plugin-manager/README.md:31`）+ `ctx.webServer` exact route（`host/webserver/src/index.ts:366`）+ client fetch（Desktop 经 web-document 的 forwardWebRequest 转发任意 pathname，兼容）；既有 settings remote 只达 profile patch、不能编辑 agent.md / registry.yaml（`api/settings-controller/src/index.ts:76-166`）。本票不新建通道、不自建 Remote 命名空间（strict codec + Typert 布局缺口）；原子写与落盘由 11/12 负责。
 4. **编辑面**（结构忠实；字段清单 = spec §5.1 全表 + `src/types.ts` 冻结契约，2026-10-17 诊断补全；`includes`→`skills` 系 D20 改名）：
    - agent 列表：frontmatter 字段编辑——`name`、`description`、`color`、`emoji`、`modelOrder` 数组、`model` raw 兜底数组、`requiredTools`、`skills`、`spawn`、`reasoningEffort`；正文（body）编辑；`extra` 未知键按原文回写不丢（D14）；只读展示 source/origin/path。agent「启停」经裁决 Q1（2026-10-17）**v1 不做**：schema 无对应字段，D14 不允许 UI-only 状态；v2 如需走 `enabled` frontmatter 字段另立票修订 01 冻结契约。
    - registry：models 条目编辑（modelName / provider / model / `sysPrompt` / `available`——sysPrompt 是 spec §5.2 字段，编辑面必须覆盖）；aliases 重映射（下拉选真实模型）；`dsh-default` 只读展示（含隐式合成条目）；只读展示 `path?` / `synthesized?`（02 冻结契约为 05/06 预留）与层覆盖关系（project-dsh 胜 user-dsh）。
 5. **读面**（诊断新增，01/02 已冻结）：`ctx.agentRegistry`（list / get / diagnostics / invalidate，`{cwd, signal}`）与 `ctx.aliasRegistry`（snapshot / getAlias / getModel / diagnostics / invalidate）；跨层警告直接消费纯函数 `inspectAliasRegistry`（unknown-alias / unknown-model-target / raw-model-escape / alias-fan-in，契约见 02 票「契约（冻结）」节与 `src/types.ts`）。无 watcher：UI 反映手改文件 = `invalidate()` + 重读（D24 同构）。
-6. **写器为新增面**（诊断新增）：01/02 只交付读器；frontmatter / registry 序列化写器（含 `extra` 原文回写）为本票新增。实现自由（2026-10-17 维护者裁决「我们需要这些依赖」后）：`js-yaml` 与 `zod` 已入 `dependencies`，经 install_bundle 装入后**宿主侧可达**（bundle entry 自身的 dependencies 进运行时解析）；亦可继续 D23 自写子集——实施期择一，验收只看行为（原子写、注释/未知键不丢）。
+6. **写器（Q6 裁决 2026-10-18：由 11 提供，本票只消费）**：frontmatter / registry 序列化写器（含 `extra` 原文回写、原子写）在 11 的控制核心里实现；本票不实现第二份写器，UI 经 11/12 的接口落盘。依赖裁决（`js-yaml` / `zod` 保留，2026-10-17）随 11 的执行约束。
 7. **智能顾问面板**（"尽可能 UI 智能"）：
    - 警告呈现：02 findings 四类 + requiredTools 超界（缺什么）+ 预置技能缺失（06 警告的 UI 呈现面）+ 顺序反模式（spec §8 全表）。
    - 缓存断点可视化（裁决 Q2，2026-10-17：**最小面板**）：spec §6 静态通道表驱动的断点示意 + 02 findings + fork 断点知识库；04 落地后另立票迭代接规划器输出，不阻塞本票——原「消费 04 规划器输出」与里程碑序（MS2=05 先于 MS3=04）的矛盾就此消解。
@@ -86,32 +88,37 @@ Blocked by: 10, 01, 02（均已 `resolved`：10 于 2026-10-14，01/02 于 2026-
 
 裁决执行：范围 4/6/7 与验收已按裁决定形（见上）；agent brief 已挂（见下）；map.md 已同步。
 
+### 维护者裁决（2026-10-18，Q6）
+
+- **Q6 → A**：写器归 11、通道归 12；本票范围 3/6 改为指针（见上），`Blocked by` 追加 11、12；`MasterDetailPane` 移出 11、归本票/13 的 UI 实现。施工顺序 = 11 → 12/13 → 05。
+
 ## Agent Brief
 
 **Category:** enhancement
-**Summary:** 从零实现智能 UI 设置页：双面面包交付（宿主面 + client 面），UI 与 agent.md / registry.yaml 1:1 结构忠实编辑，附智能顾问面板（最小面板）。
+**Summary:** 从零实现智能 UI 设置页：双面面包交付（宿主面 + client 面），UI 与 agent.md / registry.yaml 1:1 结构忠实编辑，附智能顾问面板（最小面板）；写器与数据通道由 11/12 提供（Q6 裁决）。
 
 **Current behavior:**
 插件只有读面：`ctx.agentRegistry`（list / get / diagnostics / invalidate，`{cwd, signal}`）与 `ctx.aliasRegistry`（snapshot / getAlias / getModel / diagnostics / invalidate）服务，跨层校验纯函数 `inspectAliasRegistry`（契约见 02 票「契约（冻结）」节与本仓 `src/types.ts`）。无任何 client / UI 代码：构建链只有 tsc（无 client 产物），无 `dsh.client` 声明，无设置页注册。用户改配置只能手改文件。
 
 **Desired behavior:**
-- **双面面包交付**：`package.json` 声明 `dsh.client: {platform: 'web'}` + `exports['./client']` 指向 tsdown 构建的 `lib/client.js`（缺构建产物 = 激活期硬失败，交付前必须先建）；宿主面 `lib/index.js` 职责 = 注册 webServer 路由 + 服务。
+- **双面面包交付**：`package.json` 声明 `dsh.client: {platform: 'web'}` + `exports['./client']` 指向 tsdown 构建的 `lib/client.js`（缺构建产物 = 激活期硬失败，交付前必须先建）；宿主面 `lib/index.js` 提供 bundle 入口；webServer 路由由 12 注册、写器由 11 提供（本票不重复实现）。
 - **设置页**：client 经 `ctx.slots` 注册 `settings.section`（整页，先例 = Models 设置页）；编辑字段 = spec §5.1 全表：agent frontmatter 全字段（`name` / `description` / `color` / `emoji` / `modelOrder` 数组 / `model` raw 兜底数组 / `requiredTools` / `skills` / `spawn` / `reasoningEffort`）+ body 编辑 + `extra` 未知键原文回写；registry 编辑（spec §5.2）：models 条目（含 `sysPrompt` / `available`）+ aliases 下拉重映射到真实模型；`dsh-default`（含隐式合成条目）与 `path?` / `synthesized?` 只读展示；层覆盖关系展示（project-dsh 胜 user-dsh）。
-- **数据通道（Q3 裁决）**：宿主侧自管文件读写 + `ctx.webServer` exact route + client fetch（Desktop 兼容）。读走 01/02 冻结读面；写器为新增面（原子写 temp+rename；`@deepseek-ai/*` import 一律禁止，ADR-0001）。js-yaml / zod 已在 `dependencies`（2026-10-17 维护者裁决），宿主侧写器与校验可用。
+- **数据通道与写器（Q6 裁决 2026-10-18：由 11/12 提供，本票只消费）**：宿主自管文件读写 + `ctx.webServer` exact route + client fetch（Desktop 兼容）由 12 落地；frontmatter/registry 写器（原子写、注释/未知键保留）由 11 提供；本票不实现第二份通道或写器，读走 01/02 冻结读面。
 - **无 watcher**：手改文件后 UI 经 `invalidate()` + 重读反映；下次会话生效。
 - **智能顾问面板（Q2 裁决：最小面板）**：02 findings 四类（unknown-alias / unknown-model-target / raw-model-escape / alias-fan-in）呈现 + requiredTools 超界 + 预置技能缺失 + 顺序反模式（spec §8 全表）+ S5 别名重映射即时影响预览 + 缓存断点示意（spec §6 静态通道表推演）+ fork 断点知识库（spec §2.1-4）。**不**消费 04 规划器输出（落地后另立票迭代）。
 - **agent「启停」v1 不做（Q1 裁决）**：无 UI-only 状态（D14）。
 
 **Key interfaces:**
 - `ctx.slots`（client 注册面）：`settings.section` 声明与注册选项 `{id, order, label, priority}`；整页先例 = Models 设置页。
-- `ctx.webServer` exact route 注册（宿主侧）；client fetch 对应 pathname。
+- `ctx.webServer` exact route（12 注册）；client fetch 对应 pathname。
 - 读面：`ctx.agentRegistry` / `ctx.aliasRegistry` / `inspectAliasRegistry`（冻结契约，勿改）。
-- 写器 / 路由形状契约：实施期冻结并回写本票（01 票 Q4 先例）。
+- 写器 / 路由形状：由 11/12 冻结（`AgentDocPort` 等接口），本票只消费 wire 契约，不自建第二套。
 
 **Acceptance criteria:**
 - [ ] client 构建产物 `lib/client.js` 存在；install_bundle 后 loader 命中、页面出现本插件设置页（真机验证走 loader entry，见 harness-facts「读回通道」——plain-object service 不进服务目录）
 - [ ] spec §5.1 + §5.2 全字段一一对应（清单核对）；`extra` 未知键原文回写不丢
-- [ ] UI 写操作直接落 agent.md / registry.yaml（原子写）；手改文件后 UI 经 `invalidate()` 反映
+- [ ] UI 写操作经 11/12 的接口落 agent.md / registry.yaml（原子写由 11/12 保证）；手改文件后 UI 经 `invalidate()` 反映
+- [ ] 本票不出现第二份写器/数据通道（写器归 11、通道归 12）；组件只消费 wire 契约
 - [ ] 别名重映射下拉只列真实模型；`dsh-default` 只读；层覆盖关系正确展示
 - [ ] 顾问面板演示：S5 别名重映射前缀不变、Agent/模型切换断点按 §6 静态表移动、fork 断点知识库可查
 - [ ] 02 findings 四类在 UI 中有呈现；requiredTools 超界 / 预置技能缺失 / 顺序反模式有警告
@@ -122,6 +129,7 @@ Blocked by: 10, 01, 02（均已 `resolved`：10 于 2026-10-14，01/02 于 2026-
 - agent「启停」（v2 另立票）；04 规划器输出消费（04 落地后另立票）；03 解析引擎、04 组装、06 目录注入与警告呈现、07 召唤替换
 - 自建 Remote 命名空间（strict codec + Typert 布局缺口，v1 不做）
 - watcher / 文件监听（不做，与 01/02 一致）
+- 写器（11）与 HTTP 通道（12）的实现——本票只消费其接口；共享 UI 组件（含 11 票原 seam 的 `MasterDetailPane`）归本票/13
 - 修改守卫判定（`bundle` 项已按 2026-10-17 修订落定）
 
 **实施注意**：pnpm workspace 工具链（沙箱内 `pnpm install` 有 store 陷阱，见 harness-facts）；改 `src/` 后 `pnpm run build`；client 面走 tsdown 共享 preset；外仓包不在 dev:web watch 集合、须自带 watch；票面 `path:line` 锚点动工前真机复核。
@@ -134,13 +142,14 @@ UI 设计原型在 throwaway 分支 `proto/settings-ui`（commit `5dc7486`），
 - 数据结构：`prototype/settings-ui/src/types.ts`（镜像冻结契约 + P1 组合文档模型提案）；主题 CSS 扒自 DSH 源码树暗色 token。
 - 待回填裁决（原型 README「开放问题」）：clip 引用语法与落盘布局、front-matter 编辑形态（raw 文本 vs 字段表单）、顾问面板放置（drawer vs tab）、主题取色（core 近黑 vs 藏青）。
 - 按原型技能规则：验证后只把决策并入主线，原型本体不进主线。
+- **v1 范围（2026-10-18 裁决）**：Q1=B，无切片；原型的 Prompt Sections / clip 编辑不进 v1，仅作布局与交互参考。
 
 ## 施工分解（2026-10-17，`/codebase-design`）
 
 分析后本票的施工拆成三票（后端优先）：
 
-- **11 控制核心**（`issues/11-control-core.md`）：宿主侧深模块（`snapshot` / `compose` / `plan` / `commit` / `applyRegistryEdit` / `invalidate`）＋ 补上宿主目前缺失的写面 ＋ 消除原型相对冻结契约的数据形状漂移。**含两个动工前裁决**（clip 切片模型、front-matter 编辑形态），现为 `needs-triage`。
+- **11 控制核心**（`issues/11-control-core.md`）：宿主侧深模块（`snapshot` / `compose` / `plan` / `commit` / `applyRegistryEdit` / `invalidate`）＋ 补上宿主目前缺失的写面 ＋ 消除原型相对冻结契约的数据形状漂移。**裁决（2026-10-18）：v1 无切片；front-matter 形态 A+B 都支持、移植原型前端时定**；现为 `ready-for-agent`，Agent Brief 已挂。
 - **12 接线**（`issues/12-host-wiring.md`）：`ctx.webServer` exact route（本票 Q3-A 通道）＋ client fetch 适配器 ＋ 去掉 fixtures；`Blocked by: 11`。
 - **13 前端测试**（`issues/13-frontend-tests.md`）：接口级用例、编辑器视图模型、组件测试（需 jsdom ＋ @testing-library，沙箱外安装）、适配器契约套件；`Blocked by: 11`（契约套件那一节待 12）。
 
-本票 brief 继续有效（页面与交付物不变），施工顺序 11 → 12 → 13；原型的验证结论与证据见 11 票的「现状分析」节。
+本票 brief 继续有效（页面与交付物不变），施工顺序 11 → 12/13 → 05（本票 `Blocked by: 11, 12`）；原型的验证结论与证据见 11 票的「现状分析」节。
