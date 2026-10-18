@@ -76,7 +76,7 @@ DSH 没有面向用户的「Agent（专家）」层：子代理不带预设人�
 | preset 读取 | `ctx.agentPresets.composedPreset(ctx)`；交集只在 `ToolRuntime.view()` | `preset/agent-preset-registry/src/index.ts:290` |
 | per-model 变量 | 唯一内置机制：`installModelSelection` 注入 `{{provider}}/{{model}}` | `core/agent/src/model-selection.ts:67` |
 | Agency 先例 | `startSubagentRun` = `ctx.subagents.start/startActivation`；请求带 persona+toolFilter+maxDepth；能力门控 `capabilities.persona/.toolFilter/.depthLimit`；332 personas，frontmatter{name,description,descriptionEn,color,emoji,vibe} | AGENCY `lib/src-DhS1geoQ.js:3356-3368/:3383-3401` |
-| 运行时 import 边界 | 本包 realpath（软链回 workspace）解析不到 profile 的 node_modules：`@deepseek-ai/dsh-skill` / `@deepseek-ai/dsh-skill-filesystem` / `yaml` 动态导入全 `ERR_MODULE_NOT_FOUND`；零运行时依赖守卫（ADR-0001） | 探针 2026-10-14；`scripts/check.mjs:188` |
+| 运行时 import 边界 | 本包 realpath（软链回 workspace）解析不到 profile 的 node_modules：`@deepseek-ai/dsh-skill` / `@deepseek-ai/dsh-skill-filesystem` / `yaml` 动态导入全 `ERR_MODULE_NOT_FOUND`；零运行时依赖守卫（ADR-0001） | 探针 2026-10-14；`scripts/check.mjs:77` |
 | 查询选项先例 | `SkillLookupOptions {cwd?, signal?}`——agent 注册表读接口与之同构（D24） | `skill/skill/src/index.ts:103-108` |
 | 发现小助手 | `resolveDshHome`/`resolveAgentsHome`、`findProjectRoot` 上溯、`optionalFileSystem`（ctx fs 优先读法）——语义照抄，不可 import | `util/home-paths/src/index.ts:151`；`skill/skill-filesystem/src/index.ts:952/:849` |
 | 原生 frontmatter | `---` 围栏切分 + `yaml` 包 parse（`yaml@^2.4.2`，本包不可用 ⇒ 自写子集，D23） | `skill/skill-filesystem/src/index.ts:812/:924` |

@@ -1,9 +1,31 @@
 #!/bin/sh
 # 本仓无 CI（无远端），守卫挂在 pre-commit 上。
 # 一次性接线：git config core.hooksPath .githooks
-set -e
+set -u
+
 if [ ! -d node_modules ]; then
-  echo "pre-commit: node_modules 缺失，先跑 npm install --cache \"\$PWD/.npm-cache\"" >&2
+  echo "pre-commit: node_modules 缺失，先跑 pnpm install --store-dir \"\$PWD/.pnpm-store\"（沙箱内，见 docs/agents/harness-facts.md）" >&2
   exit 1
 fi
-npm run --silent check
+
+echo "pre-commit: 静态守卫（TS AST，不要求 lib/ 已构建）"
+node scripts/check.mjs --hook
+ret=$?
+if [ "$ret" -ne 0 ]; then
+  echo "pre-commit: 静态守卫未通过，提交已中止。" >&2
+  exit "$ret"
+fi
+
+echo "pre-commit: 类型检查（tsc --noEmit）"
+if ! pnpm run --silent typecheck; then
+  echo "pre-commit: 类型检查未通过，提交已中止（复现：pnpm run typecheck）。" >&2
+  exit 1
+fi
+
+echo "pre-commit: 单测（vitest run）"
+if ! pnpm run --silent test; then
+  echo "pre-commit: 单测未通过，提交已中止（复现：pnpm test）。" >&2
+  exit 1
+fi
+
+echo "pre-commit: 全部通过。"

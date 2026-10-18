@@ -45,29 +45,33 @@ than throwing.
 ## Commands
 
 ```bash
-npm run build      # tsc -> lib/ (must exist before install)
-npm test           # vitest run
-npm run typecheck  # tsc --noEmit over src + test
-npm run check      # guardrail: static hygiene + typecheck + tests
-npm run check:static   # only the static guardrail (fast, no deps)
+pnpm run build      # tsc -> lib/ (must exist before install)
+pnpm test           # vitest run
+pnpm run typecheck  # tsc --noEmit over src + test
+pnpm run check      # guardrail: static hygiene + typecheck + tests
+pnpm run check:static   # only the static guardrail (TS AST, no build needed)
 ```
 
 The installed plugin loads `lib/`, so **after any change under `src/` run
-`npm run build` again** — the profile links this directory, it does not rebuild
-it for you.
+`pnpm run build` again** — the profile links this directory, it does not rebuild
+it for you. The static guardrail itself never requires `lib/`: it parses `src/`
+directly with the TypeScript AST.
 
 ## Guardrails
 
 This repo has no CI and no remote, so `scripts/check.mjs` runs from
-`npm run check` and from `.githooks/pre-commit`. It fails on: a leftover probe
+`pnpm run check` and from `.githooks/pre-commit`. It parses `src/` with the
+TypeScript AST (no build needed) and fails on: a leftover probe
 directory (`.probe/` is gitignored, so `git status` stays silent about it), a
-`lib/` older than `src/`, a `@deepseek-ai/*` runtime `dependency` (host packages
+`@deepseek-ai/*` runtime `dependency` (host packages
 must be declared as `peerDependencies` + `devDependencies`; third-party
 libraries in `dependencies` are allowed — the 2026-10-17 ruling), an
 uninstalled `devDependency`, a
 `src/` import that crosses layers outside the public entries (the ticket-16
 import matrix), and a `path:line` anchor in `.scratch/` or `docs/` that no
-longer resolves. Wire the hook once per clone:
+longer resolves. In hook mode (`node scripts/check.mjs --hook`) the output also
+includes the current branch, HEAD, staged files, which staged files are touched
+by the findings, and per-category fix hints. Wire the hook once per clone:
 
 ```bash
 git config core.hooksPath .githooks

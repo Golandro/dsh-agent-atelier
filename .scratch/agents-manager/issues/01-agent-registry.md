@@ -11,7 +11,7 @@ Blocked by: 10（`10` 已于 2026-10-14 `resolved` 并装入本 profile ⇒ 本�
 1. **多根发现（4 根 + bundled；结构照抄，ADR-0001）**
    - 根集：用户级 `$DSH_HOME/agents/`、`$DSH_AGENTS_HOME/agents/`（默认 `~/.agents/agents`）；项目级 `<项目根>/.dsh/agents/`、`<项目根>/.agents/agents/`（项目根由 cwd 经 `findProjectRoot` 上溯语义得出）。
    - rank 照抄原生常量值（`skill/skill-filesystem/src/index.ts:35-39`）：`PROJECT_DSH 100 < PROJECT_AGENTS 200 < CUSTOM 300 < USER_DSH 400 < USER_AGENTS 500 < BUNDLED 600`，**低 rank 胜** ⇒ workspace 胜；跨根去重以 agent-name（目录名）为键，rank 升序遍历首个胜。
-   - 委托边界（D22）：不注册进 `ctx.skills`、不 import 原生包（import 不可达 + 零依赖守卫 `scripts/check.mjs:188`）；根表/rank/查询形状/invalidate 镜像原生（`roots()` 参照 `skill/skill-filesystem/src/index.ts:244-263`，locator 参照 `:730-740`）；小助手照抄语义：`resolveDshHome`/`resolveAgentsHome`（`util/home-paths/src/index.ts:151`）、`findProjectRoot` 上溯（`skill/skill-filesystem/src/index.ts:952`）、`optionalFileSystem` 的 ctx 优先读法（`:849`）。
+   - 委托边界（D22）：不注册进 `ctx.skills`、不 import 原生包（import 不可达 + 零依赖守卫 `scripts/check.mjs:77`）；根表/rank/查询形状/invalidate 镜像原生（`roots()` 参照 `skill/skill-filesystem/src/index.ts:244-263`，locator 参照 `:730-740`）；小助手照抄语义：`resolveDshHome`/`resolveAgentsHome`（`util/home-paths/src/index.ts:151`）、`findProjectRoot` 上溯（`skill/skill-filesystem/src/index.ts:952`）、`optionalFileSystem` 的 ctx 优先读法（`:849`）。
 2. **目录制布局（D19，ADR-0002）**
    - agent = `<根>/<agent-name>/<agent-name>.agent.md`，一个目录一个 agent；agent-name 小写 kebab `[a-z0-9]+(-[a-z0-9]+)*`，保留字 `default`。
    - 身份 = 目录名；显示名 `name` 缺省回退目录名；frontmatter `id` 废弃（仍写 ⇒ `unexpected-id` 诊断，值按原文进 `extra`）。

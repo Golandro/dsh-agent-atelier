@@ -14,7 +14,7 @@ single-context — one `CONTEXT.md` at the repo root, with architecture decision
 
 ### Harness facts
 
-Harness/profile facts — service key occupancy, inspect readback channels and their limits, bundle install/rollback, sandbox and package-manager cache — are in `docs/agents/harness-facts.md`, next to the ticket-claim re-check rule that `npm run check` enforces.
+Harness/profile facts — service key occupancy, inspect readback channels and their limits, bundle install/rollback, sandbox and package-manager cache — are in `docs/agents/harness-facts.md`, next to the ticket-claim re-check rule that `pnpm run check` enforces.
 
 # About This Project
 
