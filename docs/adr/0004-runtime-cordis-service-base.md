@@ -15,7 +15,7 @@ Q5=B（2026-10-18）：允许运行期 `import '@deepseek-ai/cordis'`——**仅
 
 ## Consequences
 
-- `scripts/check.mjs`：`hostRuntimeDeps` 仍禁 `dependencies` 里的 `@deepseek-ai/*`；import 矩阵允许 `@deepseek-ai/cordis` **且仅**在 `dsh/host` 运行期出现，其余层连 type-only 都只允许 `cordis` 类型（当前不需要）。
+- `scripts/check.mjs`：`hostRuntimeDeps` 仍禁 `dependencies` 里的 `@deepseek-ai/*`；import 矩阵允许 `@deepseek-ai/cordis` **且仅**在 `dsh/host` 运行期出现，其余层连 type-only 都只允许 `cordis` 类型（当前不需要）。**P1 现状（票 16）：矩阵严于本文——运行期 `@deepseek-ai/cordis` 全层禁止，`dsh/host` 仅 type-only，层界定按 `src/dsh/host/`；P2 安装探针通过后按本文放开。**
 - `package.json` 增 `peerDependencies`（P2）；`@deepseek-ai/cordis` 已在 devDependencies，沙箱内不需要安装新包；peer 字段是清单元数据变更，仍由维护者在沙箱外确认。
 - `ctx.get` 返回服务代理，不能断言对象身份；测试断言行为（`hello()` 等）。
 - 安装形态变化（打包 / 非软链 / SEA）必须重跑探针；回退路径保留 plain object。

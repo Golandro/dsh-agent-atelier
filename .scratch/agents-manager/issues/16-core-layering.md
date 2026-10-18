@@ -24,9 +24,11 @@ Blocked by: —
 4. 更新 `.scratch` / `docs` / `README.md` 里约 29 处 `src/...` 锚点、测试 import 与路径陈述；锚点逐条重验，不照抄行号。
 5. 仍单行 `apply`、plain object 服务；不拆插件行、不加 `agentProviders`、不引 `Service` 基类、不改 project root 解析。
 
+> **修订记录（2026-10-18 复核豁免）**：范围 2 的「不改函数签名」按冻结读面理解——`AgentRegistryDependencies` / `AliasRegistryDependencies` 不属冻结面，端口拆分强制的 DI 为二者新增必填 `nodeFileSystem` 字段、工厂去 `= {}` 参数默认。这是本票**唯一破坏性变更**：经 `src/index.ts` 的无参工厂调用不再可用（无现实消费者；host plugin 与测试 harness 均显式注入）。不设 compat wrapper（为不存在的调用方加 shim 是新投机）。处置先例同 01 票「契约成员改名」。
+
 ## 验收
 
-- [x] `pnpm run check` 全绿；83 个用例数量与行为不变（只改 import 路径）。
+- [x] `pnpm run check` 全绿；83 个用例数量与断言行为不变（import 路径 + harness 注入 `nodeFileSystem`，见上方修订记录）。
 - [x] `pnpm run build` 产物新鲜；`lib/index.js` 仍可被 loader 加载，`package.json` 的 `main` / `exports` / service key 不变。
 - [x] import 矩阵有正反自测（合成违规必须报错），现有源码零违规。
 - [x] `core` 无 `node:fs` import；`@deepseek-ai/*` 在 `contract` / `core` / `providers` 为零；现有 `process.env` 默认参数与 project-root 解析暂留 core（P2 随 workspace 解析下沉到 provider）。
@@ -59,9 +61,9 @@ Blocked by: —
 
 **锚点与陈述**：27 处 `src/...` 锚点逐条重验后重定（`types.ts` 原样搬移行号全保；discovery 因 deps 增字段 +4 行，195/197→200/202；旧公共入口壳（现 `src/index.ts`）第 45 行的 apply 锚点改指 `src/dsh/host/plugin.ts:29`）；路径陈述更新于 01/05/11/12 票、本 map、`README.md`（Host entry 行 + Guardrails 提矩阵）；01 票 148 行的历史 check 输出引文与 05 票 43 行 triage 门槛按史留旧。终态 `npm run check` 全绿：自测通过、矩阵零违规、94 处锚点全解析、83 用例不变、`rm -rf lib && pnpm run build` 后 loader 冒烟（`import('lib/index.js')`）导出面逐一相符。
 
-**发现但未扩大范围**（归 11 票顺带）：frontmatter/registry-file/yaml-scalar 三处头注释的「zero runtime dependencies (ADR-0001, `scripts/check.mjs:188`)」行号引用因本票在 check.mjs 增行而漂移（源码注释不进锚点守卫，守卫测不到）。
+**源码注释行号**：frontmatter/registry-file/yaml-scalar 三处头注释的「zero runtime dependencies (ADR-0001, `scripts/check.mjs:188`)」行号引用因本票在 check.mjs 增行而漂移（源码注释不进锚点守卫，守卫测不到）；复核处置轮已就地修复——改指守卫文件本身并注明 import 矩阵，不再携带行号（防再度漂移），原「归 11 顺带」挂账撤销。
 
-**复核轮**（2026-10-18，两轴 `/code-review` vs `8537aac`）：Standards 零硬违规，三条 judgement call 记账不扩范围——fs 依赖三件套（`resolveFileSystem`/`nodeFileSystem`/`warn`）在两个 Dependencies 接口重复声明（Data Clumps）、`apply()` 内两段 deps 字面量与 `node.ts` 的 kind 三元映射同形（Duplicated Code）、`absentAs` 的 `alsoAbsent` 参数名未揭示其实为错误码（Mysterious Name）。Spec 轴三处漏网路径陈述本轮已补：`bundled/README.md`（随包分发文件的 `src/discovery.ts` 死路径）、`spec.md` D22 行、11 票 Q1/验收两处 `src/types.ts`（现挂 `src/contract/types.ts`）；验收计数修正为实际 27 处。`scanImports` 的 type-only 上溯不设语句边界（模板字符串内以 `import … from` 起行的行会被误判为静态 import）记为实现质量备注：现源码无此形态、方向保守（多报不漏报），不值得加复杂度。
+**复核轮**（2026-10-18，两轴 `/code-review` vs `8537aac`）：Standards 零硬违规，三条 judgement call 记账不扩范围——fs 依赖三件套（`resolveFileSystem`/`nodeFileSystem`/`warn`）在两个 Dependencies 接口重复声明（Data Clumps）、`apply()` 内两段 deps 字面量与 `node.ts` 的 kind 三元映射同形（Duplicated Code）、`absentAs` 的 `alsoAbsent` 参数名未揭示其实为错误码（Mysterious Name）。Spec 轴三处漏网路径陈述本轮已补：`bundled/README.md`（随包分发文件的 `src/discovery.ts` 死路径）、`spec.md` D22 行、11 票 Q1/验收两处 `src/types.ts`（现挂 `src/contract/types.ts`）；验收计数修正为实际 27 处。`scanImports` 的 type-only 上溯不设语句边界（模板字符串内以 `import … from` 起行的行会被误判为静态 import）记为实现质量备注：现源码无此形态、方向保守（多报不漏报），不值得加复杂度。**处置（同日 /grill-with-docs 七问裁决，全按推荐）**：ADR-0003/0004 补 P1 阶段注记、core-design §1 改口；守卫 providers 白名单收窄至 `core/ports.ts` 子入口、dsh 层界定收窄至 `src/dsh/host/`（自测增 providers→core/index 反例）；三小修（`alsoAbsentCode` 改名、`node.ts` 复用 `dirKind`、providers 入口裁 `HostFileSystem` 再导出）；Dependencies 三件套共享基类型归 11；裸路径守卫盲区立票 17；ui 行改挂 13。
 
 ## Comments
 
@@ -90,7 +92,7 @@ Blocked by: —
 **Acceptance criteria:**
 - `pnpm run check` 全绿；83 用例行为不变；
 - 构建产物新鲜，入口模块可被 loader 加载；
-- import 矩阵自测覆盖四条边界（跨层公共入口、宿主包、文件系统直接读、跨翼）；
+- import 矩阵自测覆盖 P1 存在层的越界（跨层公共入口、宿主包、文件系统直接读）；ui 层行（`.tsx` 扫描与跨翼用例）随 ui 层落地补挂（改挂票 13）；
 - 27 处票面锚点全部解析（票面原估约 29）；路径陈述更新；
 - 无服务行拆分、无 provider 注册表、无 `Service` 基类、无行为变更。
 

@@ -4,7 +4,7 @@
  * The native skill loader parses frontmatter with the `yaml` package
  * (`skill/skill-filesystem/src/index.ts:812`), which this bundle cannot reach:
  * it ships with zero runtime dependencies (ADR-0001, enforced by
- * `scripts/check.mjs:188`). So this module hand-rolls exactly the subset the
+ * `scripts/check.mjs` import matrix). So this module hand-rolls exactly the subset the
  * agent schema needs — `---` fences, plain and quoted scalars, flow and block
  * string arrays, and `{provider, model}` flow mappings — and keeps every
  * unrecognised key as raw text so a later editor can write it back unchanged

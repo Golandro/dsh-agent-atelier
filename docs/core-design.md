@@ -50,7 +50,7 @@
 - **`Service` 基类（Q5=B）**：允许运行期 `import '@deepseek-ai/cordis'`——**仅此一个宿主包**，以 `peerDependencies` + `devDependencies` 声明；只用于 `dsh/host` 的 Service 子类、Config schema、服务目录可见性。`core` 仍不 import 任何宿主包，只返回纯行为对象，由 `dsh/host` 包装成 Service。安装探针（loader 加载后 `Service.listService` 可见、`inject` / 卸载正常）是 P2 第一道门；失败则回报并回退 plain object（回退路径已探针验证可 inject）。
 - **插件行**：bundle patch 的 `insert[].name` 可以是包名子路径（原生先例 `@deepseek-ai/dsh-plugin-manager/tools`），所以一个包可以承载 core / providers / control / summon / catalog / ui-host 多行；`inject` 写服务 key。
 - **安装面**：`install_bundle` 装目录；运行时不能依赖 `workspace:*` 或未发布兄弟包；沙箱内不做依赖变更。
-- **import 面**：运行期零 `@deepseek-ai/*`；宿主服务只按形状结构读取（ADR-0001）。
+- **import 面**：运行期 `@deepseek-ai/*` 仅 `dsh/host` 可 import `@deepseek-ai/cordis`（Q5=B 例外，ADR-0004；P1 矩阵仍全层禁止运行期，仅 type-only）；宿主服务只按形状结构读取（ADR-0001）。
 - **冻结面**：01/02 读面、11 的 6 成员、12 的 wire 语义；本设计只改落位与暴露方式，不改语义。
 - **浏览器面**：`ui-core` / `ui-react` / `dsh/client` 不得 import `node:*`、`core`、`providers`；React 只在界面翼。
 - **产品面**：v1 只支持标准 Agent 文件（单文件 body），不引入切片 / 装配源 / 跨 harness。

@@ -4,7 +4,7 @@
  * Ticket 01's agent-document reader (`./frontmatter.ts`) and ticket 02's
  * registry.yaml reader (`./registry-file.ts`) need the same quote, comment and
  * flow-literal rules, and this bundle ships with zero runtime dependencies
- * (ADR-0001, enforced by `scripts/check.mjs:188`), so the rules live here once
+ * (ADR-0001, enforced by the `scripts/check.mjs` import matrix), so the rules live here once
  * instead of being copied into each reader.
  *
  * Everything here works on one scalar token or one flow literal. None of it

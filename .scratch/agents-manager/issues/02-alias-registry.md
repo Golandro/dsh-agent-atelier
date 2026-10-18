@@ -19,7 +19,7 @@ Blocked by: 10（`10` 已于 2026-10-14 `resolved` ⇒ 本票现可开工）
    - 多别名同指一模型 = lint 提示（允许）。
    - raw 条目建议 lint："建议改用别名"。
 4. 对 03 暴露纯数据（models+aliases+合并结果）。服务面与 01 同构：懒装载按项目根记忆化 + `invalidate()` + 诊断读面 + `{cwd, signal}` 查询选项；服务键 `aliasRegistry`（原生无占用，已核验；参照 01 避开 `agents` 的教训）。契约实施期冻结并回写本票。
-5. **解析器（诊断发现，必做）**：registry.yaml 语法（布尔 `available`、两层块映射 models→条目→字段、四键流映射）超出 01 frontmatter 子集（`src/frontmatter.ts`），需新写最小 YAML 解析器——D23 原则、零运行时依赖（`yaml` 包不可用，`scripts/check.mjs` bundle 项强制）。
+5. **解析器（诊断发现，必做）**：registry.yaml 语法（布尔 `available`、两层块映射 models→条目→字段、四键流映射）超出 01 frontmatter 子集（`src/core/catalog/frontmatter.ts`），需新写最小 YAML 解析器——D23 原则、零运行时依赖（`yaml` 包不可用，`scripts/check.mjs` bundle 项强制）。
 
 ## 验收
 
@@ -28,7 +28,7 @@ Blocked by: 10（`10` 已于 2026-10-14 `resolved` ⇒ 本票现可开工）
 
 ## 契约（冻结：03/05/06 消费面，D24）
 
-实施期冻结（scope 第 4 条要求回写本票）；签名与 `src/types.ts`、`src/alias-registry.ts` 一致。
+实施期冻结（scope 第 4 条要求回写本票）；签名与 `src/contract/types.ts`、`src/core/catalog/alias-registry.ts` 一致。
 
 ```ts
 export const ALIAS_REGISTRY_SERVICE = 'aliasRegistry'
@@ -118,7 +118,7 @@ export interface AliasFinding {
 - 磁盘：`~/.dsh/agents/` 与 workspace `.dsh/agents/` 均不存在 ⇒ 两层 registry.yaml 均未建立。
 - 锚点核验：`core/agent-default-model/src/index.ts:24` 经 DSH 源码树（`~/repo/deepseek-harness`）解析成功，`:24` 恰为 `export interface Config {`（provider/model/reasoningEffort 三个 Volatile 字段）⇒ 锚点有效无漂移。
 - **运行时读取面（票面未写，实施必读）**：本插件不能 import 该包（ADR-0001 import 边界）；live 读取面是 Cordis 服务 `ctx.agentDefaultModel` 的 `currentSelection(): {provider, model, reasoningEffort?}`。该服务已装配进本 profile（`~/.dsh/profiles/web/cordis.patch.yml` 第 49-52 行，当前默认对 = `volcengine-plan` / `glm-5.3`，无 reasoningEffort）。
-- 解析器能力边界：`src/frontmatter.ts`（D23 最小 YAML 子集）只覆盖围栏文档 + 标量/引号串/字符串数组/双键 `{provider, model}` 流映射；registry.yaml 需要**布尔**（`available`）、**两层块映射**（models→条目→字段）、**四键流映射**（spec §5.2 示例的 `{provider, model, sysPrompt, available}`）⇒ 需为本票新写最小解析器（D23 原则；零运行时依赖由 `scripts/check.mjs` 的 bundle 项强制，`yaml` 包不可用）。
+- 解析器能力边界：`src/core/catalog/frontmatter.ts`（D23 最小 YAML 子集）只覆盖围栏文档 + 标量/引号串/字符串数组/双键 `{provider, model}` 流映射；registry.yaml 需要**布尔**（`available`）、**两层块映射**（models→条目→字段）、**四键流映射**（spec §5.2 示例的 `{provider, model, sysPrompt, available}`）⇒ 需为本票新写最小解析器（D23 原则；零运行时依赖由 `scripts/check.mjs` 的 bundle 项强制，`yaml` 包不可用）。
 - 跨层校验输入已就绪：01 交付的 `AgentDefinition.modelOrder` / `model` 字段（`src/contract/types.ts:64-66`）即「modelOrder 引用不存在的别名」校验所需输入。
 - `.out-of-scope/` 不存在 ⇒ 无历史拒绝记录可比对。
 - 现状守卫：`npm run check` 全绿（44 锚点 / 46 用例 / build 新鲜 / 运行时零依赖）。
@@ -164,12 +164,12 @@ Status 维持 `ready-for-agent`，本票可开工；agent brief 挂票（见下�
 
 **交付**（实施提交 `85fa97d`；复核后修正见 `6820f23`）：
 
-- `src/registry-file.ts`（新，403 行）：单层读取器——自写最小 YAML 子集解析（两层块映射、流式映射/序列、布尔、引号、注释）+ schema 校验；整层读或整层拒（Q4）。
-- `src/alias-registry.ts`（新，281 行）：层表与合并、dsh-default 同步（Q1/Q2）、按项目根记忆化的 `ctx.aliasRegistry` 服务、纯函数 `inspectAliasRegistry`（Q5）。
-- `src/types.ts`：02 的冻结契约（见上）；`ModelDeclaration`/`AliasDeclaration` 是唯一形状声明，`ModelDefinition`/`AliasDefinition` 只加 provenance（复核后收敛）。
-- `src/yaml-scalar.ts`（新，110 行）：抽出 01 `frontmatter.ts` 的引号/注释/流字面标量规则共用；`frontmatter.ts` 由 475 行降至 380 行（行为不变，11 个既有用例原样通过）。
-- `src/roots.ts`（新，78 行）+ `src/lazy-load.ts`（新，62 行）：把 01 与 02 都在用的**项目根走查/home 解析**与**懒加载记忆化**各收一处；01 的 `scanFor` 改由共享 loader 驱动（`discovery.ts` 397 → 308 行），两份 `NO_PROJECT_ROOT_KEY` 合并为一份（复核后抽出）。
-- `src/index.ts`：注册 `aliasRegistry`；默认对读取面在**用时**解析 `ctx.agentDefaultModel`（01 修复轮教训）。
+- `src/core/catalog/registry-file.ts`（新，403 行）：单层读取器——自写最小 YAML 子集解析（两层块映射、流式映射/序列、布尔、引号、注释）+ schema 校验；整层读或整层拒（Q4）。
+- `src/core/catalog/alias-registry.ts`（新，281 行）：层表与合并、dsh-default 同步（Q1/Q2）、按项目根记忆化的 `ctx.aliasRegistry` 服务、纯函数 `inspectAliasRegistry`（Q5）。
+- `src/contract/types.ts`：02 的冻结契约（见上）；`ModelDeclaration`/`AliasDeclaration` 是唯一形状声明，`ModelDefinition`/`AliasDefinition` 只加 provenance（复核后收敛）。
+- `src/core/catalog/yaml-scalar.ts`（新，110 行）：抽出 01 `src/core/catalog/frontmatter.ts` 的引号/注释/流字面标量规则共用；该文件由 475 行降至 380 行（行为不变，11 个既有用例原样通过）。
+- `src/core/catalog/roots.ts`（新，78 行）+ `src/core/catalog/lazy-load.ts`（新，62 行）：把 01 与 02 都在用的**项目根走查/home 解析**与**懒加载记忆化**各收一处；01 的 `scanFor` 改由共享 loader 驱动（`discovery.ts` 397 → 308 行），两份 `NO_PROJECT_ROOT_KEY` 合并为一份（复核后抽出）。
+- `src/dsh/host/plugin.ts`（02 交付时为 `src/index.ts`）：注册 `aliasRegistry`；默认对读取面在**用时**解析 `ctx.agentDefaultModel`（01 修复轮教训）。
 - 测试：`test/registry-file.test.ts`（15 例）、`test/alias-registry.test.ts`（20 例）、`test/plugin.test.ts` +3 例。
 - 文档：`CONTEXT.md` 新增「模型与别名」术语（模型条目 / 别名 / 别名注册表 / 层 / 发现）并细化 Dsh-default；`README.md` 补 02 交付与两个服务面，并把安装验证一节改为「loader entry + 单测」（harness-facts：plain-object service 不进 Host 服务目录）。
 
@@ -215,7 +215,7 @@ Status 维持 `ready-for-agent`，本票可开工；agent brief 挂票（见下�
 **Summary:** 从零实现 registry.yaml 的 schema、加载、覆盖合并与校验 lint，产出 M2 别名注册表，对 03 暴露纯数据。
 
 **Current behavior:**
-插件只有票 01 的 agent 注册表：`ctx.agentRegistry` 服务（发现/解析链，`src/types.ts` 冻结契约）。没有任何 registry.yaml 概念——两层路径（`$DSH_HOME/agents/registry.yaml`、workspace `.dsh/agents/registry.yaml`）在磁盘上都不存在，DSH 原生模型路由也无别名机制（spec §3）。内置默认 agent 的链是 `modelOrder: [dsh-default]`（`bundled/default/default.agent.md`），但 `dsh-default` 尚无人能解析。
+插件只有票 01 的 agent 注册表：`ctx.agentRegistry` 服务（发现/解析链，`src/contract/types.ts` 冻结契约）。没有任何 registry.yaml 概念——两层路径（`$DSH_HOME/agents/registry.yaml`、workspace `.dsh/agents/registry.yaml`）在磁盘上都不存在，DSH 原生模型路由也无别名机制（spec §3）。内置默认 agent 的链是 `modelOrder: [dsh-default]`（`bundled/default/default.agent.md`），但 `dsh-default` 尚无人能解析。
 
 **Desired behavior:**
 - **双轨 schema（D5/D6）**：`models:` 真实模型条目 `{provider, model, sysPrompt, available}`（available v1 手动开关）；`aliases:` 纯指针单目标数组（池化是 08/09 落点，schema 留数组）。

@@ -61,8 +61,10 @@ it for you.
 This repo has no CI and no remote, so `scripts/check.mjs` runs from
 `npm run check` and from `.githooks/pre-commit`. It fails on: a leftover probe
 directory (`.probe/` is gitignored, so `git status` stays silent about it), a
-`lib/` older than `src/`, a runtime `dependency` (this package is symlinked into
-the profile and must stay dependency-free), an uninstalled `devDependency`, a
+`lib/` older than `src/`, a `@deepseek-ai/*` runtime `dependency` (host packages
+must be declared as `peerDependencies` + `devDependencies`; third-party
+libraries in `dependencies` are allowed — the 2026-10-17 ruling), an
+uninstalled `devDependency`, a
 `src/` import that crosses layers outside the public entries (the ticket-16
 import matrix), and a `path:line` anchor in `.scratch/` or `docs/` that no
 longer resolves. Wire the hook once per clone:

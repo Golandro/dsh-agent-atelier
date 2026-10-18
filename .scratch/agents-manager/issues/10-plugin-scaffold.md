@@ -68,8 +68,8 @@ Blocked by: —
 
 - `package.json`：`dsh.bundle.patch` → `./cordis.patch.yml`；`type: module`；`exports` 指向构建产物 `lib/`；scripts = `build` / `test` / `typecheck`。
 - `cordis.patch.yml`：`insert:` 一行 `{ id: dsh-plugin-agents-manager, name: dsh-plugin-agents-manager, config: {} }`。
-- `src/index.ts`：`export function apply(ctx)`，以 `ctx.effect(() => ctx.provide(AGENT_REGISTRY_SERVICE, registry))` 注册（不混用 service class），插件卸载时服务随之移除。
-- `src/registry.ts`：纯数据容器——`createAgentRegistry()` → `list()` / `get(id)` / `register(def)` / `size`（同 id 后者胜、保持首次注册位序、`list()` 返回副本）。01 往里填发现结果。
+- `src/index.ts`（现 `src/dsh/host/plugin.ts`）：`export function apply(ctx)`，以 `ctx.effect(() => ctx.provide(AGENT_REGISTRY_SERVICE, registry))` 注册（不混用 service class），插件卸载时服务随之移除。
+- `src/registry.ts`（现 `src/core/catalog/registry.ts`）：纯数据容器——`createAgentRegistry()` → `list()` / `get(id)` / `register(def)` / `size`（同 id 后者胜、保持首次注册位序、`list()` 返回副本）。01 往里填发现结果。
 - `test/registry.test.ts` + `test/plugin.test.ts`：7 个 vitest 用例（容器契约 + 真实 Cordis `Context` 上的挂载/卸载）。
 - `bundled/README.md`：内置「默认」agent 的落点占位（01 使用）。
 - `tsconfig.json`（typecheck，含 `test/`）、`tsconfig.build.json`（emit → `lib/`）、`.gitignore`、`README.md`（含安装与读回步骤）。

@@ -257,6 +257,8 @@ Blocked by: —
 - [ ] 三处「零运行时依赖」注释与 `package.json` 一致；原型分支不合并。
 - [ ] `pnpm run check` 全绿（含 `hostRuntimeDeps`）；术语表按 v1 范围更新（不引入切片/装配源术语）。
 - [ ] 视觉/交互不在本票验收内（05 负责）。
+- [ ] 新增第三方运行时依赖（js-yaml / zod 等）前，先修订 `scripts/check.mjs` 的矩阵规则（else 分支现拒 `src/` 一切外部 import；票 16 复核记入）。
+- [ ] 收拢两个 Dependencies 接口重复的 fs 依赖三件套（`resolveFileSystem` / `nodeFileSystem` / `warn`）为共享基类型（票 16 复核 Data Clumps 记账；本票必动这些接口，顺手收）。
 
 **Out of scope:**
 - 切片 / include / `.sections/`（Q1=B：v1 单文件 body）。
