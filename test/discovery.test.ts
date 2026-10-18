@@ -7,12 +7,20 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   AgentDocumentError,
   createAgentRegistryService,
-  type AgentRegistryOptions,
 } from '../src/core/catalog/discovery.ts'
 import { findProjectRoot, resolveAgentsHome, resolveDshHome } from '../src/core/catalog/roots.ts'
+import { createAgentProviders } from '../src/core/providers-registry.ts'
 import type { AgentFileSystem } from '../src/core/ports.ts'
-import { createNodeFileSystem } from '../src/providers/fs/index.ts'
-import type { AgentDefinition, AgentDiagnostic } from '../src/contract/types.ts'
+import { createFileSystemAgentProvider, createNodeFileSystem } from '../src/providers/fs/index.ts'
+import {
+  BUNDLED_AGENT_RANK,
+  PROJECT_AGENTS_RANK,
+  PROJECT_DSH_RANK,
+  USER_AGENTS_RANK,
+  USER_DSH_RANK,
+} from '../src/dsh/host/providers.ts'
+import type { AgentDefinition, AgentDiagnostic, AgentOrigin, AgentSource } from '../src/contract/types.ts'
+import type { ProviderControl } from '../src/contract/index.ts'
 
 let tmp = ''
 
@@ -49,29 +57,56 @@ function writeAgent(root: string, name: string, frontmatter: string | undefined 
 
 interface Harness {
   readonly registry: ReturnType<typeof createAgentRegistryService>
+  readonly providers: ReturnType<typeof createAgentProviders>
   readonly project: string
   readonly dshHome: string
   readonly agentsHome: string
   readonly bundled: string
   readonly warnings: string[]
+  readonly disposers: Record<string, () => void>
+  readonly registerRoot: (id: string, source: AgentSource, rank: number, trust: 'trusted' | 'untrusted', origin: AgentOrigin, resolveRoot: (projectRoot: string | undefined) => string | undefined, selectFileSystem?: () => AgentFileSystem) => () => void
 }
 
-/** A registry whose every root is a throwaway directory under `tmp`. */
-function harness(overrides: Partial<AgentRegistryOptions> = {}, resolveFileSystem?: () => AgentFileSystem | undefined): Harness {
+/** A registry whose every root is a throwaway directory under `tmp`, served by real fs providers. */
+function harness(resolveFileSystem?: () => AgentFileSystem | undefined): Harness {
   const project = makeProjectRoot()
   const dshHome = join(tmp, 'home-dsh')
   const agentsHome = join(tmp, 'home-agents')
   const bundled = join(tmp, 'bundled')
   const warnings: string[] = []
-  const registry = createAgentRegistryService(
-    {
-      nodeFileSystem: createNodeFileSystem(),
-      warn: (message) => warnings.push(message),
-      ...(resolveFileSystem !== undefined ? { resolveFileSystem } : {}),
-    },
-    { dshHome, agentsHome, bundledDir: bundled, env: {}, ...overrides },
-  )
-  return { registry, project, dshHome, agentsHome, bundled, warnings }
+  const providers = createAgentProviders()
+  const nodeFileSystem = createNodeFileSystem()
+  const selectQueryable = () => resolveFileSystem?.() ?? nodeFileSystem
+
+  function registerRoot(
+    id: string,
+    source: AgentSource,
+    rank: number,
+    trust: 'trusted' | 'untrusted',
+    origin: AgentOrigin,
+    resolveRoot: (projectRoot: string | undefined) => string | undefined,
+    selectFileSystem: () => AgentFileSystem = selectQueryable,
+  ): () => void {
+    return providers.registerAgentProvider(() =>
+      createFileSystemAgentProvider({ id, source, rank, trust, origin, resolveRoot, selectFileSystem }),
+    )
+  }
+
+  const disposers: Record<string, () => void> = {
+    'project-dsh': registerRoot('project-dsh', 'project-dsh', PROJECT_DSH_RANK, 'untrusted', 'user', (root) => (root === undefined ? undefined : join(root, '.dsh', 'agents'))),
+    'project-agents': registerRoot('project-agents', 'project-agents', PROJECT_AGENTS_RANK, 'untrusted', 'user', (root) => (root === undefined ? undefined : join(root, '.agents', 'agents'))),
+    'user-dsh': registerRoot('user-dsh', 'user-dsh', USER_DSH_RANK, 'untrusted', 'user', () => join(dshHome, 'agents')),
+    'user-agents': registerRoot('user-agents', 'user-agents', USER_AGENTS_RANK, 'untrusted', 'user', () => join(agentsHome, 'agents')),
+    bundled: registerRoot('bundled', 'bundled', BUNDLED_AGENT_RANK, 'trusted', 'built-in', () => bundled, () => nodeFileSystem),
+  }
+
+  const registry = createAgentRegistryService({
+    providers,
+    nodeFileSystem,
+    warn: (message) => warnings.push(message),
+    ...(resolveFileSystem !== undefined ? { resolveFileSystem } : {}),
+  })
+  return { registry, providers, project, dshHome, agentsHome, bundled, warnings, disposers, registerRoot }
 }
 
 /** Wrap a filesystem port and count directory listings. */
@@ -111,6 +146,13 @@ describe('agent discovery roots', () => {
       ['gamma', 'user-dsh', 'user'],
       ['delta', 'user-agents', 'user'],
       ['epsilon', 'bundled', 'built-in'],
+    ])
+    expect(list.map((definition) => definition.providerId)).toEqual([
+      'project-dsh',
+      'project-agents',
+      'user-dsh',
+      'user-agents',
+      'bundled',
     ])
   })
 
@@ -176,6 +218,7 @@ describe('agent document layout', () => {
       'missing-document',
       'unexpected-id',
     ])
+    expect(new Set(diagnostics.map((diagnostic) => diagnostic.providerId))).toEqual(new Set(['project-dsh']))
     expect(diagnostics.find((diagnostic) => diagnostic.code === 'invalid-agent-name')?.path).toBe(join(root, 'Bad_Name'))
     expect(diagnostics.find((diagnostic) => diagnostic.code === 'unexpected-id')?.path).toBe(validPath)
     expect(diagnostics.filter((diagnostic) => diagnostic.code === 'misplaced-file').map((diagnostic) => diagnostic.path).sort())
@@ -198,6 +241,7 @@ describe('agent document layout', () => {
     expect(list.map((definition) => [definition.agentName, definition.source])).toEqual([['default', 'bundled']])
     expect(codes(diagnostics)).toEqual(['reserved-id'])
     expect(diagnostics[0]?.agentName).toBe('default')
+    expect(diagnostics[0]?.providerId).toBe('project-dsh')
   })
 
   it('registers a document without frontmatter with all-default fields', async () => {
@@ -272,6 +316,7 @@ describe('agent document layout', () => {
       reasoningEffort: 'high',
       body: '你是审查者。',
       extra: { vibe: '冷静' },
+      providerId: 'project-dsh',
     })
     expect(definition?.path).toBe(join(test.project, '.dsh', 'agents', 'reviewer', 'reviewer.agent.md'))
     expect(await test.registry.diagnostics({ cwd: test.project })).toEqual([])
@@ -280,12 +325,20 @@ describe('agent document layout', () => {
 
 describe('bundled root trust', () => {
   it('loads the shipped default through the same document pipeline', async () => {
-    const registry = createAgentRegistryService({ nodeFileSystem: createNodeFileSystem() }, {
-      dshHome: join(tmp, 'homes', 'dsh'),
-      agentsHome: join(tmp, 'homes', 'agents'),
-      env: {},
-      bundledDir: fileURLToPath(new URL('../bundled', import.meta.url)),
-    })
+    const providers = createAgentProviders()
+    const nodeFileSystem = createNodeFileSystem()
+    providers.registerAgentProvider(() =>
+      createFileSystemAgentProvider({
+        id: 'bundled',
+        source: 'bundled',
+        rank: BUNDLED_AGENT_RANK,
+        trust: 'trusted',
+        origin: 'built-in',
+        resolveRoot: () => fileURLToPath(new URL('../bundled', import.meta.url)),
+        selectFileSystem: () => nodeFileSystem,
+      }),
+    )
+    const registry = createAgentRegistryService({ providers, nodeFileSystem })
 
     const definition = await registry.get('default')
 
@@ -293,6 +346,7 @@ describe('bundled root trust', () => {
       agentName: 'default',
       source: 'bundled',
       origin: 'built-in',
+      providerId: 'bundled',
       modelOrder: ['dsh-default'],
       body: '',
     })
@@ -316,6 +370,7 @@ describe('bundled root trust', () => {
       ['naked', 'bundled', 'built-in'],
     ])
     expect(codes(diagnostics).sort()).toEqual(['no-model-order', 'unexpected-id'])
+    expect(new Set(diagnostics.map((diagnostic) => diagnostic.providerId))).toEqual(new Set(['bundled']))
     expect(diagnostics.find((diagnostic) => diagnostic.code === 'unexpected-id')?.agentName).toBe('default')
   })
 
@@ -356,6 +411,60 @@ describe('bundled root trust', () => {
   })
 })
 
+describe('provider hot swap', () => {
+  it('drops a provider on unregister and does not keep stale entries', async () => {
+    const test = harness()
+    writeAgent(join(test.dshHome, 'agents'), 'gamma')
+    expect((await test.registry.list()).map((definition) => [definition.agentName, definition.providerId])).toEqual([
+      ['gamma', 'user-dsh'],
+    ])
+
+    test.disposers['user-dsh']?.()
+
+    expect(await test.registry.list()).toEqual([])
+  })
+
+  it('picks up a replacement provider registered after the first scan', async () => {
+    const test = harness()
+    writeAgent(join(test.dshHome, 'agents'), 'gamma')
+    await test.registry.list()
+
+    test.disposers['user-dsh']?.()
+    writeAgent(join(test.agentsHome, 'agents'), 'delta')
+    test.registerRoot('user-dsh', 'user-dsh', USER_DSH_RANK, 'untrusted', 'user', () => join(test.agentsHome, 'agents'))
+
+    expect((await test.registry.list()).map((definition) => [definition.agentName, definition.source, definition.providerId])).toEqual([
+      ['delta', 'user-dsh', 'user-dsh'],
+    ])
+  })
+
+  it('rescans when a provider reports invalidation', async () => {
+    const test = harness()
+    test.disposers['user-dsh']?.()
+    let control: ProviderControl | undefined
+    test.providers.registerAgentProvider((value) => {
+      control = value
+      return createFileSystemAgentProvider({
+        id: 'user-dsh',
+        source: 'user-dsh',
+        rank: USER_DSH_RANK,
+        trust: 'untrusted',
+        origin: 'user',
+        resolveRoot: () => join(test.dshHome, 'agents'),
+        selectFileSystem: () => createNodeFileSystem(),
+      })
+    })
+
+    expect((await test.registry.list()).map((definition) => definition.agentName)).toEqual([])
+
+    writeAgent(join(test.dshHome, 'agents'), 'gamma')
+    expect((await test.registry.list()).map((definition) => definition.agentName)).toEqual([])
+
+    control?.invalidate()
+    expect((await test.registry.list()).map((definition) => definition.agentName)).toEqual(['gamma'])
+  })
+})
+
 describe('lazy memoisation', () => {
   it('keeps the cached scan until invalidate', async () => {
     const test = harness()
@@ -372,7 +481,7 @@ describe('lazy memoisation', () => {
 
   it('scans once per project root across concurrent and repeated queries', async () => {
     const counter = countingFileSystem(createNodeFileSystem())
-    const test = harness({}, () => counter.fileSystem)
+    const test = harness(() => counter.fileSystem)
     writeAgent(join(test.project, '.dsh', 'agents'), 'alpha')
     // The bundled root is trusted, so it reads through Node directly and never
     // reaches the injected port: only the four untrusted roots are counted.
@@ -402,7 +511,7 @@ describe('lazy memoisation', () => {
   it('resolves the injected fs port at scan time, not at construction', async () => {
     const counter = countingFileSystem(createNodeFileSystem())
     let current: AgentFileSystem | undefined
-    const test = harness({}, () => current)
+    const test = harness(() => current)
     writeAgent(join(test.project, '.dsh', 'agents'), 'alpha')
 
     // Before the host fs service appears, discovery falls back to Node.

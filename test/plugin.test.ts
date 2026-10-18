@@ -5,22 +5,38 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 
-import { AGENT_REGISTRY_SERVICE, ALIAS_REGISTRY_SERVICE, apply } from '../src/index.ts'
+import {
+  AGENT_PROVIDERS_SERVICE,
+  AGENT_REGISTRY_SERVICE,
+  ALIAS_REGISTRY_SERVICE,
+  apply,
+} from '../src/index.ts'
+import { createAgentProviders } from '../src/core/providers-registry.ts'
+import { applyProviders } from '../src/dsh/host/providers.ts'
+import { SERVICE_API_VERSION } from '../src/contract/index.ts'
 import type { AgentRegistry, AliasRegistry } from '../src/contract/types.ts'
+import type { AgentProviders } from '../src/contract/index.ts'
 
-async function mounted(): Promise<{ ctx: Context; registry: AgentRegistry; aliasRegistry: AliasRegistry }> {
+async function mounted(): Promise<{ ctx: Context; registry: AgentRegistry; aliasRegistry: AliasRegistry; providers: AgentProviders }> {
   const ctx = new Context()
   await ctx.plugin({ apply })
   const registry = ctx.get(AGENT_REGISTRY_SERVICE) as AgentRegistry | undefined
   if (registry === undefined) throw new Error('agent registry service was not registered')
   const aliasRegistry = ctx.get(ALIAS_REGISTRY_SERVICE) as AliasRegistry | undefined
   if (aliasRegistry === undefined) throw new Error('alias registry service was not registered')
-  return { ctx, registry, aliasRegistry }
+  const providers = ctx.get(AGENT_PROVIDERS_SERVICE) as AgentProviders | undefined
+  if (providers === undefined) throw new Error('agent providers service was not registered')
+  return { ctx, registry, aliasRegistry, providers }
 }
 
 /** One throwaway directory under the OS temp dir. */
 function scratchDir(): string {
   return mkdtempSync(join(tmpdir(), 'agents-manager-plugin-'))
+}
+
+/** The provider row exactly as the loader mounts it: a plugin object with `inject` + `apply`. */
+function providerRow(): { inject: readonly string[]; apply: typeof applyProviders } {
+  return { inject: [AGENT_PROVIDERS_SERVICE], apply: applyProviders }
 }
 
 describe('agents-manager plugin', () => {
@@ -35,7 +51,7 @@ describe('agents-manager plugin', () => {
     expect(Object.keys(registry).sort()).toEqual(['diagnostics', 'get', 'invalidate', 'list'])
   })
 
-  it('owns its own service key instead of the native agents service', () => {
+  it('owns its own service keys instead of the native agents service', () => {
     // ctx.agents already exists on the host (live Agent registry), so the
     // scaffold must never register itself under that key.
     expect(AGENT_REGISTRY_SERVICE).toBe('agentRegistry')
@@ -44,6 +60,23 @@ describe('agents-manager plugin', () => {
     expect(ALIAS_REGISTRY_SERVICE).toBe('aliasRegistry')
     expect(ALIAS_REGISTRY_SERVICE).not.toBe('agents')
     expect(ALIAS_REGISTRY_SERVICE).not.toBe(AGENT_REGISTRY_SERVICE)
+    // The provider registry is a plain object, under its own key too.
+    expect(AGENT_PROVIDERS_SERVICE).toBe('agentProviders')
+    expect(AGENT_PROVIDERS_SERVICE).not.toBe(AGENT_REGISTRY_SERVICE)
+  })
+
+  it('provides agentProviders as a plain object service, not a Service instance', async () => {
+    const { providers } = await mounted()
+
+    expect(providers.apiVersion).toBe(SERVICE_API_VERSION)
+    expect(Object.keys(providers).sort()).toEqual(['apiVersion', 'listAgentProviders', 'onChange', 'registerAgentProvider'])
+    expect(providers.listAgentProviders().map((provider) => provider.id).sort()).toEqual([
+      'bundled',
+      'project-agents',
+      'project-dsh',
+      'user-agents',
+      'user-dsh',
+    ])
   })
 
   it('registers the alias registry with the frozen read face', async () => {
@@ -97,7 +130,13 @@ describe('agents-manager plugin', () => {
 
       const definition = await registry.get('default')
 
-      expect(definition).toMatchObject({ agentName: 'default', source: 'bundled', origin: 'built-in', modelOrder: ['dsh-default'] })
+      expect(definition).toMatchObject({
+        agentName: 'default',
+        source: 'bundled',
+        origin: 'built-in',
+        providerId: 'bundled',
+        modelOrder: ['dsh-default'],
+      })
       expect((await registry.list()).map((entry) => entry.agentName)).toEqual(['default'])
     } finally {
       vi.unstubAllEnvs()
@@ -135,15 +174,109 @@ describe('agents-manager plugin', () => {
     }
   })
 
-  it('removes the registry again when the plugin unloads', async () => {
+  it('removes the registry and the providers again when the plugin unloads', async () => {
     const ctx = new Context()
     const fork = await ctx.plugin({ apply })
     expect(ctx.get(AGENT_REGISTRY_SERVICE)).toBeDefined()
     expect(ctx.get(ALIAS_REGISTRY_SERVICE)).toBeDefined()
+    expect((ctx.get(AGENT_PROVIDERS_SERVICE) as AgentProviders).listAgentProviders()).toHaveLength(5)
 
     await fork.dispose()
 
     expect(ctx.get(AGENT_REGISTRY_SERVICE)).toBeUndefined()
     expect(ctx.get(ALIAS_REGISTRY_SERVICE)).toBeUndefined()
+    expect(ctx.get(AGENT_PROVIDERS_SERVICE)).toBeUndefined()
+  })
+})
+
+describe('provider plugin row', () => {
+  it('exports loader-compatible named exports', async () => {
+    const coreRow = await import('../src/dsh/host/core.ts')
+    const row = await import('../src/dsh/host/providers.ts')
+
+    expect(typeof coreRow.apply).toBe('function')
+    expect(typeof row.apply).toBe('function')
+    expect(row.inject).toEqual(['agentProviders'])
+    expect(row.applyProviders).toBe(row.apply)
+    // No default export: the loader would unwrap only `default` and drop `inject`.
+    expect('default' in coreRow && coreRow.default !== undefined).toBe(false)
+    expect('default' in row && row.default !== undefined).toBe(false)
+  })
+
+  it('registers the five default providers and unregisters them on unload', async () => {
+    const ctx = new Context()
+    const providers = createAgentProviders()
+    ctx.provide(AGENT_PROVIDERS_SERVICE, providers)
+
+    const fork = await ctx.plugin(providerRow())
+
+    expect(providers.listAgentProviders().map((provider) => provider.id).sort()).toEqual([
+      'bundled',
+      'project-agents',
+      'project-dsh',
+      'user-agents',
+      'user-dsh',
+    ])
+
+    await fork.dispose()
+
+    expect(providers.listAgentProviders()).toEqual([])
+  })
+
+  it('throws a clear error when the service is missing', async () => {
+    const ctx = new Context()
+
+    expect(() => applyProviders(ctx)).toThrow(/agentProviders/)
+  })
+
+  it('stays pending until the agentProviders service appears', async () => {
+    const ctx = new Context()
+    const providers = createAgentProviders()
+
+    const fork = await ctx.plugin(providerRow())
+    expect(providers.listAgentProviders()).toEqual([])
+
+    ctx.provide(AGENT_PROVIDERS_SERVICE, providers)
+    await vi.waitFor(() => expect(providers.listAgentProviders()).toHaveLength(5))
+
+    await fork.dispose()
+    expect(providers.listAgentProviders()).toEqual([])
+  })
+
+  it('reads the trusted bundled root through Node even when an fs service is mounted', async () => {
+    const home = scratchDir()
+    vi.stubEnv('DSH_HOME', home)
+    vi.stubEnv('DSH_AGENTS_HOME', join(home, 'agents-home'))
+    try {
+      const ctx = new Context()
+      const providers = createAgentProviders()
+      ctx.provide(AGENT_PROVIDERS_SERVICE, providers)
+      // A host fs service reporting an empty world: everything untrusted that
+      // reads through it must see nothing.
+      ctx.provide('fs', {
+        resolve: async (path: string) => path,
+        listDir: async () => [],
+        stat: async () => undefined,
+        readText: async () => '',
+      })
+      await ctx.plugin(providerRow())
+
+      // The trusted bundled root pins Node, so the shipped agent is visible
+      // even though the fake host fs would hide it. The listing is raw: the
+      // provider reports the bundled README too and leaves classification to
+      // the registry.
+      const bundled = providers.listAgentProviders().find((provider) => provider.id === 'bundled')
+      const entries = await bundled?.listEntries({})
+      expect(entries?.map((entry) => entry.name).sort()).toEqual(['README.md', 'default'])
+      expect(entries?.find((entry) => entry.name === 'default')).toMatchObject({ kind: 'directory', providerId: 'bundled' })
+
+      // An untrusted root goes through the host fs: the fake reports an empty
+      // directory where Node would report a missing one (`undefined`).
+      const userDsh = providers.listAgentProviders().find((provider) => provider.id === 'user-dsh')
+      await expect(userDsh?.listEntries({})).resolves.toEqual([])
+    } finally {
+      vi.unstubAllEnvs()
+      rmSync(home, { recursive: true, force: true })
+    }
   })
 })

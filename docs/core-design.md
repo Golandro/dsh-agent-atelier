@@ -72,7 +72,7 @@ dsh/host                                         dsh/client
 | 层 | 可 import | 禁止 | 备注 |
 | --- | --- | --- | --- |
 | `contract` | 无（TS 类型与字面量常量） | 任何运行时 import | 环境中立，浏览器可安全引用 |
-| `core` | `contract` | `providers`、`dsh`、`ui-*`、`node:fs`（完全无 I/O） | I/O 全在 provider；core 连 project root 都不解析 |
+| `core` | `contract` | `providers`、`dsh`、`ui-*`、`node:fs`（端口注入） | 唯一 I/O = 每查询一次的 project-root 走查（注入端口，票 18 归位 registry）；条目 / 文档读全在 provider |
 | `providers` | `contract`、`core` 的 ports 子入口 | `dsh`、`ui-*` | 只做 I/O 适配；环境策略在这里 |
 | `dsh/host` | `contract`、`core`、`providers` | `ui-*`；其余 `@deepseek-ai/*` | 唯一可运行期 import `@deepseek-ai/cordis` 的层 |
 | `ui-core` | `contract` | `core`、`providers`、`dsh`、React / DOM | 浏览器安全；fetch 作为注入端口 |
@@ -92,26 +92,27 @@ dsh/host                                         dsh/client
 | 行（子路径） | 职责 | provide | inject / 可选 get |
 | --- | --- | --- | --- |
 | `core` | catalogs、provider 注册表、orchestrator | `agentProviders`、`agentRegistry`、`aliasRegistry`、`agentOrchestrator` | — |
-| `providers/default` | 默认 provider：4 个文件根、bundled、模型层、DSH 默认对 | （注册进 `agentProviders`） | `agentProviders`；可选 `fs`、`agentDefaultModel` |
+| `providers/default` | 默认 provider：模型层、DSH 默认对 | （注册进 `agentProviders`） | `agentProviders`；可选 `fs`、`agentDefaultModel` |
+| `providers/fs` | 文件系统 provider：4 根 ＋ bundled（票 18 已落地） | （注册进 `agentProviders`） | `agentProviders`；可选 `fs` |
 | `control` | 控制核心 ＋ writer | `agentControl` | `agentRegistry`、`aliasRegistry`；可选 `agentOrchestrator` |
 | `summon` | `summon_agent` 工具 ＋ 原生替换 | — | `agentOrchestrator`、`tools`、`subagents` |
 | `catalog`（06） | 目录注入 digest ＋ 工具警告 | — | `agentRegistry`、`aliasRegistry`、`tools` |
 | `ui-host`（12） | HTTP exact route | — | `agentControl`；可选 `agentOrchestrator`、`webServer` |
 | `ui-client` | `settings.section` 整页 | — | HTTP fetch（12 的 route；客户端不拿宿主服务） |
 
-行是**能力边界**，不是文件边界；一个行可以很小（只做注册）。**同一个服务只 provide 一次**：patch 在 `src/index.ts` 的 all-in-one 行与 granular 行之间二选一，不能同时插入。v1 先落 `core` ＋ `providers/default`；`control` / `summon` / `catalog` / `ui-*` 随 11/12/07/06/05 落地，期间 `src/index.ts` 保持 all-in-one 兼容，P2 起切 granular。
+行是**能力边界**，不是文件边界；一个行可以很小（只做注册）。**同一个服务只 provide 一次**：patch 在 `src/index.ts` 的 all-in-one 行与 granular 行之间二选一，不能同时插入。`core` ＋ `providers/fs` 已随票 18 落地（两行同票 active，HMR 才能整组替换）；`control` / `summon` / `catalog` / `ui-*` / `providers/default` 随 11/12/07/06/05 落地，期间 `src/index.ts` 保持 all-in-one 兼容。
 
 ### 2.2 服务契约
 
 | key | 成员数 | apiVersion | 消费者 |
 | --- | --- | --- | --- |
-| `agentProviders` | 注册 3 ＋ 读 3 ＋ change 1 | 1 | provider 行、catalogs |
+| `agentProviders` | 4（apiVersion ＋ 注册 1 ＋ 读 2 ＋ change 1；agent 侧已落地，票 18） | 1 | provider 行、catalogs |
 | `agentRegistry` | 4（冻结） | —（形状即契约） | 06、ui-host、第三方 |
 | `aliasRegistry` | 5（冻结） | —（形状即契约） | 03、06、ui-host |
 | `agentOrchestrator` | 1 | 1 | summon、ui-host、第三方 |
 | `agentControl` | 6 | 1 | ui-host、CLI、第三方 |
 
-约定：**新增**服务对象带 `readonly apiVersion: 1`；既有两读面保持冻结形状、不加字段（它们就是契约本身）。消费方取到新服务后先校验版本，不匹配按「能力缺失」处理（不猜）。服务实现都是 `dsh/host` 的 `Service` 子类（core 只提供纯行为对象），`ctx.get` 返回服务代理——测试断言行为，不断言对象身份。跨 bundle 只传契约对象（服务对象、provider 实例）与可序列化领域的子集；不传 `ctx` / fiber / 宿主活对象；`apiVersion` 之外的破坏性变更换新 key。
+约定：**新增**服务对象带 `readonly apiVersion: 1`；既有两读面保持冻结形状、不加字段（它们就是契约本身）。消费方取到新服务后先校验版本，不匹配按「能力缺失」处理（不猜）。例外：`agentProviders` 是 **plain object**，不进 `Service.listService` 目录——2026-10-18 探针证实 plain object 仍可被行级 `inject` 消费（`docs/agents/harness-facts.md`），这让 provider 行不依赖 Service 基类即可接线。其余服务实现都是 `dsh/host` 的 `Service` 子类（core 只提供纯行为对象），`ctx.get` 返回服务代理——测试断言行为，不断言对象身份。跨 bundle 只传契约对象（服务对象、provider 实例）与可序列化领域的子集；不传 `ctx` / fiber / 宿主活对象；`apiVersion` 之外的破坏性变更换新 key。
 
 ## 3. 各层设计
 
@@ -122,7 +123,7 @@ dsh/host                                         dsh/client
 - 目录：`AgentDefinition`、`AgentRegistry`、`AliasRegistry` 及其诊断 / findings（01/02 冻结）；
 - 控制：`ControlSnapshot`、`ComposedAgentDocument`、`DocumentEdit`、`WritePlan`、`WriteReport`、`RegistryEdit`（11）；
 - 编排：`PrepareOptions`、`PreparedAgent`、`ResolutionResult`、`AssemblyPlan`、`ToolPlan`、归一化 `Warning`（服务边界，所以进 contract）；
-- provider：`AgentProviders`、`ProviderControl`、`AgentSourceProvider`、`ModelLayerProvider`、`DefaultModelProvider`、`ProviderLookupOptions`、`SourceEntry`、`SourceDocument`；
+- provider：`AgentProviders`、`ProviderControl`、`AgentSourceProvider`、`ProviderLookupOptions`、`SourceEntry`、`SourceDocument`、`SourceRead`（agent 侧已落地，票 18）；`ModelLayerProvider`、`DefaultModelProvider` 仍在本设计节，随各自票进 `contract`；
 - 服务：`AgentOrchestrator`、`AgentControl` 的接口形状、服务 key 常量、`SERVICE_API_VERSION`；
 - 界面：`AgentDocPort` 的 **DTO 部分**（wire 投影）；`SettingsState` / `SettingsAction` 留在 `ui-core`。
 
@@ -158,18 +159,19 @@ interface AliasRegistry {          // ctx.aliasRegistry
 }
 ```
 
-组装：`createAgentCatalog({ providers, warn })` 与 `createModelCatalog({ providers, warn })`。**core 不做任何 I/O**：不解析 project root、不碰 `process.env`、不 import `node:fs`。provider 收到 `{ cwd?, signal? }`，自己解析根（文件系统 provider 内部走 `findProjectRoot`）。
+组装（agent 侧已落地，票 18）：`createAgentRegistryService({ providers, nodeFileSystem, resolveFileSystem?, warn? })` 与 `createModelCatalog({ providers, warn })`。**project-root 走查留在 registry**（Q6 裁决修正本设计初稿的「下沉到 provider」）：每次查询解析一次 project root，经 `ProviderLookupOptions.projectRoot` 传给每个 provider；provider 从它派生自己的根，不各自 walk、不碰 `process.env`。core 除根走查（注入端口）外无 I/O，不 import `node:fs`。
 
 **内部缝**：`scanAgentProviders`、`classifyEntry`、`parseAgentDocument`、`mergeModelLayers`、`inspectAliasRegistry`、`createLazyLoad`。
 
 **接口不变量**（冻结语义不变）：
 
-- 查询按 `cwd` 记忆化（project root 的解析下沉到 provider；不同子目录各扫一次，结果正确；将来可用 provider 的 `workspaceKey` 优化）；
+- 查询按解析出的 project root 记忆化（root 解析在 registry，每查询一次，票 18）；将来可用 provider 的 `workspaceKey` 优化；
 - 失败不缓存；并发查询共享 in-flight；无 watcher，`invalidate()` 是唯一刷新点；
 - provider 集合变化或 provider 调 `control.invalidate()` ⇒ 注册表通知 ⇒ catalogs 清缓存；
 - rank 低者胜；模型层整层合并 / 整层弃用，绝不半合并；
 - 受信 provider 的坏文档是硬错误，其余是软诊断；`diagnostics()` 与 `list()` 来自同一次扫描；
-- 目录排序稳定（rank 升序，再按名称）。
+- 条目与诊断都带 `providerId`（条目来自哪个 provider 即谁的 id；文档缺读沿用 `read.path` 的 provider 归因）；
+- 目录排序稳定（rank 升序，条目按名称）。
 
 **删除测试**：没有它，provider 与连接器会各自分类 / 解析 / 合并 / 判信任，冻结语义分叉。
 
@@ -235,59 +237,63 @@ interface PreparedAgent {
 
 ### 3.5 `providers`：注册表与默认 provider
 
-**注册表服务**（core 提供；镜像 `ctx.skills.registerProvider`）：
+**注册表服务**（core 提供；镜像 `ctx.skills.registerProvider`；**agent 侧已随票 18 落地**为 plain object `ctx.agentProviders`，`src/core/providers-registry.ts`）：
 
 ```ts
-interface AgentProviders {                 // ctx.agentProviders
+interface AgentProviders {                 // ctx.agentProviders（plain object，可被行级 inject）
   readonly apiVersion: 1
   registerAgentProvider(create: (control: ProviderControl) => AgentSourceProvider): () => void
-  registerModelProvider(create: (control: ProviderControl) => ModelLayerProvider): () => void
-  registerDefaultModelProvider(create: (control: ProviderControl) => DefaultModelProvider): () => void
   listAgentProviders(): readonly AgentSourceProvider[]     // rank 升序，再按注册顺序
-  listModelProviders(): readonly ModelLayerProvider[]
-  defaultModelProvider(): DefaultModelProvider | undefined
   onChange(listener: () => void): () => void
 }
+```
 
+`registerModelProvider` / `registerDefaultModelProvider` 仍留在本设计节，随模型层 / 默认对票落地后并入同一服务（扩成员不算破坏）。
+
+**Provider 契约**（`src/contract/providers.ts`，票 18 落地面）：
+
+```ts
 interface ProviderControl {
   readonly signal: AbortSignal
   invalidate(): void          // provider 数据变化 ⇒ 通知 catalogs 清缓存
 }
-```
 
-**Provider 契约**：
-
-```ts
 interface AgentSourceProvider {
   readonly id: string
   readonly source: AgentSource            // v1 仍是闭合标签；第三方标签等 contract v2
   readonly rank: number
   readonly trust: 'trusted' | 'untrusted'
+  readonly origin: AgentOrigin
+  readonly format: 'agent-md'             // Q4=B：跨 harness 时才扩新格式标签
+  readonly apiVersion: 1
+  // 原始直接子项，不过滤（分类归 registry）；根缺席或不可解析 ⇒ undefined
   listEntries(options: ProviderLookupOptions): Promise<readonly SourceEntry[] | undefined>
-  readDocument(agentName: string, options: ProviderLookupOptions): Promise<SourceDocument | undefined>
-}
-
-interface ModelLayerProvider {
-  readonly id: string
-  readonly source: AliasRegistrySource
-  read(options: ProviderLookupOptions): Promise<SourceDocument | undefined>   // 只交原文＋路径；解析与整层弃用在 core
-}
-
-interface DefaultModelProvider {
-  readonly id: string
-  read(options: ProviderLookupOptions): Promise<AgentModelTarget | undefined>   // DSH 默认对
+  // 读一个已列条目的标准文档原文；缺读给 typed missing，不再用 undefined 表达
+  readDocument(entry: SourceEntry, options: ProviderLookupOptions): Promise<SourceRead>
 }
 
 interface SourceEntry {
   readonly name: string
   readonly kind: 'file' | 'directory' | 'other'
   readonly path: string              // provider 解析后的绝对路径；诊断与 provenance 都用它
+  readonly providerId: string        // 列出它的 provider；registry 不再自己猜归因
+  readonly sourceRef?: string        // provider 私有引用令牌，对 registry 不透明
 }
 
 interface SourceDocument { readonly path: string; readonly text: string }
 
-interface ProviderLookupOptions { readonly cwd?: string; readonly signal?: AbortSignal }
+type SourceRead =
+  | { readonly kind: 'text'; readonly document: SourceDocument }
+  | { readonly kind: 'missing'; readonly path: string; readonly reason: 'absent' | 'not-text' | 'unavailable' }
+
+interface ProviderLookupOptions {
+  readonly cwd?: string
+  readonly projectRoot?: string   // registry 每查询解析一次传入；provider 从它派生根
+  readonly signal?: AbortSignal
+}
 ```
+
+`ModelLayerProvider` / `DefaultModelProvider` 形状不变，仍留本节待各自票。
 
 **生命周期与不变量**：
 
@@ -297,14 +303,15 @@ interface ProviderLookupOptions { readonly cwd?: string; readonly signal?: Abort
 - 注册顺序稳定；rank 相同的按注册顺序；注册 / 注销 / invalidate 都触发 `onChange`；
 - provider 的 `trusted` 只给随包资产；第三方 provider 默认 `untrusted`，`trusted` 需要核心配置显式允许（v2 策略，v1 只有随包 provider）；
 - provider 可以读 `process.env` / config（它是环境适配器）；core 不读；
-- provider 错误：缺席 = `undefined`；意外错误上抛，由 core 决定信任语义。
+- provider 错误：`listEntries` 根缺席 / 不可解析 = `undefined`（该次跳过）；`readDocument` 缺文档 = typed `missing`（`absent` / `not-text` / `unavailable`，registry 映射回既有诊断码）；意外错误上抛，由 core 决定信任语义；
+- 条目与诊断带 `providerId`；registry 只用 provider 给的 `entry.path` / `read.path`，不再自行拼路径。
 
-**默认 provider 行**（随包，`providers/default`）：
+**默认 provider 行**（随包；文件系统部分已随票 18 落地为 `providers/fs` 行）：
 
 | provider | 注册 | 说明 |
 | --- | --- | --- |
-| 文件系统 ×4 | project `.dsh` / `.agents`、user `$DSH_HOME` / `$DSH_AGENTS_HOME` | 每个一个 provider；内部解析 project root，host `fs` 可用则走 host，否则 Node |
-| bundled ×1 | 随包资产 | `trusted`，Node 读取，rank 600 |
+| 文件系统 ×4 | project `.dsh` / `.agents`、user `$DSH_HOME` / `$DSH_AGENTS_HOME` | 每个一个 provider；根从 registry 传入的 projectRoot 派生（project 根派生、user 根每查询读环境变量），host `fs` 可用则走 host，否则 Node |
+| bundled ×1 | 随包资产 | `trusted`，Node 读取（绕过 host `fs`，同构原生 `trustedHost`），rank 600 |
 | 模型层 ×2 | workspace / global `registry.yaml` | 工作区层压过全局层 |
 | 默认对 ×1 | `ctx.agentDefaultModel` | 只提供 pair；`dsh-default` 的合成 / 匹配逻辑仍在 catalog（D6 不变式） |
 
@@ -314,9 +321,10 @@ interface ProviderLookupOptions { readonly cwd?: string; readonly signal?: Abort
 
 连接器不再是一个单体插件，而是**每个能力行**的 DSH 适配代码；共享的结构读取助手（`ctx.fs`、`agentDefaultModel`、`webServer`、`subagents`、`tools`）留在 `dsh/host`。每个 provide 的服务都是这里的 `Service` 子类：`super(ctx, key)` 注册，内部委托 core 的纯行为对象；Service 子类不写领域规则。
 
-- `core` 行：构造 `agentProviders` 注册表 → provide → 构造 catalogs → provide → 构造 orchestrator → provide。**没有 DSH 副作用**。
+- `core` 行：构造 `agentProviders` 注册表 → provide → 构造 catalogs → provide → 构造 orchestrator → provide。**没有 DSH 副作用**。注意：同 tick 内 provide 对 `ctx.get` 不可见（2026-10-18 探针），所以 all-in-one `apply` 里 core 与 providers 两段直接传实例引用，不走 `ctx.get`。
+- `providers/fs` 行（票 18）：`inject: ['agentProviders']`；把 4 根 ＋ bundled 注册进 `agentProviders`，每个 disposer 包进一个 `ctx.effect`；`fs` 按用时读（bundled 固定走 Node）。
 - `control` 行：构造 writer、catalog 依赖、可选 orchestrator；provide `agentControl`。
-- `providers/default` 行：注册默认 provider；`ctx.get('fs')` / `ctx.get('agentDefaultModel')` 按用时读。
+- `providers/default` 行（后票）：注册模型层与默认对 provider；`ctx.get('fs')` / `ctx.get('agentDefaultModel')` 按用时读。
 - `summon`（07）：注册 `summon_agent` tool；把 `PreparedAgent` 翻译成 `ctx.subagents.start` 的 request；`system-prompt/assemble` 过滤原生工具；链耗尽 → tool isError；能力降级 → 警告放行。
 - `catalog`（06）：pre-step digest；last-digest / offered message id 等会话状态留在本行；core 只渲染条目与算哈希。
 - `ui-host`（12）：`ctx.webServer` exact route；校验请求 → 调 `agentControl` → 序列化；错误 400/404/409/5xx；请求上限。
@@ -381,7 +389,7 @@ interface SettingsSession {
 | --- | --- | --- | --- |
 | Provider 注册 | `AgentProviders` 服务 | 文件系统 / 内置 / 模型层 / 默认对（随包）＋ 第三方（后续） | 真缝；Cordis 服务注册，不建自定义加载器 |
 | 文件系统 | `AgentFileSystem` | Node fs / host `ctx.fs` | 真缝（2） |
-| 定义来源 | `AgentSourceProvider` | 4 根 ＋ bundled | 真缝（5 个 provider），provider 各自解析 workspace |
+| 定义来源 | `AgentSourceProvider` | 4 根 ＋ bundled | 真缝（5 个 provider）；根从 registry 传入的 projectRoot 派生（票 18），不各自 walk |
 | 模型层 | `ModelLayerProvider` | workspace / user ＋ 默认对 | 真缝（3） |
 | 写入 | `DefinitionWriter` | Node 原子写 / 内存 | 真缝（2），测试与未来远端 |
 | 文档端口 | `AgentDocPort` | 内存 / HTTP | 真缝（2），12/13 已定 |
@@ -407,7 +415,7 @@ interface SettingsSession {
 
 - **`contract`**：`tsc` 保护；服务 key / apiVersion 常量有静态断言。
 - **`core`**：假 `agentProviders` 注册表（内存 provider）；catalog 断言注册后再查询会重扫、注销 / invalidate 会清缓存、rank 决胜；orchestrator 固定快照断言确定性、顺序、provenance；control 内存 writer 断言 D14 往返与冲突（11）。
-- **`providers`**：provider 契约套件跑真实临时目录 ＋ 假 host fs；project root 解析、缺失即 `undefined`、意外错误上抛。
+- **`providers`**：provider 契约套件跑真实临时目录 ＋ 内存端口换装；projectRoot 传递、根缺席即 `undefined`、缺文档 typed `missing`、意外错误上抛（票 18 已落地 `test/source-provider.test.ts`）。
 - **`dsh`**：服务注册用真 Context（`@deepseek-ai/cordis` 是 devDependency）断言 `Service` 注册、`inject` 属性访问、卸载；sink / 可选服务用假 `ctx` 断言注册、撤销、能力降级、错误翻译；安装探针走 loader entry ＋ `Service.listService`。
 - **`ui-core`**：session 状态转移用内存 port，再跑 HTTP 假 port（13 的适配器契约套件）；不 mock 内部函数。
 - **`ui-react`**：jsdom ＋ testing-library，只断言渲染与用户可见行为。
@@ -460,7 +468,7 @@ test/
 | 阶段 | 内容 | 票 / 前置 | 验收 |
 | --- | --- | --- | --- |
 | P1 | **机械分层**：搬 01/02 模块（含 `types.ts` → `contract/`）；拆 fs 端口与 provider；加 import 矩阵守卫；更新锚点与测试 import；仍单行 apply | 票 16 | 行为零变化；`pnpm check` 全绿 |
-| P2 | `core` ＋ `providers/default` 两行；`agentProviders` 注册表上线；catalogs 改消费注册表；**Service 子类包装 ＋ `@deepseek-ai/cordis` peer ＋ loader 安装探针**；`src/index.ts` 保持 all-in-one 兼容 | 01/02、16 | 注册 / 注销 / invalidate 重扫；`Service.listService` 可见；真机安装 |
+| P2 | `core` ＋ `providers/fs` 两行（票 18 已落地）；`agentProviders` 注册表上线；catalogs 改消费注册表；`providers/default`（模型层 / 默认对）与 **Service 子类包装 ＋ `@deepseek-ai/cordis` peer ＋ loader 安装探针**随后续票；`src/index.ts` 保持 all-in-one 兼容 | 18、01/02、16 | 注册 / 注销 / invalidate 重扫（已测）；真机 HMR 两行同票 active |
 | P3 | `core/resolve`（03）＋ `core/assemble`（04）＋ `agentOrchestrator` 行；`summon`（07）＋ `catalog`（06）行 | 03、04、06、07 | 假 ctx 集成；链耗尽 isError |
 | P4 | `control` 行（11）＋ `ui-host` / `ui-client`（12）＋ `ui-core` / `ui-react`（05/13） | 11、12、05、13 | 适配器契约套件；真机编辑落盘 |
 | P5 | 拆包 / 第三方 provider | §7.2 触发 | 安装与回退实测 |
@@ -469,7 +477,7 @@ test/
 
 | 票 | 落到 |
 | --- | --- |
-| 01 / 02 | `core/catalog` ＋ `providers/default`（fs / bundled / 模型层 / 默认对） |
+| 01 / 02 | `core/catalog` ＋ `providers/fs`（fs / bundled，票 18）＋ `providers/default`（模型层 / 默认对，后票） |
 | 03 | `core/resolve`（内部）→ `agentOrchestrator` |
 | 04 | `core/assemble`（内部）＋ sink 注册在 summon / dsh 行 |
 | 06 | `core/catalog-injection` ＋ `core/tool-capability` ＋ `catalog` 行 |

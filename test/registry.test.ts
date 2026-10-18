@@ -11,6 +11,7 @@ function definition(agentName: string, overrides: Partial<AgentDefinition> = {})
     body: `${agentName} body`,
     source: 'user-dsh',
     origin: 'user',
+    providerId: 'test',
     extra: {},
     path: `/agents/${agentName}/${agentName}.agent.md`,
     ...overrides,

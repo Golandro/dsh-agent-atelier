@@ -11,6 +11,14 @@
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./core": {
+      "types": "./lib/dsh/host/core.d.ts",
+      "default": "./lib/dsh/host/core.js"
+    },
+    "./providers/fs": {
+      "types": "./lib/dsh/host/providers.d.ts",
+      "default": "./lib/dsh/host/providers.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },

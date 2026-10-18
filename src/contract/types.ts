@@ -42,6 +42,8 @@ export interface AgentDiagnostic {
   readonly message: string
   /** Agent name the finding belongs to, when the candidate had a usable name. */
   readonly agentName?: string | undefined
+  /** The source provider this finding came from (ticket 18). */
+  readonly providerId: string
 }
 
 /** One legacy `model:` chain entry: a direct provider/model pair (D5 escape hatch). */
@@ -80,6 +82,8 @@ export interface AgentDefinition {
   readonly source: AgentSource
   /** `built-in` only for the bundled root. */
   readonly origin: AgentOrigin
+  /** The source provider this definition was read through (ticket 18). */
+  readonly providerId: string
   /** Unrecognised frontmatter keys, kept as raw text so an editor can write them back (D14). */
   readonly extra: Readonly<Record<string, string>>
   /** Absolute path of the document that produced this definition. */
@@ -106,8 +110,9 @@ export interface AgentDiagnosticsOptions {
 /**
  * The read model registered as `ctx.agentRegistry` (D24).
  *
- * First query per project root scans the roots and memoises the result; there
- * is no watcher, so {@link invalidate} is the only way to force a rescan.
+ * First query per project root scans the registered providers and memoises
+ * the result; there is no watcher, so {@link invalidate} is the only way to
+ * force a rescan (provider changes clear the cache too, ticket 18).
  */
 export interface AgentRegistry {
   /** Every discovered agent, lowest rank first, then by name. */

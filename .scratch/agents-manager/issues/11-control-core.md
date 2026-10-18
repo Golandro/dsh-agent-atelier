@@ -24,7 +24,7 @@ Blocked by: —
 
 ## 宿主现状（动工前必须知道）
 
-- 读面已存在、已冻结：`parseAgentDocument`（`src/core/catalog/frontmatter.ts:84`）、`AgentFrontmatter`（`src/core/catalog/frontmatter.ts:22`）、`readRegistryLayer`（`src/core/catalog/registry-file.ts:104`）、两个服务在 `src/dsh/host/plugin.ts:29` 的 `apply` 里注册（`ctx.agentRegistry` / `ctx.aliasRegistry`）。
+- 读面已存在、已冻结：`parseAgentDocument`（`src/core/catalog/frontmatter.ts:84`）、`AgentFrontmatter`（`src/core/catalog/frontmatter.ts:22`）、`readRegistryLayer`（`src/core/catalog/registry-file.ts:104`）、两个服务在 `src/dsh/host/core.ts:24` 的 `applyCore` 里注册（`ctx.agentRegistry` / `ctx.aliasRegistry`；18 票拆行前在 plugin.ts 的 `apply`）。
 - **写面完全不存在**：全 `src/` 无 `writeFile` / `rename` / 原子写（grep 为空）。原型的 `serializeFrontmatter` 是唯一的序列化实现，且只认识已知键 ＋ `extra` 原文、无转义、不可往返（D14 要求原文回写）。
 - **原型不在 `tsconfig.json` 的 include**（`"include": ["src", "test"]`）⇒ 原型的类型漂移不受 `pnpm run check` 保护，两套同名类型长期共存无人报警。
 - 「零运行时依赖」的注释在 `src/core/catalog/frontmatter.ts:6`、`src/core/catalog/yaml-scalar.ts:6`、`src/core/catalog/registry-file.ts:15` 已与 2026-10-17 的依赖裁决（`js-yaml` / `zod` 保留在 `dependencies`，05 票 Q4「我们需要这些依赖」）不一致，但代码仍未引用这两个包 ⇒ 声明按裁决保留，本票要**改三处注释**，并决定写面/校验是用这两个包还是扩展现有 `yaml-scalar.ts`（二选一，只留一份实现）。

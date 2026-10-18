@@ -59,7 +59,7 @@ Blocked by: —
 
 **import 矩阵**（`scripts/check.mjs`）：5 个公共入口白名单（`src/contract/index.ts`、`src/core/index.ts`、`src/core/ports.ts`、`src/providers/fs/index.ts`、`src/dsh/host/index.ts`）+ 五条层规则（contract 零外部 import；core 只 `node:path`/`node:os`；providers/dsh 任意 `node:`；`@deepseek-ai/*` 仅 `dsh` 且 type-only，Q5 运行期例外归 P2；入口只准 re-export 公共入口）。type-only 判定沿 `from` 行上溯到语句头。自测 8 断言：合成干净四层树零违规 + 七种越界（core 读 `node:fs`、core 走 providers 深路径、providers type-only cordis、dsh 运行期 cordis、contract 任何 import、dsh 走 core 深路径、入口走深路径）逐一报错。
 
-**锚点与陈述**：27 处 `src/...` 锚点逐条重验后重定（`types.ts` 原样搬移行号全保；discovery 因 deps 增字段 +4 行，195/197→200/202；旧公共入口壳（现 `src/index.ts`）第 45 行的 apply 锚点改指 `src/dsh/host/plugin.ts:29`）；路径陈述更新于 01/05/11/12 票、本 map、`README.md`（Host entry 行 + Guardrails 提矩阵）；01 票 148 行的历史 check 输出引文与 05 票 43 行 triage 门槛按史留旧。终态 `npm run check` 全绿：自测通过、矩阵零违规、94 处锚点全解析、83 用例不变、`rm -rf lib && pnpm run build` 后 loader 冒烟（`import('lib/index.js')`）导出面逐一相符。
+**锚点与陈述**：27 处 `src/...` 锚点逐条重验后重定（`types.ts` 原样搬移行号全保；discovery 因 deps 增字段 +4 行，195/197→200/202；旧公共入口壳（现 `src/index.ts`）第 45 行的 apply 锚点改指 `src/dsh/host/core.ts:24`（当时为 `src/dsh/host/plugin.ts` 的 `apply`，18 票拆两行后移入 core.ts 的 `applyCore`））；路径陈述更新于 01/05/11/12 票、本 map、`README.md`（Host entry 行 + Guardrails 提矩阵）；01 票 148 行的历史 check 输出引文与 05 票 43 行 triage 门槛按史留旧。终态 `npm run check` 全绿：自测通过、矩阵零违规、94 处锚点全解析、83 用例不变、`rm -rf lib && pnpm run build` 后 loader 冒烟（`import('lib/index.js')`）导出面逐一相符。
 
 **源码注释行号**：frontmatter/registry-file/yaml-scalar 三处头注释的「zero runtime dependencies (ADR-0001, `scripts/check.mjs:188`)」行号引用因本票在 check.mjs 增行而漂移（源码注释不进锚点守卫，守卫测不到）；复核处置轮已就地修复——改指守卫文件本身并注明 import 矩阵，不再携带行号（防再度漂移），原「归 11 顺带」挂账撤销。
 

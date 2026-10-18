@@ -1,44 +1,37 @@
 /**
- * Agent discovery: the four-root search plus the bundled root, the directory
- * layout, and the lazy read model behind `ctx.agentRegistry` (ticket 01, D19–D24).
+ * Agent discovery: the provider-driven search, the directory layout, and the
+ * lazy read model behind `ctx.agentRegistry` (ticket 01 D19–D24; provider
+ * wiring per ticket 18).
  *
- * The structure mirrors the native skill filesystem provider
- * (`skill/skill-filesystem/src/index.ts:244-263` for the root table) because the
- * native packages cannot be imported from this bundle and registering into
- * `ctx.skills` would launder agent documents into the skill read surface
- * (ADR-0001). So the root table, the rank ordering, the `{cwd, signal}` query
- * shape and `invalidate()` are copied here, while the locator is ours: native
- * skills look for `SKILL.md`, agents look for `<agent-name>/<agent-name>.agent.md`.
+ * The registry stays the deep module: providers are source adapters that only
+ * list raw entries and read raw documents — classification, frontmatter
+ * parsing, rank/trust merging and diagnostics happen here, so the frozen read
+ * surface cannot fork across heterogeneous providers. The structure still
+ * mirrors the native skill filesystem provider
+ * (`skill/skill-filesystem/src/index.ts:244-263` for the root table), and the
+ * locator is ours: native skills look for `SKILL.md`, agents look for
+ * `<agent-name>/<agent-name>.agent.md`. One query resolves the project root
+ * once and hands it to every provider.
  */
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 
-import type { AgentDirEntry, AgentFileSystem } from '../ports.ts'
+import type { AgentFileSystem } from '../ports.ts'
 import { parseAgentDocument } from './frontmatter.ts'
 import { createLazyLoad } from './lazy-load.ts'
 import { createAgentRegistry, type AgentDefinitionContainer } from './registry.ts'
-import { findProjectRoot, resolveAgentsHome, resolveDshHome } from './roots.ts'
+import { findProjectRoot } from './roots.ts'
 
 import type {
   AgentDefinition,
   AgentDiagnostic,
   AgentDiagnosticCode,
-  AgentOrigin,
+  AgentProviders,
   AgentRegistry,
-  AgentSource,
+  AgentSourceProvider,
+  ProviderLookupOptions,
+  SourceDocument,
+  SourceEntry,
 } from '../../contract/index.ts'
-
-/** Project-level root inside the workspace's `.dsh` directory. */
-export const PROJECT_DSH_RANK = 100
-/** Project-level root inside the workspace's `.agents` directory. */
-export const PROJECT_AGENTS_RANK = 200
-/** Reserved for v2 custom agent directories; nothing registers here in v1. */
-export const CUSTOM_RANK = 300
-/** User-level root under `$DSH_HOME`. */
-export const USER_DSH_RANK = 400
-/** User-level root under `$DSH_AGENTS_HOME` (default `~/.agents`). */
-export const USER_AGENTS_RANK = 500
-/** The bundled root, searched last and trusted. */
-export const BUNDLED_AGENT_RANK = 600
 
 /** Agent directories are lower-case kebab, exactly like native skill names. */
 export const AGENT_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -51,42 +44,26 @@ const ADVISORY_CODES: ReadonlySet<AgentDiagnosticCode> = new Set<AgentDiagnostic
 /** A flat document where a directory is expected. */
 const MISPLACED_DOC_PATTERN = /^([a-z0-9]+(?:-[a-z0-9]+)*)(?:\.agent)?\.md$/
 
-/** One discovery root, in ascending rank order. */
-export interface AgentRoot {
-  readonly path: string
-  readonly source: AgentSource
-  readonly rank: number
-  readonly origin: AgentOrigin
-  /** Trusted roots hold our own assets: their failures are hard errors (D21). */
-  readonly trusted: boolean
-}
-
 /** Host-side access injected into the service. */
 export interface AgentRegistryDependencies {
   /**
-   * Resolves the host `fs` service port when a scan needs it; `undefined` reads
-   * through Node. Called at use time, never at plugin load, so an `fs` service
-   * mounted after this one is still honoured on the next scan — the native
-   * `optionalFileSystem(ctx)` read (`skill/skill-filesystem/src/index.ts:849`).
+   * The provider registry; its members drive every scan (ticket 18). Register,
+   * unregister and `control.invalidate()` clear the memoised scans.
+   */
+  readonly providers: AgentProviders
+  /**
+   * Resolves the host `fs` service port when the project-root walk needs it;
+   * `undefined` reads through Node. Called at use time, never at plugin load,
+   * so an `fs` service mounted after this one is still honoured on the next
+   * scan — the native `optionalFileSystem(ctx)` read
+   * (`skill/skill-filesystem/src/index.ts:849`). Providers pick their own
+   * filesystem ports; this one is only for the root walk.
    */
   readonly resolveFileSystem?: (() => AgentFileSystem | undefined) | undefined
-  /**
-   * Node filesystem used for trusted roots — read directly, like the native
-   * `trustedHost` path — and as the fallback when no host `fs` port resolves.
-   */
+  /** Node filesystem for the project-root walk and as the walk's fallback. */
   readonly nodeFileSystem: AgentFileSystem
   /** Diagnostic sink; `undefined` discards the log line. */
   readonly warn?: ((message: string) => void) | undefined
-}
-
-/** Roots and env overrides; every field is injectable so tests never touch the real homes. */
-export interface AgentRegistryOptions {
-  readonly dshHome?: string | undefined
-  readonly agentsHome?: string | undefined
-  /** Directory holding the bundled agents (this bundle's `bundled/`). */
-  readonly bundledDir?: string | undefined
-  /** Environment mapping for the home overrides; defaults to `process.env`. */
-  readonly env?: Record<string, string | undefined> | undefined
 }
 
 /** A trusted document could not be read; the bundled assets are broken. */
@@ -115,58 +92,35 @@ interface EntryResult {
 /**
  * Create the lazy agent registry.
  *
- * The first query for a project root scans the roots and memoises the result;
- * there is no watcher, so `invalidate()` is the only rescan trigger. Concurrent
- * queries share the in-flight scan.
+ * The first query for a project root scans the registered providers and
+ * memoises the result; there is no watcher, so `invalidate()` is the only
+ * rescan trigger besides provider changes. Concurrent queries share the
+ * in-flight scan.
  */
-export function createAgentRegistryService(
-  dependencies: AgentRegistryDependencies,
-  options: AgentRegistryOptions = {},
-): AgentRegistry {
-  const nodeFileSystem = dependencies.nodeFileSystem
+export function createAgentRegistryService(dependencies: AgentRegistryDependencies): AgentRegistry {
+  const providers = dependencies.providers
   const resolveHostFileSystem = dependencies.resolveFileSystem
   const warn = dependencies.warn ?? (() => {})
-  const env = options.env ?? process.env
 
-  /** Trusted roots bypass the host `fs` service, like the native `trustedHost` path. */
-  function fileSystemFor(trusted: boolean): AgentFileSystem {
-    if (trusted) return nodeFileSystem
-    return resolveHostFileSystem?.() ?? nodeFileSystem
+  /** Filesystem for the project-root walk: host `fs` when mounted, else Node. */
+  function walkFileSystem(): AgentFileSystem {
+    return resolveHostFileSystem?.() ?? dependencies.nodeFileSystem
   }
 
-  /** The resolved root table for one query, ascending by rank. */
-  function buildRoots(projectRoot: string | undefined): AgentRoot[] {
-    const roots: AgentRoot[] = []
-    if (projectRoot !== undefined) {
-      roots.push(
-        { path: join(projectRoot, '.dsh', 'agents'), source: 'project-dsh', rank: PROJECT_DSH_RANK, origin: 'user', trusted: false },
-        { path: join(projectRoot, '.agents', 'agents'), source: 'project-agents', rank: PROJECT_AGENTS_RANK, origin: 'user', trusted: false },
-      )
-    }
-    roots.push(
-      { path: join(resolveDshHome(options.dshHome, env), 'agents'), source: 'user-dsh', rank: USER_DSH_RANK, origin: 'user', trusted: false },
-      { path: join(resolveAgentsHome(options.agentsHome, env), 'agents'), source: 'user-agents', rank: USER_AGENTS_RANK, origin: 'user', trusted: false },
-    )
-    if (options.bundledDir !== undefined) {
-      roots.push({ path: options.bundledDir, source: 'bundled', rank: BUNDLED_AGENT_RANK, origin: 'built-in', trusted: true })
-    }
-    return roots
-  }
-
-  /** Walk the roots in rank order; the first root to claim an agent name wins. */
+  /** Walk the providers in rank order; the first provider to claim a name wins. */
   async function scan(projectRoot: string | undefined): Promise<AgentScan> {
     const container = createAgentRegistry()
     const diagnostics: AgentDiagnostic[] = []
     const claimed = new Set<string>()
-    for (const root of buildRoots(projectRoot)) {
-      const fileSystem = fileSystemFor(root.trusted)
-      const entries = await fileSystem.listDirectory(root.path)
+    const lookup: ProviderLookupOptions = { projectRoot }
+    for (const provider of providers.listAgentProviders()) {
+      const entries = await provider.listEntries(lookup)
       if (entries === undefined) continue
       const sorted = [...entries].sort((left, right) => left.name.localeCompare(right.name))
       for (const entry of sorted) {
-        const found = await discoverEntry(root, entry, fileSystem)
+        const found = await discoverEntry(provider, entry, lookup)
         for (const diagnostic of found.diagnostics) {
-          if (root.trusted && !ADVISORY_CODES.has(diagnostic.code)) throw new AgentDocumentError(diagnostic)
+          if (provider.trust === 'trusted' && !ADVISORY_CODES.has(diagnostic.code)) throw new AgentDocumentError(diagnostic)
           diagnostics.push(diagnostic)
           warn(`agent registry: ${diagnostic.code} at ${diagnostic.path}: ${diagnostic.message}`)
         }
@@ -178,99 +132,105 @@ export function createAgentRegistryService(
     return { container, diagnostics }
   }
 
-  /** Read one root entry: an agent, a misplaced document, or nothing at all. */
-  async function discoverEntry(root: AgentRoot, entry: AgentDirEntry, fileSystem: AgentFileSystem): Promise<EntryResult> {
-    const path = join(root.path, entry.name)
-    if (entry.kind === 'directory') return await discoverDirectory(root, entry.name, path, fileSystem)
+  /** Read one listed entry: an agent, a misplaced document, or nothing at all. */
+  async function discoverEntry(provider: AgentSourceProvider, entry: SourceEntry, lookup: ProviderLookupOptions): Promise<EntryResult> {
+    if (entry.kind === 'directory') return await discoverDirectory(provider, entry, lookup)
     if (entry.kind !== 'file') return { diagnostics: [] }
     const misplaced = MISPLACED_DOC_PATTERN.exec(entry.name)
     if (misplaced === null) return { diagnostics: [] }
     const agentName = misplaced[1] ?? entry.name
     return {
       diagnostics: [{
-        path,
+        path: entry.path,
         code: 'misplaced-file',
         message: `flat documents are not agents; move it to ${agentName}/${agentName}.agent.md`,
         agentName,
+        providerId: provider.id,
       }],
     }
   }
 
-  /** Read `<root>/<name>/<name>.agent.md`, or explain why it is not an agent. */
-  async function discoverDirectory(root: AgentRoot, name: string, path: string, fileSystem: AgentFileSystem): Promise<EntryResult> {
+  /** Read `<name>/<name>.agent.md` through the provider, or explain why it is not an agent. */
+  async function discoverDirectory(provider: AgentSourceProvider, entry: SourceEntry, lookup: ProviderLookupOptions): Promise<EntryResult> {
+    const name = entry.name
     // Dotted entries (`.git`, `.system`, …) are host bookkeeping, not candidates.
     if (name.startsWith('.')) return { diagnostics: [] }
     if (!AGENT_NAME_PATTERN.test(name)) {
       return {
         diagnostics: [{
-          path,
+          path: entry.path,
           code: 'invalid-agent-name',
           message: `"${name}" is not a kebab-case agent name (expected ${AGENT_NAME_PATTERN.source})`,
+          providerId: provider.id,
         }],
       }
     }
-    if (name === RESERVED_AGENT_NAME && root.source !== 'bundled') {
+    if (name === RESERVED_AGENT_NAME && provider.source !== 'bundled') {
       return {
         diagnostics: [{
-          path,
+          path: entry.path,
           code: 'reserved-id',
           message: `"${RESERVED_AGENT_NAME}" is reserved for the built-in agent`,
           agentName: name,
+          providerId: provider.id,
         }],
       }
     }
-    const documentPath = join(path, `${name}.agent.md`)
-    const text = await fileSystem.readTextFile(documentPath)
-    if (text === undefined) {
+    const read = await provider.readDocument(entry, lookup)
+    if (read.kind === 'missing') {
       return {
         diagnostics: [{
-          path: documentPath,
+          path: read.path,
           code: 'missing-document',
           message: `agent directory "${name}" has no ${name}.agent.md`,
           agentName: name,
+          providerId: provider.id,
         }],
       }
     }
-    return buildDefinition(root, name, documentPath, text)
+    return buildDefinition(provider, name, read.document)
   }
 
-  /** Turn one document into a definition plus its advisory diagnostics. */
-  function buildDefinition(root: AgentRoot, agentName: string, documentPath: string, text: string): EntryResult {
-    const document = parseAgentDocument(text)
-    const { frontmatter } = document
+  /** Turn one raw document into a definition plus its advisory diagnostics. */
+  function buildDefinition(provider: AgentSourceProvider, agentName: string, document: SourceDocument): EntryResult {
+    const parsed = parseAgentDocument(document.text)
+    const { frontmatter } = parsed
     if (frontmatter.problems.length > 0) {
       return {
         diagnostics: [{
-          path: documentPath,
+          path: document.path,
           code: 'unparseable-frontmatter',
           message: frontmatter.problems.join('; '),
           agentName,
+          providerId: provider.id,
         }],
       }
     }
     const diagnostics: AgentDiagnostic[] = []
     if (Object.hasOwn(frontmatter.extra, 'id')) {
       diagnostics.push({
-        path: documentPath,
+        path: document.path,
         code: 'unexpected-id',
         message: 'frontmatter "id" is ignored: the directory name is the identity (ADR-0002)',
         agentName,
+        providerId: provider.id,
       })
     }
     const hasChain = (frontmatter.modelOrder?.length ?? 0) > 0 || (frontmatter.model?.length ?? 0) > 0
     if (!hasChain) {
       diagnostics.push({
-        path: documentPath,
+        path: document.path,
         code: 'no-model-order',
         message: 'neither modelOrder nor model is declared, so no model can resolve for this agent',
         agentName,
+        providerId: provider.id,
       })
     }
     const definition: AgentDefinition = {
       agentName,
       name: frontmatter.name ?? agentName,
       description: frontmatter.description ?? '',
-      body: document.body,
+      body: parsed.body,
       ...(frontmatter.modelOrder !== undefined ? { modelOrder: frontmatter.modelOrder } : {}),
       ...(frontmatter.model !== undefined ? { model: frontmatter.model } : {}),
       ...(frontmatter.requiredTools !== undefined ? { requiredTools: frontmatter.requiredTools } : {}),
@@ -279,10 +239,11 @@ export function createAgentRegistryService(
       ...(frontmatter.reasoningEffort !== undefined ? { reasoningEffort: frontmatter.reasoningEffort } : {}),
       ...(frontmatter.color !== undefined ? { color: frontmatter.color } : {}),
       ...(frontmatter.emoji !== undefined ? { emoji: frontmatter.emoji } : {}),
-      source: root.source,
-      origin: root.origin,
+      source: provider.source,
+      origin: provider.origin,
+      providerId: provider.id,
       extra: frontmatter.extra,
-      path: documentPath,
+      path: document.path,
     }
     return { definition, diagnostics }
   }
@@ -292,9 +253,13 @@ export function createAgentRegistryService(
    * one scan per project root, no watcher, `invalidate()` as the only trigger).
    */
   const lazy = createLazyLoad<AgentScan>({
-    resolveProjectRoot: (cwd) => findProjectRoot(resolve(cwd), fileSystemFor(false)),
+    resolveProjectRoot: (cwd) => findProjectRoot(resolve(cwd), walkFileSystem()),
     load: scan,
   })
+
+  // Any provider change — register, unregister, control.invalidate() — drops
+  // the memoised scans; the next query rescans.
+  providers.onChange(() => lazy.invalidate())
 
   return {
     async list(options) {

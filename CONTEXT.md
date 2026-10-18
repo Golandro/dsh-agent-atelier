@@ -35,6 +35,13 @@ _Avoid_: source
 **Agent 注册表**:
 可发现 Agent 集合与其诊断的唯一查询面；解析、目录注入、UI 都从这里读。
 
+**Provider（来源提供者）**:
+一个定义来源的适配器（`ctx.agentProviders` 的成员）：只列原始条目、读原文，不做分类、frontmatter 解析、rank/trust 合并——那些全在 Agent 注册表。文件系统 Provider 是随包默认实现（4 个发现根 + bundled）；第三方来源经同一契约接入。
+_Avoid_: 连接器（宿主副作用面叫 sink）、LLM provider（那只是模型字符串）
+
+**ProviderId**:
+条目与诊断上标注「来自哪个 Provider」的字段；跨来源同名时的归因依据，注册表只用 Provider 给的路径、不自行猜。
+
 ### 诊断与预置
 
 **诊断**:

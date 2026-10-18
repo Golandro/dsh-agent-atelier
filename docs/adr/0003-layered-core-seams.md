@@ -14,7 +14,7 @@
 
 - 服务 key 与 `apiVersion` 成为跨 bundle 契约；`agentProviders` / `agentOrchestrator` / `agentControl` 已核无 catalogued 占用。服务由 `dsh/host` 的 `Service` 子类提供；安装点用 loader entry ＋ 集成测试证明。
 - Provider 有生命周期：注册返回 disposer（插件用 `ctx.effect` 挂载）、`ProviderControl.signal` 卸载时 abort、`invalidate()` 触发 catalog 清缓存；重复 `id` / `source` 直接 throw。
-- `core` 完全不碰 `node:fs` / `process.env` / project root；workspace 解析下沉到文件系统 provider，catalog 按 `cwd` 记忆化。**P1 阶段例外（票 16 验收明示）**：现存 `process.env` 默认参数、`homedir()` 与 project-root 解析暂留 core，P2 随 workspace 解析一并下沉；`node:fs` 无例外，import 矩阵已强制。
+- `core` 完全不碰 `node:fs` / `process.env` / project root；workspace 解析下沉到文件系统 provider，catalog 按 `cwd` 记忆化。**P1 阶段例外（票 16 验收明示）**：现存 `process.env` 默认参数、`homedir()` 与 project-root 解析暂留 core，P2 随 workspace 解析一并下沉；`node:fs` 无例外，import 矩阵已强制。**修订（2026-10-18，票 18 Q6）**：P2 落地时裁决反转——project-root 走查**留在 registry**（每查询一次，经 `ProviderLookupOptions.projectRoot` 传给各 provider，provider 不各自 walk），registry 仍是深领域模块、provider 只做来源适配；`homedir()`/env 的用户根解析随 fs provider 行移至 `dsh/host`（`resolveDshHome`/`resolveAgentsHome` 每查询读）。
 - P1 机械搬移仍要一次性更新约 29 处 `src/...` 锚点、测试 import 与 README 路径陈述，守卫全绿后再落服务行。
 - 拆包 / 第三方 provider 前不建空壳；服务契约先放进 `contract`，拆包时 key 与 apiVersion 不变。
 - `@deepseek-ai/cordis` 以 peer ＋ dev 声明，只允许 `dsh/host` 运行期 import；P2 先跑 loader 安装探针（服务目录可见 / inject / 卸载），失败回退 plain object（ADR-0004）。

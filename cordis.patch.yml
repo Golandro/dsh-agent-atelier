@@ -1,7 +1,14 @@
-# agents-manager bundle 层：插入 Agents Manager 宿主插件条目。
+# agents-manager bundle 层：插入 Agents Manager 宿主插件条目（票 18 起两行）。
 # 由 `dsh plugin add` / plugin_manager install_bundle 自动装配（包声明 dsh.bundle.patch），
 # 无需手动编辑 profile 的任何文件；remove_bundle 时自动移除。
+# 两行必须同时 active：HMR 把 bundle 的所有 row 当 required，任一 pending 即激活失败。
+# core 行提供 agentProviders（plain object）/ agentRegistry / aliasRegistry；
+# provider 行 inject agentProviders，注册四个文件根 + bundled 的 AgentSourceProvider。
 - insert:
-    - id: dsh-plugin-agents-manager
-      name: 'dsh-plugin-agents-manager'
+    - id: agents-manager-core
+      name: 'dsh-plugin-agents-manager/core'
+      config: {}
+    - id: agents-manager-provider-fs
+      name: 'dsh-plugin-agents-manager/providers/fs'
+      inject: ['agentProviders']
       config: {}

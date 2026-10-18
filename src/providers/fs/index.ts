@@ -5,3 +5,4 @@
  */
 export { createNodeFileSystem } from './node.ts'
 export { createHostFileSystem, isHostFileSystem } from './host.ts'
+export { createFileSystemAgentProvider, type FileSystemAgentProviderOptions } from './source.ts'
