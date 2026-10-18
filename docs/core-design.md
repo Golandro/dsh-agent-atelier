@@ -1,6 +1,6 @@
 # Core 设计：分层、Cordis 服务与插件化
 
-状态：**提案**（2026-10-18）。已裁决：**Q1 = 部分 A / 部分 B**（按 bundle 边界服务化）、**Q2 = 优先使用 Cordis 特性，Provider 实例经 Cordis 服务注册与传递**。待裁决：Q3 分层落位时机、Q4 v1 物理打包、Q5 `Service` 基类边界（§9）。裁决前不动代码。
+状态：**定稿**（2026-10-18）。已裁决：Q1 = 部分 A / 部分 B（按 bundle 边界服务化）；Q2 = 优先 Cordis 特性、Provider 实例经 `agentProviders` 注册；Q3 = 先落 P1 机械分层（票 16）；Q4 = v1 单包多插件行；Q5 = 重开 ADR-0001、允许运行期 `import '@deepseek-ai/cordis'` 使用 `Service` 基类（限 `dsh/host`，ADR-0004）。无待决项。
 配套：`docs/adr/0003-layered-core-seams.md`；产品范围见票 11；数据模型见 `spec.md` §5；宿主事实见 `docs/agents/harness-facts.md`。
 
 本文用 `codebase-design` 的词表：**module**（接口＋实现，尺度不限）、**interface**（调用方必须知道的一切）、**implementation**、**depth**（接口上的杠杆）、**seam**（可替换行为的位置）、**adapter**（填缝的具体实现）。不用「组件 / 服务 / API / 边界」替代它们——但 **Cordis Service** 是专有名词，保留大写并加引号。
@@ -47,7 +47,7 @@
 ## 1. 约束（设计输入）
 
 - **Cordis 能力**：用 `inject`（硬依赖，等待服务出现）、`ctx.get`（可选依赖）、`ctx.provide`（提供服务）、`ctx.effect`（可逆副作用）、`ctx.on` / waterfall（事件）、`ctx.logger`。2026-10-18 本仓探针验证：`ctx.provide` 的 plain object 可被 `inject` 消费（只是不进 Service 目录）。
-- **`Service` 基类不用**：它需要运行期 `import '@deepseek-ai/cordis'`，与 ADR-0001 冲突（软链安装下宿主包不可达）。`ctx.provide` 的 plain object 一样可被 `inject` / `ctx.get` 消费；代价是不进 `Service.listService` 目录（`docs/agents/harness-facts.md`），注册点用 loader entry ＋ 单测证明。若 Q5 裁决重开 ADR-0001 再议。
+- **`Service` 基类（Q5=B）**：允许运行期 `import '@deepseek-ai/cordis'`——**仅此一个宿主包**，以 `peerDependencies` + `devDependencies` 声明；只用于 `dsh/host` 的 Service 子类、Config schema、服务目录可见性。`core` 仍不 import 任何宿主包，只返回纯行为对象，由 `dsh/host` 包装成 Service。安装探针（loader 加载后 `Service.listService` 可见、`inject` / 卸载正常）是 P2 第一道门；失败则回报并回退 plain object（回退路径已探针验证可 inject）。
 - **插件行**：bundle patch 的 `insert[].name` 可以是包名子路径（原生先例 `@deepseek-ai/dsh-plugin-manager/tools`），所以一个包可以承载 core / providers / control / summon / catalog / ui-host 多行；`inject` 写服务 key。
 - **安装面**：`install_bundle` 装目录；运行时不能依赖 `workspace:*` 或未发布兄弟包；沙箱内不做依赖变更。
 - **import 面**：运行期零 `@deepseek-ai/*`；宿主服务只按形状结构读取（ADR-0001）。
@@ -74,7 +74,7 @@ dsh/host                                         dsh/client
 | `contract` | 无（TS 类型与字面量常量） | 任何运行时 import | 环境中立，浏览器可安全引用 |
 | `core` | `contract` | `providers`、`dsh`、`ui-*`、`node:fs`（完全无 I/O） | I/O 全在 provider；core 连 project root 都不解析 |
 | `providers` | `contract`、`core` 的 ports 子入口 | `dsh`、`ui-*` | 只做 I/O 适配；环境策略在这里 |
-| `dsh/host` | `contract`、`core`、`providers` | `ui-*` | 唯一可 `import type` Cordis 的宿主层 |
+| `dsh/host` | `contract`、`core`、`providers` | `ui-*`；其余 `@deepseek-ai/*` | 唯一可运行期 import `@deepseek-ai/cordis` 的层 |
 | `ui-core` | `contract` | `core`、`providers`、`dsh`、React / DOM | 浏览器安全；fetch 作为注入端口 |
 | `ui-react` | `contract`、`ui-core` | `core`、`providers`、`dsh` | 纯 props；只有页面 / hook 碰 session |
 | `dsh/client` | `contract`、`ui-core`、`ui-react` | `core`、`providers`、`dsh/host`、`node:*` | 唯一懂 `settings.section` 与 client slots 的层 |
@@ -111,7 +111,7 @@ dsh/host                                         dsh/client
 | `agentOrchestrator` | 1 | 1 | summon、ui-host、第三方 |
 | `agentControl` | 6 | 1 | ui-host、CLI、第三方 |
 
-约定：**新增**服务对象带 `readonly apiVersion: 1`；既有两读面保持冻结形状、不加字段（它们就是契约本身）。消费方取到新服务后先校验版本，不匹配按「能力缺失」处理（不猜）。跨 bundle 只传契约对象（服务对象、provider 实例）与可序列化领域的子集；不传 `ctx` / fiber / 宿主活对象；`apiVersion` 之外的破坏性变更换新 key。
+约定：**新增**服务对象带 `readonly apiVersion: 1`；既有两读面保持冻结形状、不加字段（它们就是契约本身）。消费方取到新服务后先校验版本，不匹配按「能力缺失」处理（不猜）。服务实现都是 `dsh/host` 的 `Service` 子类（core 只提供纯行为对象），`ctx.get` 返回服务代理——测试断言行为，不断言对象身份。跨 bundle 只传契约对象（服务对象、provider 实例）与可序列化领域的子集；不传 `ctx` / fiber / 宿主活对象；`apiVersion` 之外的破坏性变更换新 key。
 
 ## 3. 各层设计
 
@@ -312,7 +312,7 @@ interface ProviderLookupOptions { readonly cwd?: string; readonly signal?: Abort
 
 ### 3.6 `dsh`（连接器）
 
-连接器不再是一个单体插件，而是**每个能力行**的 DSH 适配代码；共享的结构读取助手（`ctx.fs`、`agentDefaultModel`、`webServer`、`subagents`、`tools`）留在 `dsh/host`。
+连接器不再是一个单体插件，而是**每个能力行**的 DSH 适配代码；共享的结构读取助手（`ctx.fs`、`agentDefaultModel`、`webServer`、`subagents`、`tools`）留在 `dsh/host`。每个 provide 的服务都是这里的 `Service` 子类：`super(ctx, key)` 注册，内部委托 core 的纯行为对象；Service 子类不写领域规则。
 
 - `core` 行：构造 `agentProviders` 注册表 → provide → 构造 catalogs → provide → 构造 orchestrator → provide。**没有 DSH 副作用**。
 - `control` 行：构造 writer、catalog 依赖、可选 orchestrator；provide `agentControl`。
@@ -325,11 +325,11 @@ interface ProviderLookupOptions { readonly cwd?: string; readonly signal?: Abort
 
 **接口不变量**：
 
-- 唯一可以 `import type` DSH 的层；运行期零 `@deepseek-ai/*` import；
+- 唯一可以 `import '@deepseek-ai/cordis'`（含运行期）的子层（`dsh/host`）；其余 `@deepseek-ai/*` 运行期仍禁；
 - 宿主服务按用时结构读取（`ctx.get`），绝不在 `apply` 时捕获；
 - 只有映射、能力门控、错误翻译、生命周期，**没有领域规则**；
-- 每个服务依赖都能用 fake 替代；插件行测试用假 `ctx`，不要求真实 profile；
-- 每行只 provide 自己声明的 key，不偷偷占用原生 key（`agentProviders` / `agentOrchestrator` / `agentControl` 已核无 catalogued 占用；plain object 不进目录，证明走 loader entry ＋ 测试）。
+- 服务注册用真 Context 测试（`@deepseek-ai/cordis` 是 devDependency）；sink / 可选服务用假 `ctx`，不要求真实 profile；
+- 每行只 provide 自己声明的 key，不偷偷占用原生 key（`agentProviders` / `agentOrchestrator` / `agentControl` 已核无 catalogued 占用）；Service 子类让服务进入 `Service.listService`，安装点仍用 loader entry ＋ 集成测试证明；`ctx.get` 返回代理，测试断言行为。
 
 **删除测试**：删掉连接器，core 仍可完整测试——adapter 的职责，不追求深度。
 
@@ -408,7 +408,7 @@ interface SettingsSession {
 - **`contract`**：`tsc` 保护；服务 key / apiVersion 常量有静态断言。
 - **`core`**：假 `agentProviders` 注册表（内存 provider）；catalog 断言注册后再查询会重扫、注销 / invalidate 会清缓存、rank 决胜；orchestrator 固定快照断言确定性、顺序、provenance；control 内存 writer 断言 D14 往返与冲突（11）。
 - **`providers`**：provider 契约套件跑真实临时目录 ＋ 假 host fs；project root 解析、缺失即 `undefined`、意外错误上抛。
-- **`dsh`**：假 `ctx`（provide/get/logger/webServer/subagents）断言每行 provide/inject、卸载撤销、能力降级、错误翻译；loader entry ＋ 单测证明 plain object 服务可被 `inject`。
+- **`dsh`**：服务注册用真 Context（`@deepseek-ai/cordis` 是 devDependency）断言 `Service` 注册、`inject` 属性访问、卸载；sink / 可选服务用假 `ctx` 断言注册、撤销、能力降级、错误翻译；安装探针走 loader entry ＋ `Service.listService`。
 - **`ui-core`**：session 状态转移用内存 port，再跑 HTTP 假 port（13 的适配器契约套件）；不 mock 内部函数。
 - **`ui-react`**：jsdom ＋ testing-library，只断言渲染与用户可见行为。
 - **守卫**：`scripts/check.mjs` 增加 import 矩阵 ＋ 服务契约静态检查（key/apiVersion 字面量）＋ 自测。
@@ -441,7 +441,7 @@ src/
 test/
 ```
 
-`package.json` 的 `exports` 增子路径（`./core`、`./providers/default`、`./control`、`./summon`、`./catalog`、`./ui-host`、`./client`）；`cordis.patch.yml` 按行插入。宿主构建 `tsc` 排除 `src/ui-*` / `src/dsh/client`，客户端用 `tsconfig.client.json` ＋ 独立构建（12 票）。
+`package.json` 的 `exports` 增子路径（`./core`、`./providers/default`、`./control`、`./summon`、`./catalog`、`./ui-host`、`./client`）；`cordis.patch.yml` 按行插入。P2 增 `peerDependencies: { "@deepseek-ai/cordis": "…" }`（devDependencies 已有），Service 子类只在 `src/dsh/host/`。宿主构建 `tsc` 排除 `src/ui-*` / `src/dsh/client`，客户端用 `tsconfig.client.json` ＋ 独立构建（12 票）。
 
 ### 7.2 拆 workspace 包的触发条件（不按日期）
 
@@ -459,8 +459,8 @@ test/
 
 | 阶段 | 内容 | 票 / 前置 | 验收 |
 | --- | --- | --- | --- |
-| P1 | **机械分层**：搬 01/02 模块（含 `types.ts` → `contract/`）；拆 fs 端口与 provider；加 import 矩阵守卫；更新锚点与测试 import；仍单行 apply | 新票（Q3） | 行为零变化；`pnpm check` 全绿 |
-| P2 | `core` ＋ `providers/default` 两行；`agentProviders` 注册表上线；catalogs 改消费注册表；`src/index.ts` 保持 all-in-one 兼容 | 01/02 | 注册 / 注销 / invalidate 重扫；真机安装 |
+| P1 | **机械分层**：搬 01/02 模块（含 `types.ts` → `contract/`）；拆 fs 端口与 provider；加 import 矩阵守卫；更新锚点与测试 import；仍单行 apply | 票 16 | 行为零变化；`pnpm check` 全绿 |
+| P2 | `core` ＋ `providers/default` 两行；`agentProviders` 注册表上线；catalogs 改消费注册表；**Service 子类包装 ＋ `@deepseek-ai/cordis` peer ＋ loader 安装探针**；`src/index.ts` 保持 all-in-one 兼容 | 01/02、16 | 注册 / 注销 / invalidate 重扫；`Service.listService` 可见；真机安装 |
 | P3 | `core/resolve`（03）＋ `core/assemble`（04）＋ `agentOrchestrator` 行；`summon`（07）＋ `catalog`（06）行 | 03、04、06、07 | 假 ctx 集成；链耗尽 isError |
 | P4 | `control` 行（11）＋ `ui-host` / `ui-client`（12）＋ `ui-core` / `ui-react`（05/13） | 11、12、05、13 | 适配器契约套件；真机编辑落盘 |
 | P5 | 拆包 / 第三方 provider | §7.2 触发 | 安装与回退实测 |
@@ -481,18 +481,17 @@ test/
 
 **P1 的代价**：约 29 处 `src/...` 锚点、测试 import、README 路径陈述要一起改；一次性提交、守卫全绿。锚点是断言不是合同，移动时逐条重验。
 
-## 9. 裁决记录与待决
+## 9. 裁决记录
 
-**已裁决（2026-10-18）**
+2026-10-18，维护者裁决，全部落定：
 
-- **Q1 = 部分 A / 部分 B**：按上表切分——读面、provider 注册表、orchestrator、control 服务化（B）；纯算法、sink、UI 内部保持 module（A）。因为一些能力包是不同插件 bundle，服务是唯一集成面。
-- **Q2 = 优先 Cordis 特性**：provider 实例经 `agentProviders` 服务注册与传递；用 `inject` / `ctx.get` / `ctx.provide` / `ctx.effect` / `ctx.on`。不造自定义加载器；`Service` 基类因 ADR-0001 暂不用（见 Q5）。
+- **Q1 = 部分 A / 部分 B**：读面、provider 注册表、orchestrator、control 服务化（B）；纯算法、sink、UI 内部保持 module（A）。因为一些能力包是不同插件 bundle，服务是唯一集成面。
+- **Q2 = 优先 Cordis 特性**：provider 实例经 `agentProviders` 服务注册与传递；用 `inject` / `ctx.get` / `ctx.provide` / `ctx.effect` / `ctx.on`。不造自定义加载器。
+- **Q3 = A**：先落 P1 机械分层，票 16（`ready-for-agent`）。
+- **Q4 = A**：v1 单包多插件行（子路径导出 ＋ patch 多行）；拆包与第三方 provider 留触发条件（§7.2）。
+- **Q5 = B**：重开 ADR-0001，允许运行期 `import '@deepseek-ai/cordis'`（peer ＋ dev，仅此一个宿主包），用 `Service` 基类 / Config schema / 服务目录可见性；Service 子类只在 `dsh/host`，core 保持纯行为对象。安装探针是 P2 第一道门，失败则回退 plain object 并回报。详见 ADR-0004。
 
-**待决**
-
-- **Q3（分层落位时机）**：先落 P1 机械分层票（推荐：import 矩阵从第一天约束 03/04/11/12），还是等 03 或 06 动工时顺带搬？
-- **Q4（v1 物理打包）**：单包多插件行（推荐：子路径导出 ＋ patch 多行，安装面不变），还是现在就拆多个包（provider / control / ui 各自安装）？
-- **Q5（`Service` 基类）**：保持 plain object ＋ `ctx.provide`（推荐：零 ADR-0001 风险，inject 语义已够用；代价是不进 Service 目录），还是重开 ADR-0001、允许运行期 `import '@deepseek-ai/cordis'` 以使用 `Service` / Config schema / 目录可见性？
+无待决项。
 
 ## 10. 非目标
 
@@ -500,5 +499,5 @@ test/
 - 跨 harness provider、装配源 provider、切片 / include / `.sections/`（票 11 已裁决延后）；
 - 第三方 provider 的 `source` 标签扩展（等 contract v2，随跨 harness 一起做）；
 - pnpm workspace 拆包与发布流水线（§7.2 触发前）；
-- 依赖变更（沙箱内不做，由维护者在沙箱外执行）；
+- 除 `@deepseek-ai/cordis`（peer ＋ dev，Q5=B）外的依赖变更；沙箱内不跑安装，由维护者在沙箱外执行；
 - 改 01/02 冻结读面语义、改 11 的 6 成员、改 12 的 wire 形状。

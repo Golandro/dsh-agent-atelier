@@ -8,7 +8,7 @@
 - 原型 `agent-control-prototype.html` 保留在仓库根，其纯逻辑模块是 M3 解析引擎的规格参照。
 - UI 设计原型在 throwaway 分支 `proto/settings-ui`（`prototype/settings-ui/`：React 19 + Vite + CodeMirror 6 + TanStack Table）；`/codebase-design` 分析（2026-10-17）把它的验证结论收敛成三票：`issues/11-control-core.md`、`issues/12-host-wiring.md`、`issues/13-frontend-tests.md`。
 - 领域文档已起步：`CONTEXT.md`（词汇表，随 grilling 增补）+ `docs/adr/`（0001 结构照抄、0002 目录制布局、0003 Core 分层）。
-- Core 分层设计（2026-10-18，`/codebase-design`）：`docs/core-design.md` + ADR-0003。六层（contract / core / providers / dsh / ui-core / ui-react）、宿主翼与界面翼只共享 contract；已裁决 Q1 = 部分 A/部分 B（读面 + `agentProviders` + `agentOrchestrator` + `agentControl` 服务化，纯算法 / sink / UI 内部保持 module）、Q2 = 优先 Cordis 特性、provider 实例经 `agentProviders` 注册（镜像 `ctx.skills.registerProvider`）。待 Q3 分层时机 / Q4 物理打包 / Q5 `Service` 基类，未建票。
+- Core 分层设计（2026-10-18，`/codebase-design`）：`docs/core-design.md` + ADR-0003/0004。六层（contract / core / providers / dsh / ui-core / ui-react）、宿主翼与界面翼只共享 contract；Q1 = 部分 A/部分 B（读面 + `agentProviders` + `agentOrchestrator` + `agentControl` 服务化，纯算法 / sink / UI 内部保持 module）；Q2 = 优先 Cordis 特性、provider 实例经 `agentProviders` 注册；Q3 = 先落 P1（票 16）；Q4 = 单包多插件行；Q5 = 允许运行期 `@deepseek-ai/cordis`，`Service` 子类只在 `dsh/host`（安装探针 P2）。无待决项。
 - 仓库守卫与事实文档（2026-10-14 retro 落地）：`pnpm run check`（`scripts/check.mjs`：探针残留 / `lib/` 陈旧 / 宿主包运行时依赖（`@deepseek-ai/*` 禁、第三方库允许——2026-10-17 修订）/ 未装 devDeps / 票面 `path:line` 锚点漂移，会先自测每条判定）+ `.githooks/pre-commit`（每 clone 接线一次：`git config core.hooksPath .githooks`）；harness 事实与实施期约定见 `docs/agents/harness-facts.md`。
 
 ## Decisions-so-far
@@ -42,12 +42,12 @@
 - deck 闸本轮仍 defer（`deck_*` 返回 `{"reason":"gate-defer"}`）：01 票二轮处理、修复轮与 02 票诊断+裁决回填+实施（2026-10-15）都按 `docs/agents/issue-tracker.md` 的 markdown 约定直接改票（`issues/01-agent-registry.md`、`issues/02-alias-registry.md`、本文件），未走 deck 上报；闸恢复后补报（挂账：#2 诊断、裁决回填与实施完毕，待补报）。05 票诊断+裁决+brief（2026-10-17）同样直改 `issues/05-settings-ui.md`（挂账追加：#5 诊断与裁决完毕、brief 已挂，待补报）。11 票诊断（2026-10-18）同样直改 `issues/11-control-core.md`（挂账追加：#11 诊断完毕、已转 `ready-for-agent`、deck 上报仍未走，待补报）。
 - ✅ 工作区未提交改动已处置（2026-10-17，05 票 Q4 裁决）：pnpm 迁移 + `.vendor` 软链 + js-yaml/zod 依赖保留，守卫零依赖判定修订为 `hostRuntimeDeps`，提交 `3ac2894`；守卫复绿（72 锚点 / 83 用例）。pnpm 沙箱 store 陷阱已记 harness-facts。
 - ✅ 11 票裁决落地（2026-10-18）：`needs-info` → `ready-for-agent`，Agent Brief 已挂。**Q1=B**：v1 只支持标准 Agent 文件（单文件 body ＋ 受支持 front-matter 扩展）；切片/`include`/`.sections/`/装配源/动态 provider/中性工具 id 延后；**Q5=A+B**（前端移植时定，core 以原文回写为唯一源）；**Q4=A** 记录给未来转换器；**Q2/Q3 暂不做**；**Q6=A（2026-10-18）**：写器归 11、通道归 12，05 范围 3/6 改指针 + `Blocked by: 11, 12`，`MasterDetailPane` 移出 11 归 05/13。维护者澄清：prototype 本意 = 装配源编辑器，host 长期只读装配源——v1 是时间受限的过渡，12/13 阻塞边不变。
-- ✅ Core 分层裁决（2026-10-18）：Q1 = 部分 A/部分 B（`agentRegistry` / `aliasRegistry` / `agentProviders` / `agentOrchestrator` / `agentControl` 服务化；纯算法、sink、UI 内部保持 module）；Q2 = 优先 Cordis 特性、provider 实例经 `agentProviders` 注册（镜像 `ctx.skills.registerProvider`）。设计落 `docs/core-design.md` + ADR-0003；Q3–Q5 待决。
+- ✅ Core 分层裁决（2026-10-18）：Q1 = 部分 A/部分 B（`agentRegistry` / `aliasRegistry` / `agentProviders` / `agentOrchestrator` / `agentControl` 服务化；纯算法、sink、UI 内部保持 module）；Q2 = 优先 Cordis 特性、provider 实例经 `agentProviders` 注册（镜像 `ctx.skills.registerProvider`）；**Q3=A**（先落 P1，票 16）、**Q4=A**（单包多插件行）、**Q5=B**（重开 ADR-0001，允许运行期 `@deepseek-ai/cordis`，`Service` 子类只在 `dsh/host`，安装探针 P2）。设计落 `docs/core-design.md` + ADR-0003/0004；16 已挂 Agent Brief。
 - 📌 长期方向与 v1 取舍（2026-10-18）：维护者澄清 **prototype 本意 = 装配源编辑器，host 长期只读装配源**；v1 因时机与公开标准不成熟（唯一较像跨 harness 标准的 `reachjalil/harness-config` 不流行；`AGENTS.md` 管指令、`SKILL.md` 管技能、MCP 管工具，均非逐 agent 定义标准）只支持**标准 Agent 文件（宿主原生格式 ＋ 受支持 front-matter 扩展）**；装配源编辑器、跨 harness 转换器/provider、动态模式、中性工具 id 延后（14/15 暂不建票，留 Fog）。
 - ⏳ `available: false` 的跳过与沿声明顺序回退归 **03 票解析引擎**；11 只消费其结果、不重实现（原型 UI 的三处断言无实现支撑即为反例）。若 03 先落地，11 的链展示直接接引擎。
 - ⏳ 前端测试基座缺失：原型不在 `tsconfig.json` 的 include、无 `.test.*`、devDeps 无 jsdom/@testing-library ⇒ 13 票先补基座（沙箱外安装）。
-- ⏳ Core 分层提案待裁决（2026-10-18，`docs/core-design.md` §9）：Q3 先落 P1 机械分层票（推荐是）；Q4 v1 单包多插件行（推荐）vs 现在拆多包；Q5 plain object + `ctx.provide`（推荐）vs 重开 ADR-0001 用 `Service` 基类。裁决后建票并回写本文件。
+- ⏳ P1 票 16（机械分层）可开工；P2 第一道门 = `@deepseek-ai/cordis` 的 loader 安装探针（`Service.listService` 可见 / `inject` / 卸载），失败回退 plain object。11 建议在 16 之后开工，避免搬移冲突。
 
 ## Children
 
-见 `issues/`。frontier 扫描（open + unblocked + unclaimed；2026-10-18 更新，守卫全绿）：**11 现为第一优先**（裁决已落、Agent Brief 已挂）；12（接线，`Blocked by: 11`）、13（前端测试，`Blocked by: 11`）待 11；**05 待 11/12**（Q6=A：写器/通道归 11/12，05 只做 UI，`Blocked by: 11, 12`）；03、06、08、09 亦可开工；04 待 03；07 待 03/04/06。**延后不建票**：装配源编辑器、跨 harness 转换器/provider、动态模式、中性工具 id（记 Fog）。
+见 `issues/`。frontier 扫描（open + unblocked + unclaimed；2026-10-18 更新，守卫全绿）：**16（P1 机械分层）为第一优先**；**11（控制核心）建议紧随 16**（避免搬移冲突，阻塞边暂未改）；12（接线，`Blocked by: 11`）、13（前端测试，`Blocked by: 11`）待 11；**05 待 11/12**（Q6=A：写器/通道归 11/12，05 只做 UI，`Blocked by: 11, 12`）；03、06、08、09 亦可开工；04 待 03；07 待 03/04/06。**延后不建票**：装配源编辑器、跨 harness 转换器/provider、动态模式、中性工具 id（记 Fog）。

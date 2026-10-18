@@ -17,6 +17,7 @@ Provider（host）：`Service.listService` / `Event.listEvents` / `Config.listCo
 - `Config.listConfigs {name}` 返回 entry：`id` 形如 `include:<包名>`，`packageDir` 是解析后的安装位置；**`status: "absent"` = 该 row 未声明 Config**（现网 deck 同样如此），不是"未挂载"。
 - 已占用的 service key（新服务勿撞）：`agents`、`agentTeams`、`agentPresets`、`agentDefaultModel`、`agentLoop`、`skills`、`tools`、`commands`、`systemPrompt`、`compaction`、`subagents`、`storage`、`web`、`webServer`、`workspaceFiles`。命名前先 `listService {service: "<key>"}` 确认。
 - `dsh --profile web --dump-config` 在本 profile 无有效输出，别用。
+- **`@deepseek-ai/cordis` 运行期**（2026-10-18，Q5=B / ADR-0004）：workspace 的 devDependencies 有它；profile 顶层 `node_modules/@deepseek-ai/` 没有 `cordis`，但本包是软链，Node 按 realpath 解析到 workspace ⇒ 当前安装形态可 import。`Service` 子类探针（`Context` ＋ `Service` ＋ `inject` ＋ `ctx.get`）通过；`ctx.get` 返回服务代理，不要断言对象身份。loader 加载探针（`Service.listService` 可见 / 卸载）归 P2。
 
 ## bundle 安装 / 回退（唯一通路）
 
