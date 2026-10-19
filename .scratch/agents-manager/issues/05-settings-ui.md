@@ -10,7 +10,7 @@ Blocked by: 10, 01, 02, 11, 12
 
 设置页是 v1 的**优先交付项**（spec D14，里程碑 MS2）。要求：**UI 与配置文件 1:1 对应，无隐藏状态**——UI 是 registry.yaml / agent.md 的结构忠实编辑器，不是另一份真相。
 
-1. **注册面**（2026-10-17 诊断修正：原引 `SettingsProvider.installSection` 在现源码**不存在**，属已删除包 dsh-settings-file 的陈旧产物残迹；原引「Agency 设置页」不在 DSH 源码树、无法核验，先例改引在树页）：client 侧经 `ctx.slots` 注册 `settings.section` slot（声明 `client/ui-settings/src/client/contract/slots.ts:57`；注册选项 `{id, order, label, priority}` 见 `client/ui-slots/src/index.ts:777-783`；注册面 `client/ui-renderer/src/client/registry.ts:181`）。整页先例 = Models 设置页（`client/ui-settings-models/src/client/index.ts:136-146`）；既有页内插件卡片先例 = web-search 的 `plugins.item`（`client/ui-settings-web-search/src/client/index.ts:39`）。无自动设置页 client（`settings/settings/README.md:39` 明说 no shipped client does so yet）——UI 全部手写。
+1. **注册面**（**2026-10-19 维护者指示改版**：注册面**不走 `settings.section`**，改为左侧栏全局面板——`sidebar.panellist` list 行（选项 `{id, order?, label?}`，行组件收 `{size, active}`）＋ **同 id** 的 root 作用域 `main` keyed 面板；先例 = ui-schedule 的 TaskManagerIcon/TaskManagerPage 双注册；面板命名「智能体控制」，id `agents-manager`，`order: 5`（`plugins`=0 与 `schedules`=10 之间）。下列 `settings.section` 调研保留作历史与页面结构参考）（2026-10-17 诊断修正：原引 `SettingsProvider.installSection` 在现源码**不存在**，属已删除包 dsh-settings-file 的陈旧产物残迹；原引「Agency 设置页」不在 DSH 源码树、无法核验，先例改引在树页）：client 侧经 `ctx.slots` 注册 `settings.section` slot（声明 `client/ui-settings/src/client/contract/slots.ts:57`；注册选项 `{id, order, label, priority}` 见 `client/ui-slots/src/index.ts:777-783`；注册面 `client/ui-renderer/src/client/registry.ts:181`）。整页先例 = Models 设置页（`client/ui-settings-models/src/client/index.ts:136-146`）；既有页内插件卡片先例 = web-search 的 `plugins.item`（`client/ui-settings-web-search/src/client/index.ts:39`）。无自动设置页 client（`settings/settings/README.md:39` 明说 no shipped client does so yet）——UI 全部手写。
 2. **交付前置**（诊断新增）：双面面包——宿主面 `lib/index.js` + client 面 `package.json` 声明 `dsh.client: {platform: 'web'}` 且 `exports['./client']` 指向构建产物 `lib/client.js`（字段语义 `util/package-manifest/src/types.ts:80-93`；扫描加载 `client/modules/src/index.ts:845-878`，**缺构建产物激活期硬失败** MissingClientBundleError）。client 构建走 tsdown 共享 preset（`client/tsdown.client.ts`）——本仓现只 tsc，需扩构建链。运行中页面经宿主 client-hmr 轮询各 row 的 client.js 拾取重构建（默认 500ms；外仓包不在 dev:web watch 集合，须自带 watch）。
 3. **数据通道（Q6 裁决 2026-10-18：由 12 实现，本票只消费）**：Q3-A 通道 = 宿主自管文件（`boot/plugin-manager/README.md:31`）+ `ctx.webServer` exact route（`host/webserver/src/index.ts:366`）+ client fetch（Desktop 经 web-document 的 forwardWebRequest 转发任意 pathname，兼容）；既有 settings remote 只达 profile patch、不能编辑 agent.md / registry.yaml（`api/settings-controller/src/index.ts:76-166`）。本票不新建通道、不自建 Remote 命名空间（strict codec + Typert 布局缺口）；原子写与落盘由 11/12 负责。
 4. **编辑面**（结构忠实；字段清单 = spec §5.1 全表 + `src/contract/types.ts` 冻结契约，2026-10-17 诊断补全；`includes`→`skills` 系 D20 改名）：
@@ -92,6 +92,14 @@ Blocked by: 10, 01, 02, 11, 12
 
 - **Q6 → A**：写器归 11、通道归 12；本票范围 3/6 改为指针（见上），`Blocked by` 追加 11、12；`MasterDetailPane` 移出 11、归本票/13 的 UI 实现。施工顺序 = 11 → 12/13 → 05。
 
+### 维护者指示（2026-10-19）：注册面改左侧栏
+
+用户原话：「请将设置UI改为左侧栏（与"插件"之类的按钮在一起），名为"智能体控制"。」
+
+- 注册面从 `settings.section` 改为**左侧栏全局面板**：`sidebar.panellist` 行（id `agents-manager`、`order: 5`、label「智能体控制」）＋ 同 id 的 `main` keyed 面板；`plugins`=0、`schedules`=10，本面板落在两者之间。
+- 已随指示迁移的是票 12 交付的 **page shell**（加载/失败/重试 + counts 摘要；组件 `SettingsPage` → `AgentControlPage`，见 `src/dsh/client/index.ts`）；本票编辑器（spec §5.1/§5.2 全字段、顾问面板）**仍全部未开工**，照此注册面实施。
+- 页面文案的 locale 服务路由（`label: () => t(...)` 形态）暂缓：当前壳层文案本就硬编码，用户点名中文标签先按字符串落地；编辑器实施时若引入 Client locale 服务再统一收编。
+
 ## Agent Brief
 
 **Category:** enhancement
@@ -102,20 +110,20 @@ Blocked by: 10, 01, 02, 11, 12
 
 **Desired behavior:**
 - **双面面包交付**：`package.json` 声明 `dsh.client: {platform: 'web'}` + `exports['./client']` 指向 tsdown 构建的 `lib/client.js`（缺构建产物 = 激活期硬失败，交付前必须先建）；宿主面 `lib/index.js` 提供 bundle 入口；webServer 路由由 12 注册、写器由 11 提供（本票不重复实现）。
-- **设置页**：client 经 `ctx.slots` 注册 `settings.section`（整页，先例 = Models 设置页）；编辑字段 = spec §5.1 全表：agent frontmatter 全字段（`name` / `description` / `color` / `emoji` / `modelOrder` 数组 / `model` raw 兜底数组 / `requiredTools` / `skills` / `spawn` / `reasoningEffort`）+ body 编辑 + `extra` 未知键原文回写；registry 编辑（spec §5.2）：models 条目（含 `sysPrompt` / `available`）+ aliases 下拉重映射到真实模型；`dsh-default`（含隐式合成条目）与 `path?` / `synthesized?` 只读展示；层覆盖关系展示（project-dsh 胜 user-dsh）。
+- **设置页（2026-10-19 起为左侧栏面板「智能体控制」）**：client 经 `ctx.slots` 注册 `sidebar.panellist` 行 ＋ 同 id `main` keyed 面板（整页先例 = ui-schedule 的管理页；历史调研的 `settings.section` 页面结构仍可参考）；编辑字段 = spec §5.1 全表：agent frontmatter 全字段（`name` / `description` / `color` / `emoji` / `modelOrder` 数组 / `model` raw 兜底数组 / `requiredTools` / `skills` / `spawn` / `reasoningEffort`）+ body 编辑 + `extra` 未知键原文回写；registry 编辑（spec §5.2）：models 条目（含 `sysPrompt` / `available`）+ aliases 下拉重映射到真实模型；`dsh-default`（含隐式合成条目）与 `path?` / `synthesized?` 只读展示；层覆盖关系展示（project-dsh 胜 user-dsh）。
 - **数据通道与写器（Q6 裁决 2026-10-18：由 11/12 提供，本票只消费）**：宿主自管文件读写 + `ctx.webServer` exact route + client fetch（Desktop 兼容）由 12 落地；frontmatter/registry 写器（原子写、注释/未知键保留）由 11 提供；本票不实现第二份通道或写器，读走 01/02 冻结读面。
 - **无 watcher**：手改文件后 UI 经 `invalidate()` + 重读反映；下次会话生效。
 - **智能顾问面板（Q2 裁决：最小面板）**：02 findings 四类（unknown-alias / unknown-model-target / raw-model-escape / alias-fan-in）呈现 + requiredTools 超界 + 预置技能缺失 + 顺序反模式（spec §8 全表）+ S5 别名重映射即时影响预览 + 缓存断点示意（spec §6 静态通道表推演）+ fork 断点知识库（spec §2.1-4）。**不**消费 04 规划器输出（落地后另立票迭代）。
 - **agent「启停」v1 不做（Q1 裁决）**：无 UI-only 状态（D14）。
 
 **Key interfaces:**
-- `ctx.slots`（client 注册面）：`settings.section` 声明与注册选项 `{id, order, label, priority}`；整页先例 = Models 设置页。
+- `ctx.slots`（client 注册面，2026-10-19 起为 `sidebar.panellist` 行 `{id, order?, label?}` ＋ 同 id `main` keyed `{key}`；行组件收 `{size, active}`；整页先例 = ui-schedule）；
 - `ctx.webServer` exact route（12 注册）；client fetch 对应 pathname。
 - 读面：`ctx.agentRegistry` / `ctx.aliasRegistry` / `inspectAliasRegistry`（冻结契约，勿改）。
 - 写器 / 路由形状：由 11/12 冻结（`AgentDocPort` 等接口），本票只消费 wire 契约，不自建第二套。
 
 **Acceptance criteria:**
-- [ ] client 构建产物 `lib/client.js` 存在；install_bundle 后 loader 命中、页面出现本插件设置页（真机验证走 loader entry，见 harness-facts「读回通道」——plain-object service 不进服务目录）
+- [ ] client 构建产物 `lib/client.js` 存在；install_bundle 后 loader 命中、左侧栏出现「智能体控制」面板入口且点击切换到 `main` 面板（真机验证走 loader entry + 活体 bundle 字节比对，见 harness-facts——plain-object service 不进服务目录）
 - [ ] spec §5.1 + §5.2 全字段一一对应（清单核对）；`extra` 未知键原文回写不丢
 - [ ] UI 写操作经 11/12 的接口落 agent.md / registry.yaml（原子写由 11/12 保证）；手改文件后 UI 经 `invalidate()` 反映
 - [ ] 本票不出现第二份写器/数据通道（写器归 11、通道归 12）；组件只消费 wire 契约
