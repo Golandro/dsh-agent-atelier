@@ -1,0 +1,669 @@
+/* ============================================================================
+ * PROTOTYPE — 一次性原型样式，不属于产品代码，不保证维护。
+ * 用途：settings-ui 原型的暗色主题皮肤，复刻 DeepSeek Harness Web GUI 的暗色外观。
+ *
+ * 取色来源：DSH 源码树 /home/gg/repo/deepseek-harness
+ *   软链：.vendor/deepseek-harness（同指）
+ * DSH 暗色主题的开关是 body 上的 [data-ds-dark-theme] 属性
+ * （packages/client/ui-theme/src/boot-theme.ts:42），暗色 token 全部定义在
+ *   packages/client/ui-theme/src/styles/design-platform.css:284-398
+ * 语义别名（--dsw-alias-*）再指回静态色板 --dsw-static-*（同文件 5-163）。
+ * 下面所有取值都按该暗色块逐条摘出，未做主观调色。
+ *
+ * Token 取值与出处（路径均相对 DSH 源码树根）：
+ *   --dsh-bg            #151517      design-platform.css:285 → neutral-bluish-950 (:74 / :155)
+ *   --dsh-bg-panel      #1b1b1c      design-platform.css:393 → neutral-bluish-900 (:73 / :154)
+ *   --dsh-bg-elevated   #2c2c2e      design-platform.css:290 (bg-layer-2) → neutral-bluish-850 (:71 / :152)
+ *   --dsh-bg-hover      rgba(255,255,255,.08)   design-platform.css:331 (interactive-bg-hover)
+ *   --dsh-border        rgba(255,255,255,.16)   design-platform.css:306 (border-l3)
+ *   --dsh-ink           #f9fafb      design-platform.css:340 → neutral-bluish-50 (:64 / :145)
+ *   --dsh-ink-dim       #cfd3d6      design-platform.css:341 → neutral-bluish-300 (:61 / :142)
+ *   --dsh-ink-faint     #adb2b8      design-platform.css:343 → neutral-bluish-400 (:62 / :143)
+ *   --dsh-accent        #7aaaff      design-platform.css:358 (state-business-primary) → deepseek-400 (:26 / :107)
+ *   --dsh-accent-soft   accent 12%   Tag.module.css:44-47 (info 10%) / PluginInventorySettingsTab.module.css:86 (18%)
+ *   --dsh-accent-ink    #ffffff      InputBar.module.css:387-389（"arrow stays white on the blue fill"）
+ *   --dsh-ok            #22c55e      design-platform.css:371 → green-500 (:36 / :117)
+ *   --dsh-warn          #f59e0b      design-platform.css:375 → amber-500 (:7 / :88)
+ *   --dsh-err           #f25a5a      design-platform.css:368 → red-400 (:76 / :157)
+ *   --dsh-radius-sm     8px          ui-theme/src/styles/base.css:19 (--dsw-radius-sm)
+ *   --dsh-radius        12px         ui-theme/src/styles/base.css:20 (--dsw-radius-md)
+ *   --dsh-shadow        lv3 + 近投影  gradient-shadow-text.css:8-9 (shadow-lv3) + :36-38 (elevation-prominent)
+ *   --dsh-font          系统字体栈    ui-theme/src/styles/base.css:7-8
+ *   --dsh-mono          等宽栈        ui-theme/src/styles/base.css:11-12
+ *
+ * 控件先例：
+ *   .btn / .btn-primary / .btn-sm / .btn-icon ← ui-primitives/Button.module.css（outline 变体 :54-61）
+ *   .input / textarea.input / .select       ← settings-form/fields.module.css:107-131、ConfigField.module.css:6-9、InputBar.module.css:344-372
+ *   .toggle                                 ← ui-primitives/Switch.module.css:5-49（36×20 药丸 + 16px 滑块）
+ *   .menu / .menu-item / .menu-separator    ← ui-primitives/Menu.module.css:7-11/95-122/253-255、MenuSurface.module.css:3-4
+ *   .card                                   ← ui-settings-models/ModelsSection.module.css:53-60、PluginInventorySettingsTab.module.css:106-109
+ *   .tag + 变体                             ← ui-primitives/Tag.module.css:3-58
+ *   .tab / .tabs                            ← ui-settings-plugins/PluginsSettingsSection.module.css:23-66
+ *   ::-webkit-scrollbar                     ← ui-theme/src/styles/scrollbar.css:67-95
+ * ========================================================================= */
+
+:root {
+  /* —— 底色阶梯（页最深底 → 面板 → 卡片/浮层）—— */
+  --dsh-bg: #151517;                 /* design-platform.css:285 --dsw-alias-bg-base → neutral-bluish-950 */
+  --dsh-bg-panel: #1b1b1c;           /* design-platform.css:393 --dsw-specific-sidebar-fill → neutral-bluish-900 */
+  --dsh-bg-elevated: #2c2c2e;        /* design-platform.css:290 --dsw-alias-bg-layer-2 → neutral-bluish-850 */
+  --dsh-bg-hover: rgba(255, 255, 255, 0.08); /* design-platform.css:331 --dsw-alias-interactive-bg-hover */
+
+  /* —— 描边：DSH 的 l1=.06 / l2=.12 / l3=.16 / l4=.20（design-platform.css:303-307）。
+     0.16（l3）是侧栏分隔（AppFrame.module.css:62）、菜单发丝、幽灵按钮描边
+     （Button.module.css:55）、开关轨道的取值，作为通用描边。输入框/卡片在 DSH
+     里用 l4=.20，见下方 .input / .card 的局部注释。 —— */
+  --dsh-border: rgba(255, 255, 255, 0.16);
+
+  /* —— 文字三级 —— */
+  --dsh-ink: #f9fafb;                /* design-platform.css:340 --dsw-alias-label-primary */
+  --dsh-ink-dim: #cfd3d6;            /* design-platform.css:341 --dsw-alias-label-secondary */
+  --dsh-ink-faint: #adb2b8;          /* design-platform.css:343 --dsw-alias-label-tertiary */
+
+  /* —— 蓝色强调：暗色里 GUI 的交互蓝就是 deepseek-400。
+     同一枚色同时是 state-business-primary(:358 焦点环/信息态)、link(:345)、
+     button-info-fill(:319 发送键实底)。 —— */
+  --dsh-accent: #7aaaff;
+  /* 选中态底：DSH 没有专门的 alias，惯例是 accent 的半透明 tint ——
+     Tag info 用 10%（Tag.module.css:44-47），焦点光晕用 18%
+     （PluginInventorySettingsTab.module.css:86），选中底取中间 12%。 */
+  --dsh-accent-soft: color-mix(in srgb, var(--dsh-accent) 12%, transparent);
+  --dsh-accent-ink: #ffffff;         /* InputBar.module.css:387-389：蓝底上固定白字，不走 foreground token */
+
+  /* —— 状态色 —— */
+  --dsh-ok: #22c55e;                 /* design-platform.css:371 --dsw-alias-state-success-primary */
+  --dsh-warn: #f59e0b;               /* design-platform.css:375 --dsw-alias-state-warn-primary */
+  --dsh-err: #f25a5a;                /* design-platform.css:368 --dsw-alias-state-error-primary */
+
+  /* —— 圆角：DSH 的 sm=8 / md=12（base.css:19-20）；卡片与浮层另有
+     16(lg) / 20(xl)，在各自控件里按原值写出。 —— */
+  --dsh-radius-sm: 8px;
+  --dsh-radius: 12px;
+
+  /* —— 浮层阴影：DSH 的 elevation-prominent 是「0.5px 发丝描边 + 两层极淡投影」
+     （gradient-shadow-text.css:36-38），发丝色在暗色菜单上重绑为 l3
+     （gradient-shadow-text.css:23-25）。这里描边交给真实 border 承担，
+     阴影只取投影部分，避免双重描边：
+     shadow-lv3 的大投影（:8-9）+ prominent 的近投影（:36-38）。 —— */
+  --dsh-shadow: 0 12px 32px 0 rgba(0, 0, 0, 0.08), 0 3px 8px 0 rgba(0, 0, 0, 0.04);
+
+  /* —— 字体：DSH 内置文本/等宽栈（base.css:7-12）。
+     等宽栈刻意不带裸 monospace 尾巴（Windows 中文会回退到 SimSun）。 —— */
+  --dsh-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --dsh-mono: 'SF Mono', 'JetBrains Mono', 'Fira Code', Consolas, 'Liberation Mono', Menlo, Courier,
+    'PingFang SC', 'Microsoft YaHei';
+}
+
+/* DSH 每个控件自带 box-sizing: border-box（Button.module.css:3 等），
+ * 等价于下面这条全局 reset。 */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--dsh-bg);         /* packages/client/web/src/base.css:30 */
+  color: var(--dsh-ink);
+  font-family: var(--dsh-font);
+  font-size: 14px;
+  line-height: 22px;
+  /* packages/client/web/src/base.css:27-28：灰度抗锯齿 */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* packages/client/web/src/base.css:32：支持它的浏览器按语言插入中西文间距 */
+  text-autospace: normal;
+  /* 原型便利项：让原生表单控件/滚动条跟随暗色。 */
+  color-scheme: dark;
+}
+
+/* ==========================================================================
+ * 按钮 — ui-primitives/Button.module.css
+ * 基准尺寸 md：36px 高、0 14px 内边距、半径 md、14/22 字（:24-25、:3-13）。
+ * ========================================================================= */
+
+.btn {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 14px;
+  /* 幽灵/描边按钮：0.5px 发丝边 + 透明底（Button.module.css:54-57） */
+  border: 0.5px solid var(--dsh-border);
+  border-radius: var(--dsh-radius);
+  background: transparent;
+  color: var(--dsh-ink);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+/* Button.module.css:59-61 */
+.btn:hover:not(:disabled) {
+  background: var(--dsh-bg-hover);
+}
+
+/* Button.module.css:45-51：按下用 interactive-bg-active（design-platform.css:327 rgba 白 14%） */
+.btn:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* Button.module.css:18-21 */
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* focus.css:3-12：2px 焦点环，颜色 = accent（--dsw-alias-state-business-primary） */
+.btn:focus-visible,
+.btn-primary:focus-visible,
+.btn-icon:focus-visible {
+  outline: 2px solid var(--dsh-accent);
+  outline-offset: 2px;
+}
+
+/* 蓝实底主按钮。DSH 自己的 .primary 在暗色里其实是「白底黑字」
+ * （button-primary-fill → brand-primary → neutral-bluish-50，design-platform.css:310/322）；
+ * 真正带蓝底的主操作是会话输入框的发送键：background 走
+ * --dsw-alias-button-info-fill（deepseek-400），白字（InputBar.module.css:374-397）。
+ * 按契约「accent 实底」，这里取发送键那一对取色。 */
+.btn-primary {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 14px;
+  border: 0.5px solid transparent;
+  border-radius: var(--dsh-radius);
+  background: var(--dsh-accent);
+  color: var(--dsh-accent-ink);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+/* InputBar.module.css:398-400 → design-platform.css:320 button-info-hover = deepseek-500 */
+.btn-primary:hover:not(:disabled) {
+  background: #4176e6;               /* design-platform.css:320 --dsw-alias-button-info-hover */
+}
+
+/* DSH 的 .primary 没有单独的 :active 取色，按下沿用 hover 值。 */
+.btn-primary:active:not(:disabled) {
+  background: #4176e6;
+}
+
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Button.module.css:27-34：小尺寸 28px 高、12/18 字、0 10px、半径 sm */
+.btn-sm {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--dsh-radius-sm);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* 纯图标正方形。DSH 的同尺寸先例是设置面板关闭键 28×28、半径 sm
+ * （ui-settings-general/SettingsRoot.module.css:209-221）与侧栏 36×36 轨道控件。
+ * 这里取 28×28，可单独使用，也可叠在 .btn 上。 */
+.btn-icon {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0.5px solid transparent;
+  border-radius: var(--dsh-radius-sm);
+  background: transparent;
+  color: var(--dsh-ink-dim);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.btn-icon:hover:not(:disabled) {
+  background: var(--dsh-bg-hover);
+  color: var(--dsh-ink);
+}
+
+.btn-icon:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.btn-icon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+ * 输入控件 — settings-form/fields.module.css:107-131 + ConfigField.module.css:6-9
+ * 34px 高、0 12px、0.5px l4 边、半径 md、layer-3 底（暗色 #353638）。
+ * ========================================================================= */
+
+.input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  /* fields.module.css:110 用 --dsw-alias-border-l4 = design-platform.css:307 rgba 白 20% */
+  border: 0.5px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--dsh-radius);
+  /* fields.module.css:111 --dsw-alias-bg-layer-3 → design-platform.css:291 neutral-bluish-800 */
+  background: #353638;
+  color: var(--dsh-ink);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  outline: none;
+}
+
+/* fields.module.css:119-122：聚焦只换边色，不出环 */
+.input:focus-visible {
+  border-color: var(--dsh-accent);
+  outline: none;
+}
+
+/* 占位符：DSH 组件里分别用 label-tertiary（插件搜索框）与 label-dimmed
+ * （Input.module.css:38，暗色为 neutral-bluish-750 #43454a，过暗）；
+ * 这里取可读的 label-tertiary。 */
+.input::placeholder {
+  color: var(--dsh-ink-faint);
+}
+
+/* fields.module.css:124-127 */
+.input:disabled {
+  color: var(--dsh-ink-faint);
+  cursor: default;
+}
+
+/* ConfigField.module.css:9（resize: vertical）+ fields.module.css 的 6px/12px 内边距 */
+textarea.input {
+  height: auto;
+  min-height: 84px;
+  padding: 8px 12px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+/* 下拉选择：盒模型同 .input；箭头取 DSH 输入栏 select 的 12px 折线
+ * （InputBar.module.css:344-363，描边 #81858C = 暗色 label-caption）。 */
+.select {
+  box-sizing: border-box;
+  height: 34px;
+  padding: 0 30px 0 12px;
+  border: 0.5px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--dsh-radius);
+  background-color: #353638;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%2381858C' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px 12px;
+  color: var(--dsh-ink);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  appearance: none;
+  cursor: pointer;
+  outline: none;
+}
+
+/* InputBar.module.css:365-367：hover 叠 interactive-bg-hover（白 8%）。
+ * 这里底色不透明，用 color-mix 把同一层 8% 白压在 layer-3 上。 */
+.select:hover:not(:disabled) {
+  background-color: color-mix(in srgb, #353638 92%, #ffffff);
+}
+
+.select:focus-visible {
+  border-color: var(--dsh-accent);
+  outline: none;
+}
+
+/* InputBar.module.css:369-372 */
+.select:disabled {
+  opacity: 0.5;
+  cursor: default;
+  color: var(--dsh-ink-faint);
+}
+
+/* ==========================================================================
+ * 开关 — ui-primitives/Switch.module.css:5-49
+ * 36×20 药丸轨道、2px 内边距、16px 圆形滑块、translateX(16px)、120ms。
+ * 结构：label.toggle > input[type=checkbox] + span.toggle-track
+ *
+ * DSH 实际的「开」态轨道是 --dsw-alias-brand-primary（暗色 = 近白 #f9fafb，
+ * design-platform.css:310），滑块是 label-primary-foreground（暗色近黑，:338）；
+ * 按本原型契约，开态改用 accent 蓝 + 白滑块，几何与动效仍照 Switch.module.css。
+ * 关态轨道/滑块保留 DSH 取值：轨道 = border-l3，滑块 = switch-thumb
+ * （design-platform.css:378，neutral-bluish-400）。
+ * ========================================================================= */
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* 视觉隐藏但仍可聚焦/键盘切换（Switch.module.css 视觉由 aria-checked 驱动） */
+.toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toggle-track {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--dsh-border);     /* Switch.module.css:15 border-l3 */
+  transition: background-color 120ms ease;
+}
+
+.toggle-track::after {
+  content: '';
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #adb2b8;               /* Switch.module.css:43-45 → design-platform.css:378 switch-thumb */
+  transition: transform 120ms ease, background-color 120ms ease;
+}
+
+.toggle input:checked + .toggle-track {
+  background: var(--dsh-accent);
+}
+
+.toggle input:checked + .toggle-track::after {
+  transform: translateX(16px);       /* Switch.module.css:47-49 */
+  background: var(--dsh-accent-ink);
+}
+
+.toggle input:disabled + .toggle-track {
+  opacity: 0.5;                      /* Switch.module.css:23-26 */
+}
+
+.toggle:has(input:disabled) {
+  cursor: default;
+}
+
+/* Switch.module.css:28-31：2px 环 + 2px 偏移 */
+.toggle input:focus-visible + .toggle-track {
+  outline: 2px solid var(--dsh-accent);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+ * 下拉浮层 — ui-primitives/Menu.module.css + MenuSurface.module.css
+ * 卡片：padding 4、半径 lg(16)、阴影 prominent、发丝边 l3。
+ * DSH 菜单面其实是带 blur 的材质（rgba(67,69,74,.45) + blur(40px)，
+ * design-platform.css:389），静态原型里落成不透明的 --dsh-bg-elevated。
+ * ========================================================================= */
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 144px;                  /* Menu.module.css:31 */
+  max-width: 360px;                  /* Menu.module.css:32 */
+  padding: 4px;                      /* Menu.module.css:11 */
+  border: 0.5px solid var(--dsh-border); /* 暗色菜单发丝 = l3（gradient-shadow-text.css:23-25） */
+  border-radius: 16px;               /* MenuSurface.module.css:3-4 --dsw-radius-lg */
+  background: var(--dsh-bg-elevated);
+  box-shadow: var(--dsh-shadow);
+}
+
+/* Menu.module.css:95-110 */
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--dsh-radius);
+  background: transparent;
+  color: var(--dsh-ink);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Menu.module.css:112-114 */
+.menu-item:hover:not(:disabled) {
+  background: var(--dsh-bg-hover);
+}
+
+/* Menu.module.css:119-124：键盘焦点只复用 hover 底，不加环 */
+.menu-item:focus-visible:not(:disabled) {
+  background: var(--dsh-bg-hover);
+  outline: none;
+}
+
+/* Menu.module.css:163-166 */
+.menu-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Menu.module.css:253-255：0.5px、l2（暗色白 12%） */
+.menu-separator {
+  height: 0.5px;
+  margin: 3px 2px;
+  background: rgba(255, 255, 255, 0.12); /* design-platform.css:305 border-l2 */
+}
+
+/* ==========================================================================
+ * 卡片 — 设置页的统一卡片材质
+ * ModelsSection.module.css:53-60 / PluginInventorySettingsTab.module.css:106-109：
+ * 0.5px settings-card-stroke（= border-l4，白 20%）+ bg-layer-2 + 半径 xl(20)。
+ * base.css:28-29 把这两个别名绑到 layer-2 / border-l4。
+ * ========================================================================= */
+
+.card {
+  border: 0.5px solid rgba(255, 255, 255, 0.2);
+  border-radius: 20px;               /* --dsw-radius-xl（base.css:22） */
+  padding: 12px 14px;
+  background: var(--dsh-bg-elevated);
+  color: var(--dsh-ink);
+}
+
+/* 可点击卡片：背景叠 hover（PluginInventorySettingsTab.module.css:142-145） */
+.card[data-clickable='true'],
+a.card {
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.card[data-clickable='true']:hover,
+a.card:hover {
+  background: color-mix(in srgb, var(--dsh-bg-elevated) 92%, #ffffff);
+}
+
+/* ==========================================================================
+ * 徽标 — ui-primitives/Tag.module.css
+ * 胶囊几何固定（padding 1px 8px、11/17、500 字重），只换配色。
+ *
+ * 三层来源（user / workspace / bundled）：DSH core 里没有这个三来源徽标先例
+ * （属市场类插件），这里用 Tag 既有的三种 tone 推导，同族但可区分：
+ *   .tag-user      ← tone=neutral（:26-29，bg-module-platform + label-secondary）
+ *   .tag-workspace ← tone=info    （:44-47，accent 10% tint + accent 文字）
+ *   .tag-bundled   ← tone=outline （:16-19，发丝边 + label-tertiary）
+ * ========================================================================= */
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 17px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Tag.module.css:26-29 → design-platform.css:297 bg-module-platform = neutral-bluish-800 */
+.tag-user {
+  background: #353638;
+  color: var(--dsh-ink-dim);
+}
+
+/* Tag.module.css:44-47（tint 取同一 10%，此处沿用 accent-soft 的 12% 保持一族） */
+.tag-workspace {
+  background: var(--dsh-accent-soft);
+  color: var(--dsh-accent);
+}
+
+/* Tag.module.css:16-19 */
+.tag-bundled {
+  border: 0.5px solid var(--dsh-border);
+  color: var(--dsh-ink-faint);
+}
+
+/* Tag.module.css:39-42（success 10%） */
+.tag-ok {
+  background: color-mix(in srgb, var(--dsh-ok) 10%, transparent);
+  color: var(--dsh-ok);
+}
+
+/* Tag.module.css:49-52（warning 用 12%，沿用原值） */
+.tag-warn {
+  background: color-mix(in srgb, var(--dsh-warn) 12%, transparent);
+  color: var(--dsh-warn);
+}
+
+/* Tag.module.css:54-57（danger 10%） */
+.tag-err {
+  background: color-mix(in srgb, var(--dsh-err) 10%, transparent);
+  color: var(--dsh-err);
+}
+
+/* ==========================================================================
+ * 页签 — settings 页真实页签：PluginsSettingsSection.module.css:23-66
+ * 条带：底部 0.5px l2 分隔、gap 22。
+ * 页签：13/20、dim(label-tertiary)；hover/选中升到 label-primary，
+ * 选中态是 2px 实心下划线。DSH 的下划线取色是 label-primary（白），
+ * 不是 accent —— 按「DSH 实际页签风格」照搬；若要蓝色下划线，
+ * 把 .tab.active::after 的 --dsh-ink 换成 --dsh-accent 即可。
+ * ========================================================================= */
+
+.tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 22px;
+  margin-top: 2px;
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.12); /* design-platform.css:305 border-l2 */
+}
+
+.tab {
+  position: relative;
+  border: 0;
+  padding: 7px 1px 9px;
+  background: transparent;
+  color: var(--dsh-ink-faint);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.tab:hover,
+.tab.active {
+  color: var(--dsh-ink);
+}
+
+.tab.active::after,
+.tab:focus-visible::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--dsh-ink);
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--dsh-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+  color: var(--dsh-ink);
+}
+
+/* ==========================================================================
+ * 滚动条 — ui-theme/src/styles/scrollbar.css:67-95
+ * 5px 宽、透明轨道、胶囊滑块；暗色 l1 滑块 = neutral-700 #3c3c3d，
+ * hover = neutral-600 #545457（design-platform.css:354-357）。
+ * 浮层内可换 l2 对（#545457 / #65676b）。
+ * ========================================================================= */
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 0 solid transparent;
+  border-radius: 999px;
+  background: #3c3c3d;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #545457;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 浮层（菜单/卡片）用 l2 一档（scrollbar.css:13-16 的重绑约定） */
+.menu::-webkit-scrollbar-thumb,
+.card::-webkit-scrollbar-thumb {
+  background: #545457;
+}
+
+.menu::-webkit-scrollbar-thumb:hover,
+.card::-webkit-scrollbar-thumb:hover {
+  background: #65676b;
+}
+
+/* Firefox：标准属性路径（scrollbar.css:45-62） */
+@supports not selector(::-webkit-scrollbar) {
+  body,
+  body * {
+    scrollbar-width: thin;
+    scrollbar-color: #3c3c3d transparent;
+  }
+}
