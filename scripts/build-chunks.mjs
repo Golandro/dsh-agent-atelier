@@ -34,6 +34,10 @@ async function buildChunk({ entry, formats, globalName, external, outDir }) {
     root: ROOT,
     logLevel: 'warn',
     esbuild: esbuildJsx,
+    // 浏览器里没有 Node 的 process：依赖（react/tanstack/codemirror）都会读
+    // process.env.NODE_ENV，不在这里静态替换就会在 chunk 加载时报
+    // "process is not defined"（列表/编辑器整个 chunk 起不来）。
+    define: { 'process.env.NODE_ENV': JSON.stringify('production') },
     build: {
       target: 'es2022',
       minify: false,

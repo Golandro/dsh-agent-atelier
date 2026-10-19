@@ -10,7 +10,7 @@
 import { basicSetup } from 'codemirror'
 import { markdown } from '@codemirror/lang-markdown'
 import { oneDark } from '@codemirror/theme-one-dark'
-import { Annotation, EditorState, StateEffect, StateField, Transaction } from '@codemirror/state'
+import { Annotation, EditorState, Prec, StateEffect, StateField, Transaction } from '@codemirror/state'
 import type { Extension, Range, TransactionSpec } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
@@ -24,40 +24,61 @@ import type { EditorModel, FenceRange, LiveBlock } from './layout.ts'
 import { createRegionGutter, FrontmatterHeaderWidget } from './chrome.ts'
 import type { EditorHooks, HeadMeta } from './chrome.ts'
 
-/* ── 主题（原型逐字段移植；--dsh-* 变量由主 bundle 注入的样式解析）── */
+/* ── 主题（原型逐字段移植；--dsw-* / --dsh-* 由主 bundle 的 styles.css 提供）── */
 
-const theme = EditorView.theme(
-  {
-    '&': {
-      height: '100%',
-      backgroundColor: 'transparent',
-      color: 'var(--dsh-ink)',
-      fontSize: '13px',
+/* Prec.highest：oneDark 也会写 .cm-selectionBackground / ::selection / .cm-cursor，
+ * 同优先级下它排在后面会把我们的主题色呛掉（选区变成 oneDark 的灰紫）。
+ * 提到最高优先级后我们的样式后写入，光标/选区才真的跟主题。 */
+const theme = Prec.highest(
+  EditorView.theme(
+    {
+      '&': {
+        height: '100%',
+        backgroundColor: 'transparent',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: '13px',
+      },
+      // 焦点视觉（outline / gutter 点亮 / 细缝）全部由 styles.css 负责，
+      // 主题只管静态排版与颜色，避免 JS 与宿主 CSS 两处抢焦点态。
+      '.cm-scroller': {
+        fontFamily: 'var(--dsh-font-family-code-default)',
+        // 整数行高让内容行与 gutter 单元严格对齐，区域横线不会在亚像素处断开。
+        lineHeight: '21px',
+      },
+      // 横向 padding 放到 .cm-line 上，让首末横线能从 gutter 边缘一直画到内容右缘。
+      // caret 由 drawSelection 画（它会把原生 caret-color 设成 transparent），
+      // 所以这里不要再写 caretColor，颜色统一给下边的 .cm-cursor。
+      '.cm-content': { padding: '10px 0 112px' },
+      '.cm-line': { padding: '0 14px' },
+      '.cm-gutters': {
+        color: 'var(--dsw-alias-label-tertiary)',
+      },
+      '.cm-lineNumbers .cm-gutterElement': { padding: '0 8px 0 10px' },
+      '.cm-activeLine': {
+        backgroundColor: 'color-mix(in srgb, var(--dsw-alias-state-business-primary) 7%, transparent)',
+      },
+      '.cm-activeLineGutter': {
+        backgroundColor: 'transparent',
+        color: 'var(--dsw-alias-state-business-primary)',
+      },
+      // oneDark 的聚焦选区规则是 `.ͼo.cm-focused > .cm-scroller > .cm-selectionLayer
+      // .cm-selectionBackground`（4 个类）。只写 `.cm-selectionBackground` 会被它按
+      // 优先级压掉，所以这里复刻同一条结构选择器，再靠 Prec.highest 的顺序取胜。
+      '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
+        backgroundColor: 'color-mix(in srgb, var(--dsw-alias-state-business-primary) 24%, transparent)',
+      },
+      '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': {
+        backgroundColor: 'color-mix(in srgb, var(--dsw-alias-state-business-primary) 24%, transparent)',
+      },
+      // drawSelection 画的是 1px 边框（基础主题 1.2px），这里定成 2px 并回退
+      // 半像素，光标在锚点正中；颜色跟主题。
+      '.cm-cursor, .cm-dropCursor': {
+        borderLeft: '2px solid var(--dsw-alias-state-business-primary)',
+        marginLeft: '-1px',
+      },
     },
-    '&.cm-focused': { outline: 'none' },
-    '.cm-scroller': {
-      fontFamily: 'var(--dsh-mono)',
-      // 整数行高让内容行与 gutter 单元严格对齐，区域横线不会在亚像素处断开。
-      lineHeight: '21px',
-    },
-    // 横向 padding 放到 .cm-line 上，让首末横线能从 gutter 边缘一直画到内容右缘。
-    '.cm-content': { padding: '10px 0 112px', caretColor: 'var(--dsh-accent)' },
-    '.cm-line': { padding: '0 14px' },
-    '.cm-gutters': {
-      backgroundColor: 'transparent',
-      color: 'var(--dsh-ink-faint)',
-      border: 'none',
-      borderRight: '1px solid var(--dsh-border)',
-    },
-    '.cm-lineNumbers .cm-gutterElement': { padding: '0 8px 0 10px' },
-    '.cm-activeLine': { backgroundColor: 'color-mix(in srgb, var(--dsh-accent) 7%, transparent)' },
-    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--dsh-accent)' },
-    '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
-      backgroundColor: 'color-mix(in srgb, var(--dsh-accent) 24%, transparent)',
-    },
-    '.cm-cursor': { borderLeftColor: 'var(--dsh-accent)' },
-  },
-  { dark: true },
+    { dark: true },
+  ),
 )
 
 /* ── 状态模型 ──────────────────────────────────────────────────────── */
@@ -258,7 +279,9 @@ export function createDocumentEditor(container: HTMLElement, options: DocumentEd
         theme,
         markdown(),
         EditorView.lineWrapping,
-        EditorView.editable.of(!nextReadonly),
+        // 只读也保留可编辑 DOM：contenteditable=false 会让编辑器不可聚焦，
+        // drawSelection 的 .cm-cursor 永远不挂载（看着像“光标被吞了”）。
+        // 写入用 readOnly facet 拦（DOMChange 会直接丢弃变更，并自动标 aria-readonly）。
         EditorState.readOnly.of(nextReadonly),
         EditorView.contentAttributes.of({
           'aria-label': `${next.agentName} 定义文件`,

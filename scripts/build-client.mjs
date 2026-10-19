@@ -40,6 +40,38 @@ function transpile(relativePath) {
   }).outputText
 }
 
+/**
+ * 页面样式注入标记。刻意不用裸插件 id：`data-plugin="<插件 id>"` 是宿主
+ * ClientModuleSystem 的样式归属键，chunk 物化时会被 removeOwnedStyles() 清掉。
+ */
+const CSS_STYLE_MARKER = `${PACKAGE_NAME}#page`
+
+/**
+ * 把一个 .css 文件编译成「加载即注入」的模块（等价 dev server 的 CSS 注入）。
+ *
+ * 导出 ensure()：幂等确保 <style> 存在且文本最新——宿主重建 head 后调用方可以
+ * 再调一次；HMR 重新求值本模块时也会直接更新 textContent。
+ */
+function cssModule(cssPath) {
+  const cssText = readFileSync(cssPath, 'utf8')
+  return `var cssText = ${JSON.stringify(cssText)};
+var styleMarker = ${JSON.stringify(CSS_STYLE_MARKER)};
+function ensure() {
+  if (typeof document === 'undefined') return;
+  var target = document.head || document.documentElement;
+  if (target === null) return;
+  var el = document.querySelector('style[data-plugin="' + styleMarker + '"]');
+  if (el === null) {
+    el = document.createElement('style');
+    el.setAttribute('data-plugin', styleMarker);
+    target.appendChild(el);
+  }
+  if (el.textContent !== cssText) el.textContent = cssText;
+}
+ensure();
+module.exports = { ensure: ensure };`
+}
+
 /** Map every emitted relative require onto a local module id; fail on drift. */
 function remapLocalRequires(relativePath, source, map) {
   const fromDir = dirname(join(ROOT, relativePath))
@@ -60,7 +92,8 @@ function collectClientModules() {
     for (const name of readdirSync(dir)) {
       const path = join(dir, name)
       if (statSync(path).isDirectory()) walk(path)
-      else if (/\.(ts|tsx)$/.test(name)) files.push(path)
+      // .d.ts 只是类型声明，不产生运行时模块。
+      else if (!name.endsWith('.d.ts') && /\.(ts|tsx|css)$/.test(name)) files.push(path)
     }
   }
   walk(CLIENT_DIR)
@@ -82,6 +115,11 @@ const idsByPath = new Map(modules.map((module) => [resolve(ROOT, module.path), m
 
 const localModules = {}
 for (const module of modules) {
+  // 页面样式是静态资源：内联成注入器，和 Vite dev 对 .css 的处理同构。
+  if (module.path.endsWith('.css')) {
+    localModules[module.id] = cssModule(module.path)
+    continue
+  }
   // The chunk-loading seam is provided by the bundle itself, not the source.
   if (module.id === 'chunk-loader.ts') {
     localModules[module.id] = `module.exports = {

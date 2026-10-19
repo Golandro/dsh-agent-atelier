@@ -12,12 +12,14 @@
  * client 与初始快照交给 AgentsWorkspace（./page.tsx）——compose / plan / commit /
  * invalidate 的业务流程全部在页面组件内，壳不再持有域状态。
  *
- * 作用域根：AgentsWorkspace 的根是 `.agents-page`（RecentWrites 是其 Fragment
- * 兄弟），本壳负责渲染 `.agents-manager-page` 基座——styles.ts 的 `--dsh-*`
- * token 与全部前缀化规则、pane.tsx 拖拽态的 closest() 查找都挂在这层上。
+ * 作用域根：AgentsWorkspace 返回页头（智能体 / 操作历史 / 配置页签 + 刷新）与
+ * `.agents-page` / 操作历史两个保持挂载的视图；本壳负责渲染
+ * `.agents-manager-page` 基座——styles.css 的全部前缀化规则、`--dsh-*`
+ * token 与 pane.tsx 拖拽态的 closest() 查找都挂在这层上。
  *
- * 样式：apply() 时幂等注入 `<style data-plugin="dsh-plugin-agents-manager">`
- * （同标记已存在则跳过，热重载 / 重复注册安全）。
+ * 样式：`./styles.css` 是普通静态资源（styles.css → 构建期内联为一次幂等
+ * `<style>` 注入），不再在 TS 里握手拼字符串；挂载时再 ensure 一次，兼顾宿主
+ * 重建 head 的情况。
  *
  * 依赖纪律：外部包只准 react；运行时相对 import 只许层内 + control 层白名单
  * （http-client / client-errors）；node: 内建禁止——build-client.mjs 的本地模块
@@ -26,18 +28,15 @@
 import { createElement as h, useEffect, useState } from 'react'
 
 import { createHttpControlClient } from '../../control/http-client.ts'
-import { PAGE_ROOT_CLASS } from './pane.tsx'
+import { PAGE_ROOT_CLASS } from './class-names.ts'
 import { AgentsWorkspace } from './page.tsx'
-import { AGENTS_MANAGER_CSS } from './styles.ts'
+import * as pageStyles from './styles.css'
 
 import type { ControlSnapshot } from '../../control/index.ts'
 import type { ReactNode } from 'react'
 
 /** 侧栏行 id 与对应 `main` 面板键：同一字符串，两个座。 */
 const PANEL_ID = 'agents-manager'
-
-/** 样式注入标记：幂等判据（同标记 <style> 已存在则跳过）。 */
-const STYLE_MARKER = 'dsh-plugin-agents-manager'
 
 /** 测试锚点：壳各态共用的 DOM 查询入口。 */
 const PAGE_TEST_ID = 'agents-manager-page'
@@ -80,21 +79,11 @@ export interface ClientContext {
 /** 本入口等待的 cordis 客户端服务。 */
 export const inject = ['slots'] as const
 
-/** 幂等注入页面级样式：同标记的 <style> 已存在则跳过。 */
-function injectStyles(): void {
-  if (document.querySelector(`style[data-plugin="${STYLE_MARKER}"]`) !== null) return
-  const style = document.createElement('style')
-  style.setAttribute('data-plugin', STYLE_MARKER)
-  style.textContent = AGENTS_MANAGER_CSS
-  document.head.appendChild(style)
-}
-
 /**
  * 注册「智能体控制」面板：左栏一行（紧邻 Plugins）+ 该行选中的中央 `main`
- * 面板；顺手把页面样式注入宿主文档。
+ * 面板。页面样式由 `./styles.css` 的模块加载时注入器负责（构建期静态内联）。
  */
 export function apply(ctx: ClientContext): void {
-  injectStyles()
   ctx.slots.inject('sidebar.panellist', () =>
     ctx.slots.register(
       { name: 'sidebar.panellist', id: PANEL_ID, order: 5, label: '智能体控制' },
@@ -134,6 +123,9 @@ export function AgentControlPage(_props: MainPanelOwnerProps): ReactNode {
   const [client] = useState(createHttpControlClient)
   const [state, setState] = useState<PageState>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
+
+  // 宿主重建 head / 插件重挂载时补一次（CSS 模块导出幂等的 ensure）。
+  useEffect(() => { pageStyles.ensure?.() }, [])
 
   useEffect(() => {
     const controller = new AbortController()

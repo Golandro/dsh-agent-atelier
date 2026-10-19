@@ -5,7 +5,11 @@
  *   左 = 懒加载 ListChunk.AgentListView（同样的 loading / 失败 / 重试处理）
  *   右 = 选中 agent 时的编辑器 chrome（名称 / 路径 / 来源标签 / 关闭 / 保存全部 /
  *        全部回退 / plan 预览 chips / 保存状态）+ EditorMount；未选中时占位提示。
- *   底部 = RecentWrites（最近写入 + 刷新目录）。
+ *   容器宽度放不下两侧最小宽度时（styles.css 的 `@container pane`）切单栏：
+ *        列表隐藏、编辑器独占主视图；JS 不再参与该决策。
+ *   头部 = 题头行（标题 + 工作空间占位）+ 页签行（智能体 / 操作历史 / 配置
+ *        + 刷新目录）；三个视图都保持挂载（hidden 切换），选中 agent、草稿与
+ *        滚动位置不丢。
  *
  * 数据流：页面持有本组件作用域内的一个 createHttpControlClient() 实例（由壳传入）；
  *   onSelect → compose(agentName) → ComposedAgentDocument；
@@ -15,22 +19,25 @@
  * 保存流程（票面验收：写操作必须经 /plan 预览 + /commit）：
  *   drafts → DocumentEdit[]（kind: 'setBlockText'）→ plan(agentName, edits)
  *   → 有 rejections：展示且不 commit；有 entries：chips 预览 → 「确认写入」
- *   → commit(edits) → WriteReport 进最近写入 → 成功后重新 compose 并清掉已提交块草稿。
+ *   → commit(edits) → WriteReport 进操作历史 → 成功后重新 compose 并清掉已提交块草稿。
  *   块级保存 / 回退走同一条管线（仅该块 edit / 仅清该块草稿）。
  * 刷新目录：client.invalidate() → 重新 snapshot + recompose（页面内独立实现，
  *   保留选中与草稿；AbortController 清理语义与壳一致）。
  */
 import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { ControlClientError } from '../../control/client-errors.ts'
+import { nsClass } from './class-names.ts'
 import { loadListChunk } from './chunk-loader.ts'
+import { ConfigPlaceholder } from './config-placeholder.tsx'
 import { EditorMount } from './editor-mount.tsx'
 import { AdvisorPanel } from './advisor.tsx'
-import { RecentWrites } from './recent-writes.tsx'
+import { OperationHistory } from './operation-history.tsx'
+import { PanelHeader } from './panel-header.tsx'
 import { PANE_CONTENT_MIN_REM, PANE_LIST_MIN_REM, PaneSplitter, usePaneLayout } from './pane.tsx'
 
 import type { ControlClient, ComposedAgentDocument, ControlSnapshot, DocumentEdit, WritePlan, WriteReport } from '../../control/index.ts'
 import type { AgentListViewProps } from './chunk-contracts.ts'
-import type { ReloadState } from './recent-writes.tsx'
+import type { PanelTab, ReloadState } from './panel-types.ts'
 import type { CSSProperties, ReactNode } from 'react'
 
 export interface AgentsWorkspaceProps {
@@ -71,6 +78,8 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
   const [reports, setReports] = useState<WriteReport[]>([])
   const [reload, setReload] = useState<ReloadState>({ status: 'idle' })
   const [advisorOpen, setAdvisorOpen] = useState(false)
+  /* 面板页签：智能体（列表 + 编辑器）/ 操作历史 / 配置占位。三个视图都保持挂载。 */
+  const [tab, setTab] = useState<PanelTab>('agents')
 
   // 写路径 / 刷新目录是事件驱动的异步操作：卸载时中止在途请求。
   const writeAbortRef = useRef<AbortController | null>(null)
@@ -267,16 +276,22 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
 
   /* ── 渲染 ── */
 
-  const pageClass = `agents-page${selected !== null ? '' : ' editor-closed'}${pane.overlay ? ' editor-overlay' : ''}`
+  // 单栏/双栏由 styles.css 的 `@container pane` 决定；这里只标记「有没有打开编辑器」。
+  const pageClass = `${nsClass('agents-page')}${selected !== null ? '' : ' editor-closed'}`
 
   return h(Fragment, null,
-    h('div',
-      {
-        className: pageClass,
-        ref: containerRef,
-        style: { '--list-width': `${Math.round(pane.listWidth)}px` } as CSSProperties,
-      },
-      h('div', { className: 'agent-list' },
+    h(PanelHeader, { tab, onTab: setTab, reload, onRefresh: handleInvalidate }),
+
+    // 测量锚点放在始终可见的 wrapper：切到操作历史时 .agents-page 虽然 hidden，
+    // 列表宽度仍按面板真实宽度夹取，切回来不会掉回最小值。
+    h('div', { className: nsClass('panel-body'), ref: containerRef },
+      h('div',
+        {
+          className: pageClass,
+          hidden: tab !== 'agents',
+          style: { '--list-width': `${Math.round(pane.listWidth)}px` } as CSSProperties,
+        },
+        h('div', { className: nsClass('agent-list') },
         h(LazyAgentListView, { snapshot, selected, onSelect: handleSelect })),
 
       selected !== null && h(PaneSplitter, {
@@ -288,7 +303,7 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
         onReset: pane.resetListWidth,
       }),
 
-      selected !== null && h('section', { className: 'editor' },
+      selected !== null && h('section', { className: nsClass('agent-editor') },
         h('div', { className: 'editor-head' },
           h('div', { className: 'editor-titlebar' },
             h('span', { className: 'editor-title' }, agent?.name ?? selected),
@@ -372,24 +387,26 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
             onRevertBlock: handleRevertBlock,
           })),
 
-        advisorOpen && h('div', { className: 'advisor-panel' },
+        advisorOpen && h('div', { className: nsClass('advisor-panel') },
           h(AdvisorPanel, { snapshot, selectedAgent: selected, onSelectAgent: handleSelect }))),
 
-      selected === null && h('div', { className: 'pane-placeholder' },
+      selected === null && h('div', { className: nsClass('pane-placeholder') },
         h('p', null, '从左侧选择一个智能体开始编辑。'),
         h('p', { className: 'dim' }, '草稿按 agent 保留；关闭编辑器不会丢弃未保存改动。'),
         h('button',
           { type: 'button', className: 'btn btn-sm', 'aria-pressed': advisorOpen, onClick: () => setAdvisorOpen(!advisorOpen) },
           advisorOpen ? '收起顾问面板' : '顾问面板'),
-        advisorOpen && h('div', { className: 'advisor-panel' },
+        advisorOpen && h('div', { className: nsClass('advisor-panel') },
           h(AdvisorPanel, { snapshot, selectedAgent: selected, onSelectAgent: handleSelect })))),
 
-    h(RecentWrites, {
-      plan: save.status === 'planned' || save.status === 'committing' ? save.plan : null,
-      reports,
-      reload,
-      onInvalidate: handleInvalidate,
-    }),
+      h(OperationHistory, {
+        plan: save.status === 'planned' || save.status === 'committing' ? save.plan : null,
+        reports,
+        hidden: tab !== 'history',
+      }),
+
+      h(ConfigPlaceholder, { hidden: tab !== 'config' }),
+    ),
   )
 }
 

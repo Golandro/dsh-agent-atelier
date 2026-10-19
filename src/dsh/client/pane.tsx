@@ -5,13 +5,16 @@
  * 统一规则（与原型一致）：
  *   available = 容器宽度 − 排除项（如右侧抽屉；本页 Q2 最小口径暂无排除项）
  *   列表宽度在 [列表最小, available − 内容最小 − 分隔条] 之间夹取
- *   available < 列表最小 + 内容最小 + 分隔条 ⇒ 浮层模式（内容区盖住列表）
+ *   available < 列表最小 + 内容最小 + 分隔条 ⇒ 单栏模式（编辑器独占主视图，
+ *     列表隐藏）——这是布局决策，由 styles.css 的 `@container pane` 接管；
+ *     JS 只保留拖拽宽度的夹取，断点常量与 CSS 由测试校验同步。
  *
  * 与原型的偏差：拖拽中的 `is-resizing` 类不再挂 body，而是挂到最近的
  * `.agents-manager-page` 根元素上，让「拖拽时全局禁选」的样式留在插件作用域内，
  * 不污染宿主壳。
  */
 import { createElement as h, useLayoutEffect, useState } from 'react'
+import { PAGE_ROOT_CLASS, nsClass } from './class-names.ts'
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
 
 /** 列表栏最小宽（rem）。 */
@@ -22,9 +25,6 @@ export const PANE_CONTENT_MIN_REM = 40
 export const PANE_LIST_DEFAULT_REM = 24
 /** 分隔条宽（rem）。 */
 export const PANE_SPLITTER_REM = 0.375
-
-/** 本插件页面根 class；拖拽态类挂它，样式前缀也以它为作用域锚点。 */
-export const PAGE_ROOT_CLASS = 'agents-manager-page'
 
 export function rootFontSize(): number {
   return parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
@@ -41,7 +41,6 @@ export interface PaneLayoutOptions {
 
 export interface PaneLayout {
   available: number
-  overlay: boolean
   minList: number
   minContent: number
   splitter: number
@@ -86,7 +85,6 @@ export function usePaneLayout<T extends HTMLElement>(
     }
   }, [containerRef, options.excludeRef, options.excludeActive, options.measureKey])
 
-  const overlay = available < minList + minContent + splitter
   const maxListWidth = Math.max(minList, available - minContent - splitter)
   const defaultListWidth = Math.min(maxListWidth, Math.max(minList, PANE_LIST_DEFAULT_REM * rem))
 
@@ -97,7 +95,6 @@ export function usePaneLayout<T extends HTMLElement>(
 
   return {
     available,
-    overlay,
     minList,
     minContent,
     splitter,
@@ -148,7 +145,7 @@ export function PaneSplitter(props: PaneSplitterProps): ReactNode {
   }
 
   return h('div', {
-    className: 'pane-splitter',
+    className: nsClass('pane-splitter'),
     role: 'separator',
     'aria-orientation': 'vertical',
     'aria-label': props.label,
