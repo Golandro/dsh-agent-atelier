@@ -51,7 +51,7 @@ const HINTS = {
   scratch: '删除残留探针目录（例如 `.probe/`，它被 .gitignore 隐藏）。',
   bundle: '把 `@deepseek-ai/*` 从 `dependencies` 移到 `peerDependencies` + `devDependencies`（ADR-0001）。',
   deps: '安装缺失的 devDependency：`pnpm install --store-dir "$PWD/.pnpm-store"`（沙箱内，见 docs/agents/harness-facts.md）。',
-  matrix: '跨层 import 只走公共入口：`src/contract/index.ts`、`src/core/index.ts`、`src/core/ports.ts`、`src/providers/fs/index.ts`、`src/control/index.ts`、`src/dsh/host/index.ts`。',
+  matrix: '跨层 import 只走公共入口：`src/contract/index.ts`、`src/core/index.ts`、`src/core/ports.ts`、`src/providers/fs/index.ts`、`src/control/index.ts`、`src/control/client-errors.ts`、`src/control/http-client.ts`、`src/dsh/host/index.ts`。',
   anchors: '修正票面/文档里的 `path:line`，或先跑 `pnpm run check:static` 看解析详情。',
 }
 
@@ -90,19 +90,23 @@ export const PUBLIC_ENTRIES = [
   'src/core/ports.ts',
   'src/providers/fs/index.ts',
   'src/control/index.ts',
+  'src/control/client-errors.ts',
+  'src/control/http-client.ts',
   'src/dsh/host/index.ts',
 ]
 
 /**
  * 每层的依赖面：`dir` 内部深引用随便；跨层只准 `entries`；
  * `node` 列出允许的 `node:` 模块（true = 全部）；`cordis` = 允许 `@deepseek-ai/cordis`
- * 且仅 type-only（Q5 的运行期 `Service` 例外在 P2 生效）。
+ * 且仅 type-only（Q5 的运行期 `Service` 例外在 P2 生效）；`external` = 由宿主
+ * 平台注入的运行时模块白名单（client 层的 react 由模块加载器提供，打包时保持 external）。
  */
 const IMPORT_MATRIX = [
   { name: 'contract', dir: 'src/contract/', entries: [], node: [], cordis: false },
   { name: 'core', dir: 'src/core/', entries: ['src/contract/index.ts'], node: ['node:path', 'node:os'], cordis: false },
   { name: 'providers', dir: 'src/providers/', entries: ['src/contract/index.ts', 'src/core/ports.ts'], node: true, cordis: false },
   { name: 'control', dir: 'src/control/', entries: ['src/contract/index.ts', 'src/core/index.ts', 'src/core/ports.ts', 'src/providers/fs/index.ts'], node: ['node:path'], cordis: false },
+  { name: 'dsh/client', dir: 'src/dsh/client/', entries: ['src/contract/index.ts', 'src/core/ports.ts', 'src/control/index.ts', 'src/control/client-errors.ts', 'src/control/http-client.ts'], node: [], cordis: false, external: ['react'] },
   { name: 'dsh/host', dir: 'src/dsh/host/', entries: ['src/contract/index.ts', 'src/core/index.ts', 'src/core/ports.ts', 'src/providers/fs/index.ts', 'src/control/index.ts'], node: true, cordis: true },
   { name: 'entry', dir: null, entries: PUBLIC_ENTRIES, node: [], cordis: false },
 ]
@@ -182,7 +186,7 @@ export function analyzeImportMatrix(root = ROOT) {
     const rel = `src/${file}`
     const layer = layerOf(rel)
     if (layer === undefined) {
-      problems.push(`矩阵：${rel} 不在任何层（contract/core/providers/control/dsh，或入口 src/index.ts）`)
+      problems.push(`矩阵：${rel} 不在任何层（contract/core/providers/control/dsh/client/dsh/host，或入口 src/index.ts）`)
       continue
     }
     files += 1
@@ -202,6 +206,8 @@ export function analyzeImportMatrix(root = ROOT) {
         }
       } else if (layer.cordis && source === '@deepseek-ai/cordis') {
         if (imp.runtime) problems.push(`矩阵：${where} 运行期引用 "${source}"（dsh 层本票只准 type-only，Q5 的运行期例外在 P2）`)
+      } else if (Array.isArray(layer.external) && layer.external.includes(source)) {
+        // 平台注入的运行时模块（client 层 react），打包时保持 external。
       } else {
         problems.push(`矩阵：${where} 引用外部包 "${source}"（${layer.name} 层不准依赖任何包）`)
       }
@@ -319,10 +325,14 @@ function selfTest() {
       put('src/dsh/host/index.ts', 'export * from \'./plugin.ts\'\n')
       put('src/index.ts', 'export { A } from \'./contract/index.ts\'\n')
       check('matrix 干净四层树应零违规', checkImportMatrix(mtmp).length === 0)
+      put('src/control/client-errors.ts', 'export const e = 1\n')
+      put('src/dsh/client/index.ts', 'import { e } from \'../../control/client-errors.ts\'\nimport { createElement } from \'react\'\nexport function apply(): unknown { return createElement(\'div\', null, e) }\n')
+      check('matrix client 层允许平台 react 与 client-errors 子入口', checkImportMatrix(mtmp).length === 0)
       const violation = (name, file, content, needle) => {
         put(file, content)
         check(name, checkImportMatrix(mtmp).some((p) => p.includes(needle)))
       }
+      violation('matrix client 层引用 node:fs 应报错', 'src/dsh/client/bad-node.ts', 'import { readFileSync } from \'node:fs\'\n', 'bad-node.ts:1')
       violation('matrix core+node:fs 应报错', 'src/core/catalog/bad-fs.ts', 'import { readFileSync } from \'node:fs\'\n', 'bad-fs.ts:1')
       violation('matrix core 走 providers 深路径应报错', 'src/core/catalog/bad-deep.ts', 'import { r } from \'../../../providers/fs/index.ts\'\n', 'bad-deep.ts:1')
       violation('matrix providers type-only cordis 应报错', 'src/providers/fs/bad-cordis.ts', 'import type { Context } from \'@deepseek-ai/cordis\'\n', 'bad-cordis.ts:1')
