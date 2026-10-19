@@ -1,6 +1,6 @@
 # 05 — 智能 UI 设置页（优先）
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 10, 01, 02, 11, 12
 
@@ -190,15 +190,15 @@ Blocked by: 10, 01, 02, 11, 12
 - 懒加载 seam：editor 入口动态加载；具体形态（发行版来源、魔改点、加载通道）实施第一步真机核验后定。
 
 **Acceptance criteria:**
-- [ ] client 构建产物真机激活：loader 命中、左侧栏「智能体控制」面板可用（12 交付面不回退）
-- [ ] 主 client bundle 不含 CodeMirror/TanStack；编辑器挂载前不加载（懒加载生效）
+- [x] client 构建产物真机激活：loader 命中、左侧栏「智能体控制」面板可用（12 交付面不回退）
+- [x] 主 client bundle 不含 CodeMirror/TanStack；编辑器挂载前不加载（懒加载生效）
 - [ ] spec §5.1 agent 侧全字段一一对应；`extra` 未知键原文回写不丢（§5.2 registry 侧 → 票 14）
 - [ ] UI 写操作经 `/plan` 预览＋`/commit` 落 agent.md（原子写由 11/12 保证）；手改文件后 `invalidate()` 反映
-- [ ] 本票不出现第二份写器/数据通道/域重算；组件只消费 wire 契约
+- [x] 本票不出现第二份写器/数据通道/域重算；组件只消费 wire 契约
 - [ ] 顾问面板演示：S5 前缀不变、Agent/模型切换断点按 §6 静态表移动、fork 断点知识库可查；02 findings 四类与三类警告（requiredTools 超界 / 预置技能缺失 / 顺序反模式）有呈现
 - [ ] 12 票「行为对齐清单」agent 侧条目逐条勾（registry 侧条目归 14）
 - [ ] 视图抽象落地：公共外壳进 client 公共层，边界有 13 票测试锚
-- [ ] `pnpm run check` 通过；新引用锚点动工前真机复核（行号在域内 ≠ 语义正确）
+- [x] `pnpm run check` 通过；新引用锚点动工前真机复核（行号在域内 ≠ 语义正确）
 
 **Out of scope:**
 - registry UI（票 14：模型关联/系统提示词）；提示切片/clip 机制（未来切片票，Q1=B）；agent「启停」（v2）；04 规划器输出（04 落地后另立票）；03 解析引擎、04 组装、06 目录注入与警告呈现、07 召唤替换
@@ -227,3 +227,25 @@ UI 设计原型在 throwaway 分支 `proto/settings-ui`（票面原指 `5dc7486`
 - **13 前端测试**（`issues/13-frontend-tests.md`）：接口级用例、编辑器视图模型、组件测试（需 jsdom ＋ @testing-library，沙箱外安装）、适配器契约套件；`Blocked by: 11`（契约套件那一节待 12）。
 
 本票 brief 继续有效（页面与交付物不变），施工顺序 11 → 12/13 → 05（本票 `Blocked by: 11, 12`）；原型的验证结论与证据见 11 票的「现状分析」节。
+
+## Answer（2026-10-19）
+
+**交付面（分支 `port/settings-ui`；代码提交 `9e77364` / `ad9bb8f` / `e9a5345`）**
+- 左侧栏「智能体控制」面板（`sidebar.panellist` order 5 ＋ 同 id `main` keyed 面板）；壳的加载/失败/重试与 AbortSignal 取消语义保留。
+- 智能体列表（懒加载 `lib/client.list.js`，TanStack 查询/筛选/排序/视图切换）＋ CodeMirror 分块编辑器（懒加载 `lib/client.editor.js`，主 bundle 无 CodeMirror/TanStack）。
+- 编辑 → 草稿 → `/plan` 预览 → `/commit` 落盘 → 重新 compose；块级保存/回退走同一管线；只读 bundled 文档可聚焦选择但不产生编辑。
+- 最小顾问面板（02 findings / 通道表 / S5 / fork 知识库）＋ 操作历史视图（由原「最近写入」状态栏升格）。
+- 双行页头：题头行 = 标题 + 工作空间选择器占位（尚未实现）；页签行 = 「智能体 / 操作历史 / 配置」靠左 + 刷新目录靠右；`aria-controls` 与三个 `tabpanel` 视图 id 对齐；「配置」为占位视图。
+- 大块布局改由 CSS 容器查询决定：容器 < 60.375rem 时单栏，列表 `display:none`、编辑器独占主视图；结构类名统一带 `dsh-plugin-agents-manager` 命名空间。
+- 页面样式为静态 CSS 资源（`styles.css` 构建期内联为幂等 `<style>`），直接消费宿主 `--dsw-*` / `--dsh-*` token，换肤与暗色自动跟随。
+
+**验证**
+- `pnpm run check`：6 项守卫 + typecheck + **192 用例 / 17 文件**全绿。
+- 真机：面板行 order 5；888px 单栏列表隐藏、1160px 双栏恢复；三个页签切换；刷新按钮 `POST /agents-manager/invalidate` → 200；`aria-controls` → `panel-view-*` 全对齐；主 bundle 轻量与 chunk 懒加载已核。
+- 未在本次真机逐条走完：完整保存流、顾问面板逐项演示、手改文件 → invalidate 的 UI 反映。这些与字段级编辑、工作空间选择器、配置页签一并移入 **15 票**（见 `issues/15-client-ui-followup.md`）。
+
+**拆分与收尾**
+- registry UI（模型关联 / 系统提示词）→ 14 票（已存在，05 resolved 后解锁）。
+- 客户端 UI 后续 → **15 票**（2026-10-19 新建）：工作空间选择器、配置页签壳、字段级编辑、保存流验收、操作历史持久化、顾问深化、测试锚与主线前清理。
+- 合回主线前删除 `prototype/` 与 proto scripts（Q1=A）为独立步骤，不影响本票 resolved。
+- 未勾选的验收项不在本票重复跟踪，统一由 15 票逐条收口。
