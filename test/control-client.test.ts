@@ -72,7 +72,7 @@ function adapters(): AdapterPair {
   return {
     name: 'memory/http',
     memory: createMemoryControlClient(memoryCore),
-    http: createHttpControlClient({ baseUrl: 'http://host/agents-manager', fetchImpl: bridge(httpCore), cwd: PROJECT }),
+    http: createHttpControlClient({ baseUrl: 'http://host/agent-atelier', fetchImpl: bridge(httpCore), cwd: PROJECT }),
     memoryCore,
     httpCore,
   }

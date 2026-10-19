@@ -1,5 +1,5 @@
 /**
- * 页面样式作为静态资源导入（不是 CSS Modules：全部规则自挂 .agents-manager-page）。
+ * 页面样式作为静态资源导入（不是 CSS Modules：全部规则自挂 .agent-atelier-page）。
  *
  * 发布产物（scripts/build-client.mjs）会把 .css 内联成「加载即注入」的模块，
  * 并导出幂等的 ensure()——宿主重建 head 后可以补注入一次。

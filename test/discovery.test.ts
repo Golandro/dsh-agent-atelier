@@ -25,7 +25,7 @@ import type { ProviderControl } from '../src/contract/index.ts'
 let tmp = ''
 
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), 'agents-manager-discovery-'))
+  tmp = mkdtempSync(join(tmpdir(), 'agent-atelier-discovery-'))
 })
 
 afterEach(() => {

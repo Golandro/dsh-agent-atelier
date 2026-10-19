@@ -78,7 +78,7 @@ const DESCRIPTION_EDIT = {
 describe('wire dispatcher', () => {
   it('GET /state returns the snapshot with cwd and scan token', async () => {
     const core = createCore()
-    const result = await call(core, '/agents-manager/state', {
+    const result = await call(core, '/agent-atelier/state', {
       search: new URLSearchParams({ cwd: PROJECT }),
       headers: {},
       scanId: 7,
@@ -93,21 +93,21 @@ describe('wire dispatcher', () => {
 
   it('POST /compose returns the domain document and 404s an unknown agent', async () => {
     const core = createCore()
-    const ok = await call(core, '/agents-manager/compose', { body: { agentName: 'alpha', cwd: PROJECT } })
+    const ok = await call(core, '/agent-atelier/compose', { body: { agentName: 'alpha', cwd: PROJECT } })
     expect(ok.status).toBe(200)
     const body = ok.body as { cwd: string; document: { agentName: string; frontmatterText: string } }
     expect(body.cwd).toBe(PROJECT)
     expect(body.document.agentName).toBe('alpha')
     expect(body.document.frontmatterText).toContain('description: first')
 
-    const missing = await call(core, '/agents-manager/compose', { body: { agentName: 'ghost', cwd: PROJECT } })
+    const missing = await call(core, '/agent-atelier/compose', { body: { agentName: 'ghost', cwd: PROJECT } })
     expect(missing.status).toBe(404)
     expect((missing.body as { error: { code: string } }).error.code).toBe('not-found')
   })
 
   it('POST /plan previews writes without touching the disk', async () => {
     const core = createCore()
-    const result = await call(core, '/agents-manager/plan', { body: { edits: [DESCRIPTION_EDIT], cwd: PROJECT } })
+    const result = await call(core, '/agent-atelier/plan', { body: { edits: [DESCRIPTION_EDIT], cwd: PROJECT } })
 
     expect(result.status).toBe(200)
     const plan = (result.body as { plan: { entries: { file: string; content: string }[]; rejections: unknown[] } }).plan
@@ -120,7 +120,7 @@ describe('wire dispatcher', () => {
 
   it('POST /commit writes the file and returns the per-file report', async () => {
     const core = createCore()
-    const result = await call(core, '/agents-manager/commit', { body: { edits: [DESCRIPTION_EDIT], cwd: PROJECT } })
+    const result = await call(core, '/agent-atelier/commit', { body: { edits: [DESCRIPTION_EDIT], cwd: PROJECT } })
 
     expect(result.status).toBe(200)
     const report = (result.body as { report: { results: unknown[] } }).report
@@ -130,7 +130,7 @@ describe('wire dispatcher', () => {
 
   it('POST /commit refuses a plan with rejected edits as 400 and writes nothing', async () => {
     const core = createCore()
-    const result = await call(core, '/agents-manager/commit', {
+    const result = await call(core, '/agent-atelier/commit', {
       body: { edits: [{ ...DESCRIPTION_EDIT, agentName: 'ghost' }], cwd: PROJECT },
     })
 
@@ -149,7 +149,7 @@ describe('wire dispatcher', () => {
         return { results: [{ ok: false, file: DOC, code: 'conflict', message: 'file changed on disk' }] }
       },
     }
-    const result = await call(conflicting, '/agents-manager/commit', { body: { edits: [DESCRIPTION_EDIT], cwd: PROJECT } })
+    const result = await call(conflicting, '/agent-atelier/commit', { body: { edits: [DESCRIPTION_EDIT], cwd: PROJECT } })
 
     expect(result.status).toBe(409)
     expect((result.body as { error: { code: string } }).error.code).toBe('conflict')
@@ -157,13 +157,13 @@ describe('wire dispatcher', () => {
 
   it('POST /registry applies a tuning edit and maps unknown models to 404', async () => {
     const core = createCore()
-    const ok = await call(core, '/agents-manager/registry', {
+    const ok = await call(core, '/agent-atelier/registry', {
       body: { edit: { kind: 'setAvailable', modelName: 'gpt5', available: false }, cwd: PROJECT },
     })
     expect(ok.status).toBe(200)
     expect(core.files.get(REGISTRY)).toContain('available: false')
 
-    const missing = await call(core, '/agents-manager/registry', {
+    const missing = await call(core, '/agent-atelier/registry', {
       body: { edit: { kind: 'setAvailable', modelName: 'nope', available: false }, cwd: PROJECT },
     })
     expect(missing.status).toBe(404)
@@ -172,7 +172,7 @@ describe('wire dispatcher', () => {
 
   it('POST /invalidate answers with a fresh scan token', async () => {
     const core = createCore()
-    const result = await call(core, '/agents-manager/invalidate', { body: {}, scanId: 3 })
+    const result = await call(core, '/agent-atelier/invalidate', { body: {}, scanId: 3 })
     expect(result.status).toBe(200)
     expect(result.body).toEqual({ ok: true, scanId: 3 })
   })
@@ -182,7 +182,7 @@ describe('wire dispatcher', () => {
     const oversized = await dispatchControlRequest({
       control: core,
       method: 'POST',
-      pathname: '/agents-manager/commit',
+      pathname: '/agent-atelier/commit',
       search: new URLSearchParams(),
       headers: JSON_HEADERS,
       bodyText: 'x'.repeat(MAX_BODY_BYTES + 1),
@@ -190,19 +190,19 @@ describe('wire dispatcher', () => {
     })
     expect(oversized.status).toBe(413)
 
-    const noMarker = await call(core, '/agents-manager/commit', {
+    const noMarker = await call(core, '/agent-atelier/commit', {
       body: { edits: [] },
       headers: { 'content-type': 'application/json' },
     })
     expect(noMarker.status).toBe(403)
 
-    const wrongType = await call(core, '/agents-manager/commit', {
+    const wrongType = await call(core, '/agent-atelier/commit', {
       body: { edits: [] },
       headers: { 'content-type': 'text/plain', [CLIENT_MARKER_HEADER]: '1' },
     })
     expect(wrongType.status).toBe(415)
 
-    const wrongMethod = await call(core, '/agents-manager/compose', { method: 'GET' })
+    const wrongMethod = await call(core, '/agent-atelier/compose', { method: 'GET' })
     expect(wrongMethod.status).toBe(405)
   })
 
@@ -211,7 +211,7 @@ describe('wire dispatcher', () => {
     const malformed = await dispatchControlRequest({
       control: core,
       method: 'POST',
-      pathname: '/agents-manager/plan',
+      pathname: '/agent-atelier/plan',
       search: new URLSearchParams(),
       headers: JSON_HEADERS,
       bodyText: '{',
@@ -220,7 +220,7 @@ describe('wire dispatcher', () => {
     expect(malformed.status).toBe(400)
     expect((malformed.body as { error: { code: string } }).error.code).toBe('invalid-request')
 
-    const array = await call(core, '/agents-manager/plan', { body: [] })
+    const array = await call(core, '/agent-atelier/plan', { body: [] })
     expect(array.status).toBe(400)
   })
 
@@ -228,7 +228,7 @@ describe('wire dispatcher', () => {
     const core = createCore()
     const controller = new AbortController()
     controller.abort()
-    const result = await call(core, '/agents-manager/state', {
+    const result = await call(core, '/agent-atelier/state', {
       search: new URLSearchParams({ cwd: PROJECT }),
       headers: {},
       signal: controller.signal,
@@ -259,7 +259,7 @@ describe('host row wiring', () => {
   it('applies the connection trust fence before dispatching', async () => {
     const res = fakeResponse()
     await handleControlRequest(
-      { method: 'GET', url: '/agents-manager/state', headers: {} } as unknown as IncomingMessage,
+      { method: 'GET', url: '/agent-atelier/state', headers: {} } as unknown as IncomingMessage,
       res.response,
       {
         control: createCore(),

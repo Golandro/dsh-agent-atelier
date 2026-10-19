@@ -18,7 +18,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
-const PACKAGE_NAME = 'dsh-plugin-agents-manager'
+const PACKAGE_NAME = 'dsh-agent-atelier'
 const CHUNK_NAME_RE = /^client\.[A-Za-z0-9][A-Za-z0-9._-]*\.js$/
 
 let main = ''

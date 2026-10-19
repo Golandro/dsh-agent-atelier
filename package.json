@@ -1,8 +1,8 @@
 {
-  "name": "dsh-plugin-agents-manager",
+  "name": "dsh-agent-atelier",
   "version": "0.1.0",
   "private": true,
-  "description": "Agents Manager: an installable Cordis bundle that discovers and serves agent.md definitions as the agentRegistry service.",
+  "description": "Agent Atelier: an installable Cordis bundle that discovers and serves agent.md definitions as the agentRegistry service.",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

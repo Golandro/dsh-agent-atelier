@@ -21,9 +21,9 @@ import type {
 } from './types.ts'
 
 /** Route namespace registered by `src/dsh/host/ui-host.ts`. */
-const DEFAULT_BASE_URL = 'agents-manager'
+const DEFAULT_BASE_URL = 'agent-atelier'
 /** Marker header every mutation must carry; the host refuses without it. */
-const CLIENT_MARKER_HEADER = 'x-dsh-agents-manager'
+const CLIENT_MARKER_HEADER = 'x-dsh-agent-atelier'
 
 /** Construction options of the HTTP control client. */
 export interface HttpControlClientOptions {

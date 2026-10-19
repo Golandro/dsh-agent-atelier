@@ -50,7 +50,7 @@ export function applyUiHost(ctx: Context): void {
   const webServer = ctx.get('webServer') as HostWebServer | undefined
   if (control === undefined || webServer === undefined) {
     const missing = control === undefined ? AGENT_CONTROL_SERVICE : 'webServer'
-    ctx.logger.warn(`agents-manager ui-host: ${missing} is not available; control routes are not mounted`)
+    ctx.logger.warn(`agent-atelier ui-host: ${missing} is not available; control routes are not mounted`)
     return
   }
   const connection = optionalConnection(ctx)

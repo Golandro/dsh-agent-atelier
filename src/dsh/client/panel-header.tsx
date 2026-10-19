@@ -2,7 +2,7 @@
  * 插件面板头部（票 05）。
  *
  * 两行：
- *   题头行 = 标题「智能体控制」+ 右侧工作空间选择器占位（尚未实现）；
+ *   题头行 = 标题「智能体工坊」+ 右侧工作空间选择器占位（尚未实现）；
  *   页签行 = 主要页签（智能体 / 操作历史 / 配置）靠左，刷新目录靠右。
  * 刷新中的忙碌态与失败信息也收在页签行，避免再占一条状态栏。
  */
@@ -31,7 +31,7 @@ export function PanelHeader(props: PanelHeaderProps): ReactNode {
 
   return h('header', { className: nsClass('panel-header') },
     h('div', { className: 'panel-header-top' },
-      h('div', { className: 'panel-header-title' }, '智能体控制'),
+      h('div', { className: 'panel-header-title' }, '智能体工坊'),
       h('button',
         {
           type: 'button',
@@ -44,7 +44,7 @@ export function PanelHeader(props: PanelHeaderProps): ReactNode {
         h('span', { className: 'panel-workspace-caret', 'aria-hidden': true }, '▾'))),
 
     h('div', { className: 'panel-header-tabs-row' },
-      h('div', { className: 'panel-tabs', role: 'tablist', 'aria-label': '智能体控制视图' },
+      h('div', { className: 'panel-tabs', role: 'tablist', 'aria-label': '智能体工坊视图' },
         TABS.map((tab) => h('button',
           {
             key: tab.id,

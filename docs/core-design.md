@@ -98,7 +98,7 @@ dsh/host                                         dsh/client
 | `summon` | `summon_agent` 工具 ＋ 原生替换 | — | `agentOrchestrator`、`tools`、`subagents` |
 | `catalog`（06） | 目录注入 digest ＋ 工具警告 | — | `agentRegistry`、`aliasRegistry`、`tools` |
 | `ui-host`（12） | HTTP exact route | — | `agentControl`；可选 `agentOrchestrator`、`webServer` |
-| `ui-client` | 左侧栏「智能体控制」面板（`sidebar.panellist` 行 ＋ 同 id `main` keyed 面板） | — | HTTP fetch（12 的 route；客户端不拿宿主服务） |
+| `ui-client` | 左侧栏「智能体工坊」面板（`sidebar.panellist` 行 ＋ 同 id `main` keyed 面板） | — | HTTP fetch（12 的 route；客户端不拿宿主服务） |
 
 行是**能力边界**，不是文件边界；一个行可以很小（只做注册）。**同一个服务只 provide 一次**：patch 在 `src/index.ts` 的 all-in-one 行与 granular 行之间二选一，不能同时插入。`core` ＋ `providers/fs` 已随票 18 落地（两行同票 active，HMR 才能整组替换）；`control` / `summon` / `catalog` / `ui-*` / `providers/default` 随 11/12/07/06/05 落地，期间 `src/index.ts` 保持 all-in-one 兼容。
 
@@ -330,7 +330,7 @@ interface ProviderLookupOptions {
 - `summon`（07）：注册 `summon_agent` tool；把 `PreparedAgent` 翻译成 `ctx.subagents.start` 的 request；`system-prompt/assemble` 过滤原生工具；链耗尽 → tool isError；能力降级 → 警告放行。
 - `catalog`（06）：pre-step digest；last-digest / offered message id 等会话状态留在本行；core 只渲染条目与算哈希。
 - `ui-host`（12）：`ctx.webServer` exact route；校验请求 → 调 `agentControl` → 序列化；错误 400/404/409/5xx；请求上限。
-- `ui-client`：左侧栏「智能体控制」面板（`sidebar.panellist` 行 ＋ 同 id `main` keyed 面板，2026-10-19 裁决）；构造 HTTP `AgentDocPort`，创建 session，渲染 `<AgentControlPage>`；加载 / 失败 / 重试兜底。
+- `ui-client`：左侧栏「智能体工坊」面板（`sidebar.panellist` 行 ＋ 同 id `main` keyed 面板，2026-10-19 裁决）；构造 HTTP `AgentDocPort`，创建 session，渲染 `<AgentControlPage>`；加载 / 失败 / 重试兜底。
 - persona 委托原生 `deployment:persona-prefix`，不重复发明。
 
 **接口不变量**：
@@ -445,7 +445,7 @@ src/
     writer/                # Node 原子写
   dsh/
     host/                  # 共享结构读取 + 各能力行的 apply
-    client/                # 左侧栏「智能体控制」面板入口（12 后）
+    client/                # 左侧栏「智能体工坊」面板入口（12 后）
   ui-core/                 # port / session / view models（12 后）
   ui-react/                # 组件库（05/13）
 test/
@@ -503,7 +503,7 @@ test/
 
 2026-10-19，维护者指示：
 
-- **UI 注册面从 `settings.section` 改为左侧栏**：`sidebar.panellist` 行 ＋ 同 id `main` keyed 面板（与「插件」同列；命名「智能体控制」，`order: 5`，介于 `plugins` 0 与 `schedules` 10 之间）；组件 `SettingsPage` 更名 `AgentControlPage`。票 12 的 client 入口已按此迁移；票 05 编辑器照此注册面实施。
+- **UI 注册面从 `settings.section` 改为左侧栏**：`sidebar.panellist` 行 ＋ 同 id `main` keyed 面板（与「插件」同列；命名「智能体工坊」，`order: 5`，介于 `plugins` 0 与 `schedules` 10 之间）；组件 `SettingsPage` 更名 `AgentControlPage`。票 12 的 client 入口已按此迁移；票 05 编辑器照此注册面实施。
 
 无待决项。
 

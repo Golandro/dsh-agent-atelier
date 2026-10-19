@@ -1,5 +1,5 @@
 /**
- * 「智能体控制」面板壳（票 05 收口件）。
+ * 「智能体工坊」面板壳（票 05 收口件）。
  *
  * 注册：经 `ctx.slots` 占两个座——`sidebar.panellist` 行（与 Plugins 按钮同一
  * 全局面板列表，order 5 落在 plugins 0 与 schedules 10 之间）+ 同 id 的根级
@@ -14,7 +14,7 @@
  *
  * 作用域根：AgentsWorkspace 返回页头（智能体 / 操作历史 / 配置页签 + 刷新）与
  * `.agents-page` / 操作历史两个保持挂载的视图；本壳负责渲染
- * `.agents-manager-page` 基座——styles.css 的全部前缀化规则、`--dsh-*`
+ * `.agent-atelier-page` 基座——styles.css 的全部前缀化规则、`--dsh-*`
  * token 与 pane.tsx 拖拽态的 closest() 查找都挂在这层上。
  *
  * 样式：`./styles.css` 是普通静态资源（styles.css → 构建期内联为一次幂等
@@ -36,10 +36,10 @@ import type { ControlSnapshot } from '../../control/index.ts'
 import type { ReactNode } from 'react'
 
 /** 侧栏行 id 与对应 `main` 面板键：同一字符串，两个座。 */
-const PANEL_ID = 'agents-manager'
+const PANEL_ID = 'agent-atelier'
 
 /** 测试锚点：壳各态共用的 DOM 查询入口。 */
-const PAGE_TEST_ID = 'agents-manager-page'
+const PAGE_TEST_ID = 'agent-atelier-page'
 
 /**
  * Owner 侧的 `sidebar.panellist` 行份额：请求的方形边长与是否选中
@@ -80,13 +80,13 @@ export interface ClientContext {
 export const inject = ['slots'] as const
 
 /**
- * 注册「智能体控制」面板：左栏一行（紧邻 Plugins）+ 该行选中的中央 `main`
+ * 注册「智能体工坊」面板：左栏一行（紧邻 Plugins）+ 该行选中的中央 `main`
  * 面板。页面样式由 `./styles.css` 的模块加载时注入器负责（构建期静态内联）。
  */
 export function apply(ctx: ClientContext): void {
   ctx.slots.inject('sidebar.panellist', () =>
     ctx.slots.register(
-      { name: 'sidebar.panellist', id: PANEL_ID, order: 5, label: '智能体控制' },
+      { name: 'sidebar.panellist', id: PANEL_ID, order: 5, label: '智能体工坊' },
       AgentControlIcon,
     ),
   )

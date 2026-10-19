@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url'
 import { build } from 'vite'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const PACKAGE_NAME = 'dsh-plugin-agents-manager'
+const PACKAGE_NAME = 'dsh-agent-atelier'
 const STAGE_DIR = join(ROOT, 'lib/.chunk-build')
 
 const esbuildJsx = { jsx: 'transform', jsxFactory: 'h' }
@@ -69,14 +69,14 @@ window.__ModuleLoader__.load({
 const editorCode = await buildChunk({
   entry: 'client-editor/index.ts',
   formats: ['iife'],
-  globalName: 'AgentsManagerEditor',
+  globalName: 'AgentAtelierEditor',
   outDir: join(STAGE_DIR, 'editor'),
 })
 const editorBundle = wrapChunk({
   chunkFile: 'client.editor.js',
   factoryBody: `() => {
 ${editorCode}
-return AgentsManagerEditor;
+return AgentAtelierEditor;
 }`,
 })
 

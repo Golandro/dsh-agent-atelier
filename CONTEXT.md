@@ -1,6 +1,6 @@
-# Agents Manager
+# Agent Atelier
 
-DSH 插件 agents-manager 的领域词汇：一个面向用户的「Agent（专家）」层——agent 文档定义人设与模型选用，与模型别名层正交。术语随 grilling 裁决落地。
+DSH 插件 Agent Atelier（npm 包 `dsh-agent-atelier`）的领域词汇：一个面向用户的「Agent（专家）」层——agent 文档定义人设与模型选用，与模型别名层正交。术语随 grilling 裁决落地。
 
 ## Language
 

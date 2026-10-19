@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const PACKAGE_NAME = 'dsh-plugin-agents-manager'
+const PACKAGE_NAME = 'dsh-agent-atelier'
 const CLIENT_DIR = join(ROOT, 'src/dsh/client')
 
 /** Transpile one source file to CommonJS without resolving its imports. */

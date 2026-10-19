@@ -10,7 +10,7 @@ import type { AgentFileSystem } from '../src/core/ports.ts'
 let tmp = ''
 
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), 'agents-manager-source-'))
+  tmp = mkdtempSync(join(tmpdir(), 'agent-atelier-source-'))
 })
 
 afterEach(() => {

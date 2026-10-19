@@ -1,4 +1,4 @@
-# agents-manager bundle 层：插入 Agents Manager 宿主插件条目（票 18 起核心/Provider 两行，票 12 增 ui-host 行）。
+# agent-atelier bundle 层：插入 Agent Atelier 宿主插件条目（票 18 起核心/Provider 两行，票 12 增 ui-host 行）。
 # 由 `dsh plugin add` / plugin_manager install_bundle 自动装配（包声明 dsh.bundle.patch），
 # 无需手动编辑 profile 的任何文件；remove_bundle 时自动移除。
 # 所有行必须同时 active：HMR 把 bundle 的所有 row 当 required，任一 pending 即激活失败。
@@ -6,17 +6,17 @@
 # provider 行 inject agentProviders，注册四个文件根 + bundled 的 AgentSourceProvider。
 # ui-host 行必须用「裸包名」（不能是子路径行）：client-modules 只扫描裸包名/路径型 entry，
 # 子路径行永远不算 client row（packages/client/modules/src/index.ts:893-896）；它的
-# config.role = ui-host 让包根 apply 只注册 /agents-manager/* 路由，不重复挂 core/provider。
+# config.role = ui-host 让包根 apply 只注册 /agent-atelier/* 路由，不重复挂 core/provider。
 - insert:
-    - id: agents-manager-core
-      name: 'dsh-plugin-agents-manager/core'
+    - id: agent-atelier-core
+      name: 'dsh-agent-atelier/core'
       config: {}
-    - id: agents-manager-provider-fs
-      name: 'dsh-plugin-agents-manager/providers/fs'
+    - id: agent-atelier-provider-fs
+      name: 'dsh-agent-atelier/providers/fs'
       inject: ['agentProviders']
       config: {}
-    - id: agents-manager-ui
-      name: 'dsh-plugin-agents-manager'
+    - id: agent-atelier-ui
+      name: 'dsh-agent-atelier'
       inject: ['webServer', 'agentControl']
       config:
         role: ui-host

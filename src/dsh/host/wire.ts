@@ -1,19 +1,19 @@
 /**
- * The agents-manager wire contract (ticket 12): request validation, the six
+ * The agent-atelier wire contract (ticket 12): request validation, the six
  * exact routes, per-edit rejection semantics, and the status mapping. The
  * handler only validates the envelope → calls the ticket-11 control core →
  * serializes the result; no domain rule is re-implemented here.
  *
  * Frozen shapes:
- *   GET  /agents-manager/state?cwd=…        → { cwd, scanId, snapshot }
- *   POST /agents-manager/compose {agentName}→ { cwd, document }
- *   POST /agents-manager/plan {edits[]}     → { cwd, plan } (rejections are data)
- *   POST /agents-manager/commit {edits[]}   → { cwd, report } | 400 {error, rejections}
- *   POST /agents-manager/registry {edit}    → { cwd, report }
- *   POST /agents-manager/invalidate         → { ok: true, scanId }
+ *   GET  /agent-atelier/state?cwd=…        → { cwd, scanId, snapshot }
+ *   POST /agent-atelier/compose {agentName}→ { cwd, document }
+ *   POST /agent-atelier/plan {edits[]}     → { cwd, plan } (rejections are data)
+ *   POST /agent-atelier/commit {edits[]}   → { cwd, report } | 400 {error, rejections}
+ *   POST /agent-atelier/registry {edit}    → { cwd, report }
+ *   POST /agent-atelier/invalidate         → { ok: true, scanId }
  *
  * Every mutation requires `content-type: application/json` and the
- * `x-dsh-agents-manager: 1` marker header; the transport also applies the
+ * `x-dsh-agent-atelier: 1` marker header; the transport also applies the
  * host connection's origin/host fence before dispatch.
  */
 import { Buffer } from 'node:buffer'
@@ -24,7 +24,7 @@ import { planDirtyEdits, statusForWriteReport, throwIfAborted } from '../../cont
 import type { ControlCore, DocumentEdit, FrontmatterField, RegistryEdit, WriteReport } from '../../control/index.ts'
 
 /** Root of the plugin's exact route namespace. */
-export const CONTROL_BASE_PATH = '/agents-manager'
+export const CONTROL_BASE_PATH = '/agent-atelier'
 
 /** Exact paths registered on `ctx.webServer`; one route per operation. */
 export const CONTROL_ROUTE_PATHS = [
@@ -51,7 +51,7 @@ export const MAX_FIELD_ITEMS = 64
 /** Largest cwd accepted. */
 export const MAX_CWD_LENGTH = 4096
 /** Mutation marker header; browser clients must send it (CSRF defence in depth). */
-export const CLIENT_MARKER_HEADER = 'x-dsh-agents-manager'
+export const CLIENT_MARKER_HEADER = 'x-dsh-agent-atelier'
 /** The only accepted marker value. */
 export const CLIENT_MARKER_VALUE = '1'
 

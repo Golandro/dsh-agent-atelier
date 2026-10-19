@@ -23,14 +23,14 @@ function scratchDir(prefix: string): string {
 
 /** A throwaway `$DSH_HOME` with an optional global registry.yaml layer. */
 function homeDir(layer?: string): string {
-  const root = scratchDir('agents-manager-home-')
+  const root = scratchDir('agent-atelier-home-')
   if (layer !== undefined) writeLayer(join(root, 'agents', 'registry.yaml'), layer)
   return root
 }
 
 /** A throwaway workspace with a `.git` marker and an optional project layer. */
 function workspaceDir(layer?: string): string {
-  const root = scratchDir('agents-manager-ws-')
+  const root = scratchDir('agent-atelier-ws-')
   mkdirSync(join(root, '.git'), { recursive: true })
   if (layer !== undefined) writeLayer(join(root, '.dsh', 'agents', 'registry.yaml'), layer)
   return root

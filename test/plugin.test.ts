@@ -40,7 +40,7 @@ async function mounted(): Promise<{
 
 /** One throwaway directory under the OS temp dir. */
 function scratchDir(): string {
-  return mkdtempSync(join(tmpdir(), 'agents-manager-plugin-'))
+  return mkdtempSync(join(tmpdir(), 'agent-atelier-plugin-'))
 }
 
 /** The provider row exactly as the loader mounts it: a plugin object with `inject` + the module's `apply` entry. */
@@ -48,7 +48,7 @@ function providerRow(): { inject: readonly string[]; apply: typeof providerRowAp
   return { inject: [AGENT_PROVIDERS_SERVICE], apply: providerRowApply }
 }
 
-describe('agents-manager plugin', () => {
+describe('agent-atelier plugin', () => {
   it('registers the lazy agent registry on the host context', async () => {
     const { registry } = await mounted()
 

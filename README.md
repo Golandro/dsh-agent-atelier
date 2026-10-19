@@ -1,4 +1,4 @@
-# Agents Manager
+# Agent Atelier
 
 Installable Cordis bundle for the DeepSeek Harness profile that manages
 `agent.md` definitions. Delivered so far: **ticket 01** — lazy agent discovery
@@ -13,7 +13,7 @@ assembly belong to tickets 03–07.
 
 | Item | Value |
 | --- | --- |
-| Package | `dsh-plugin-agents-manager` |
+| Package | `dsh-agent-atelier` |
 | Bundle patch | `cordis.patch.yml` (`insert:` one Host row) |
 | Host entry | `apply(ctx)` in `src/dsh/host/plugin.ts` (re-exported by the compat entry `src/index.ts`) |
 | Service key | `agentRegistry` |
@@ -95,4 +95,4 @@ plugin_manager { action: "install_bundle", target: "/home/gg/dsh-plugin/agents-m
 they do **not** appear in the Host service directory — prove the registration
 point with the loader entry plus `test/plugin.test.ts`, not by searching
 `Service.listService` (`docs/agents/harness-facts.md`). Rollback is
-`plugin_manager { action: "remove_bundle", target: "dsh-plugin-agents-manager" }`.
+`plugin_manager { action: "remove_bundle", target: "dsh-agent-atelier" }`.

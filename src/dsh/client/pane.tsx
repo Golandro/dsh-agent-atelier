@@ -10,7 +10,7 @@
  *     JS 只保留拖拽宽度的夹取，断点常量与 CSS 由测试校验同步。
  *
  * 与原型的偏差：拖拽中的 `is-resizing` 类不再挂 body，而是挂到最近的
- * `.agents-manager-page` 根元素上，让「拖拽时全局禁选」的样式留在插件作用域内，
+ * `.agent-atelier-page` 根元素上，让「拖拽时全局禁选」的样式留在插件作用域内，
  * 不污染宿主壳。
  */
 import { createElement as h, useLayoutEffect, useState } from 'react'
@@ -125,7 +125,7 @@ export function PaneSplitter(props: PaneSplitterProps): ReactNode {
 
   const startResize = (e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault()
-    // 拖拽态挂页面根而非 body：样式经 .agents-manager-page 作用域生效。
+    // 拖拽态挂页面根而非 body：样式经 .agent-atelier-page 作用域生效。
     const root = e.currentTarget.closest(`.${PAGE_ROOT_CLASS}`)
     const startX = e.clientX
     const startWidth = props.value
