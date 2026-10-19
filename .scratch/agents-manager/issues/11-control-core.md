@@ -1,6 +1,6 @@
 # 11 — 控制核心与原型收敛（深模块化，后端优先）
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Category: enhancement
 Blocked by: —
@@ -178,6 +178,14 @@ Blocked by: —
 - CodeMirror 侧的可测性阻断点已定位：StateField 构造依赖 React ref/callback（`DocumentEditor.tsx` 行 452–453），改成普通参数后该文件约 409 行可在 Node 里 headless 测（`@codemirror/state` 本身 DOM-free）——这条给 13 票用。
 - **链解析归 03，不归本票**：`modelOrder` → 别名 → 模型条目的解析、`available: false` 的跳过与沿声明顺序回退、链耗尽硬错，都是 03 票解析引擎的语义。本票的 `snapshot` 只消费其结果（链展示与 findings）；若动工时 03 尚未落地，本票**不**自行实现一套平行解析器，宁可在 UI 上显式标注「链解析待 03」。原型的三处 `available` 断言无实现支撑（见上），正是「UI 抢了引擎职责」的后果。
 - **层合并不许 UI 重算**：接通后必须删掉 UI 侧的重算（原型 `model.ts` 行 137–148），因为宿主 `ctx.aliasRegistry.getAlias` / `getModel`（`src/contract/types.ts:219`）已经解析过层；否则两份真相必然漂移。
+
+## Answer（2026-10-19）
+
+实施提交 `d977e61`（控制核心与 agent 文档写面）。六成员 `ControlCore` 按上方冻结契约落 `src/control/core.ts`；`AgentDocPort` / `createInMemoryControlCore` / `createNodeControlFileSystem` 同票交付；验收清单全绿（147 测试 / 99 锚点时点）。
+
+12 票接线轮的跨票加固：`planDirtyEdits(core, dirty, options)` 抽出为导出纯函数（`/plan` 路由与 `AgentDocPort.commit` 共用同一份「dirty → WritePlan」管线），`createAgentDocPort.commit` 改为 `core.commit(await planDirtyEdits(...))`——行为不变，消除重复实现。
+
+真机交叉验证（2026-10-19，经 12 票路由）：`plan` 预览、同值 `commit`（逐字节往返；写入器把无引号中文值规范化为带引号 YAML——值不变，属 ADR-0005 单一序列化器的既定形态）、外部手改 → `invalidate` 反映，全部按契约表现。状态转 resolved。
 
 ## Comments
 
