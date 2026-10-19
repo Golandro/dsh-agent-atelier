@@ -1,23 +1,27 @@
 #!/usr/bin/env node
 /**
- * Build the browser half (ticket 12) into the module-loader bundle the DSH
- * client scanner expects at `lib/client.js`.
+ * Build the browser half (tickets 12 + 05) into the module-loader bundle the
+ * DSH client scanner expects at `lib/client.js`.
  *
- * The repo has no out-of-tree bundler dependency (the monorepo's tsdown preset
- * is not importable from here), so the bundle is produced with the declared
- * `typescript` package: transpile the browser-safe shared modules and the client
- * entry to CommonJS, then wrap them in the same `window.__ModuleLoader__.load`
- * factory shape the in-tree preset emits. `react` stays a platform `require`;
- * the local modules are resolved by a tiny in-factory registry.
+ * The main bundle stays a light shell: no CodeMirror, no TanStack — those ship
+ * as package-local lazy chunks (`scripts/build-chunks.mjs`). This script
+ * transpiles every `src/dsh/client/*` module to CommonJS with the declared
+ * `typescript` package and wraps them in the same
+ * `window.__ModuleLoader__.load` factory shape the in-tree preset emits.
+ * `react` stays a platform `require`; local modules resolve through a tiny
+ * in-factory registry; the on-demand chunk channel (`require.async`) is
+ * forwarded into that registry so the page can lazy-load the editor and list
+ * chunks (`src/dsh/client/chunk-loader.ts`).
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { readdirSync, readFileSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import ts from 'typescript'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PACKAGE_NAME = 'dsh-plugin-agents-manager'
+const CLIENT_DIR = join(ROOT, 'src/dsh/client')
 
 /** Transpile one source file to CommonJS without resolving its imports. */
 function transpile(relativePath) {
@@ -29,25 +33,69 @@ function transpile(relativePath) {
       target: ts.ScriptTarget.ES2022,
       esModuleInterop: true,
       verbatimModuleSyntax: false,
+      jsx: relativePath.endsWith('.tsx') ? ts.JsxEmit.React : ts.JsxEmit.None,
+      jsxFactory: 'h',
       sourceMap: false,
     },
   }).outputText
 }
 
-/** Map an emitted relative require onto a local module id; fail on drift. */
-function remap(source, specifier, moduleId, expected = 1) {
-  const matches = source.split(`require("${specifier}")`).length - 1
-  if (matches !== expected) {
-    throw new Error(`expected ${expected} require("${specifier}"), found ${matches}`)
-  }
-  return source.split(`require("${specifier}")`).join(`localRequire("${moduleId}")`)
+/** Map every emitted relative require onto a local module id; fail on drift. */
+function remapLocalRequires(relativePath, source, map) {
+  const fromDir = dirname(join(ROOT, relativePath))
+  return source.replace(/require\("((?:\.\.?\/)[^"]+)"\)/g, (_whole, specifier) => {
+    const target = resolve(fromDir, specifier)
+    const moduleId = map.get(target)
+    if (moduleId === undefined) {
+      throw new Error(`${relativePath}: unexpected relative require "${specifier}" (no local module mapping)`)
+    }
+    return `localRequire(${JSON.stringify(moduleId)})`
+  })
 }
 
-const localModules = {
-  'client-errors': transpile('src/control/client-errors.ts'),
-  'http-client': remap(transpile('src/control/http-client.ts'), './client-errors.ts', 'client-errors'),
+/** All client modules under src/dsh/client, each with its registry id. */
+function collectClientModules() {
+  const files = []
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      const path = join(dir, name)
+      if (statSync(path).isDirectory()) walk(path)
+      else if (/\.(ts|tsx)$/.test(name)) files.push(path)
+    }
+  }
+  walk(CLIENT_DIR)
+  return files.sort().map((path) => ({
+    path,
+    id: relative(CLIENT_DIR, path).split('\\').join('/'),
+  }))
 }
-const entry = remap(transpile('src/dsh/client/index.ts'), '../../control/http-client.ts', 'http-client')
+
+const modules = collectClientModules()
+// Runtime control-layer imports stay limited to the two public sub-entries the
+// import matrix allows; everything else (types) is erased by the transpile.
+modules.push({ path: 'src/control/client-errors.ts', id: 'client-errors' })
+modules.push({ path: 'src/control/http-client.ts', id: 'http-client' })
+for (const module of modules) {
+  module.path = relative(ROOT, resolve(ROOT, module.path))
+}
+const idsByPath = new Map(modules.map((module) => [resolve(ROOT, module.path), module.id]))
+
+const localModules = {}
+for (const module of modules) {
+  // The chunk-loading seam is provided by the bundle itself, not the source.
+  if (module.id === 'chunk-loader.ts') {
+    localModules[module.id] = `module.exports = {
+  loadEditorChunk: () => localRequire.async('./client.editor.js'),
+  loadListChunk: () => localRequire.async('./client.list.js'),
+}`
+    continue
+  }
+  localModules[module.id] = remapLocalRequires(module.path, transpile(module.path), idsByPath)
+}
+
+const entry = localModules['index.ts']
+if (entry === undefined) throw new Error('client entry src/dsh/client/index.ts not found')
+delete localModules['index.ts']
 
 const factories = Object.entries(localModules)
   .map(([id, code]) => `  ${JSON.stringify(id)}: (module, exports, localRequire) => {\n${code}\n  },`)
@@ -70,6 +118,7 @@ function localRequire(specifier) {
   }
   return localModules[specifier];
 }
+localRequire.async = require.async;
 var module = { exports: {} };
 var exports = module.exports;
 ${entry}
@@ -79,4 +128,4 @@ return module.exports;
 
 mkdirSync(join(ROOT, 'lib'), { recursive: true })
 writeFileSync(join(ROOT, 'lib/client.js'), bundle)
-console.log(`built lib/client.js (${bundle.length} bytes)`)
+console.log(`built lib/client.js (${bundle.length} bytes, ${Object.keys(localModules).length + 1} modules)`)

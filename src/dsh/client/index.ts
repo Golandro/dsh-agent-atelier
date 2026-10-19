@@ -1,45 +1,60 @@
 /**
- * Browser half of the Agents Manager shell: the "智能体控制" left-sidebar
- * panel. Registered through `ctx.slots` as a `sidebar.panellist` row — the same
- * global-panel list the Plugins button occupies — plus the matching
- * root-scoped `main` keyed panel under the same id, which is how the sidebar
- * shell addresses the central column (owner contract in
- * `@deepseek-ai/dsh-client-ui-sidebar` `contract/slots.d.ts`; registration
- * precedent in `@deepseek-ai/dsh-client-ui-schedule`). The former
- * `settings.section` shell was replaced by maintainer decision (ticket 05,
- * 2026-10-19).
+ * 「智能体控制」面板壳（票 05 收口件）。
  *
- * The HTTP control client it consumes lives in `src/control/http-client.ts`
- * (Node-free), so the in-memory and HTTP adapters share one contract suite.
+ * 注册：经 `ctx.slots` 占两个座——`sidebar.panellist` 行（与 Plugins 按钮同一
+ * 全局面板列表，order 5 落在 plugins 0 与 schedules 10 之间）+ 同 id 的根级
+ * `main` 键控面板（owner 契约见 @deepseek-ai/dsh-client-ui-sidebar
+ * contract/slots.d.ts；注册先例 @deepseek-ai/dsh-client-ui-schedule）。
+ * 原 settings.section 外壳按维护者裁决移除（票 05，2026-10-19）。
  *
- * The module is deliberately dependency-free apart from the platform-provided
- * `react` (the shell's module loader injects it through `require`); the build
- * is plain `tsc` transpile plus a CJS-factory wrapper
- * (`scripts/build-client.mjs`), so no out-of-tree bundler dependency is needed.
- * It never imports a node builtin or host code.
+ * 页面：本模块持有唯一一个 createHttpControlClient() 实例（useState 惰性初始化）；
+ * 壳只负责快照状态机（loading / error / 重试 + AbortController 清理），就绪后把
+ * client 与初始快照交给 AgentsWorkspace（./page.tsx）——compose / plan / commit /
+ * invalidate 的业务流程全部在页面组件内，壳不再持有域状态。
+ *
+ * 作用域根：AgentsWorkspace 的根是 `.agents-page`（RecentWrites 是其 Fragment
+ * 兄弟），本壳负责渲染 `.agents-manager-page` 基座——styles.ts 的 `--dsh-*`
+ * token 与全部前缀化规则、pane.tsx 拖拽态的 closest() 查找都挂在这层上。
+ *
+ * 样式：apply() 时幂等注入 `<style data-plugin="dsh-plugin-agents-manager">`
+ * （同标记已存在则跳过，热重载 / 重复注册安全）。
+ *
+ * 依赖纪律：外部包只准 react；运行时相对 import 只许层内 + control 层白名单
+ * （http-client / client-errors）；node: 内建禁止——build-client.mjs 的本地模块
+ * 映射按此收集，越层 require 会报 unexpected relative require（修 import 不修脚本）。
  */
 import { createElement as h, useEffect, useState } from 'react'
 
 import { createHttpControlClient } from '../../control/http-client.ts'
+import { PAGE_ROOT_CLASS } from './pane.tsx'
+import { AgentsWorkspace } from './page.tsx'
+import { AGENTS_MANAGER_CSS } from './styles.ts'
 
 import type { ControlSnapshot } from '../../control/index.ts'
+import type { ReactNode } from 'react'
 
-/** Sidebar row id and the matching `main` panel key: one string, two seats. */
+/** 侧栏行 id 与对应 `main` 面板键：同一字符串，两个座。 */
 const PANEL_ID = 'agents-manager'
 
+/** 样式注入标记：幂等判据（同标记 <style> 已存在则跳过）。 */
+const STYLE_MARKER = 'dsh-plugin-agents-manager'
+
+/** 测试锚点：壳各态共用的 DOM 查询入口。 */
+const PAGE_TEST_ID = 'agents-manager-page'
+
 /**
- * Owner share of a `sidebar.panellist` row: the requested square edge and
- * whether the panel is selected (`SidebarPanelIconOwnerProps`).
+ * Owner 侧的 `sidebar.panellist` 行份额：请求的方形边长与是否选中
+ * （SidebarPanelIconOwnerProps）。
  */
 interface PanelIconOwnerProps {
   readonly size: number
   readonly active: boolean
 }
 
-/** The `main` panel occupant receives the framework runtime share; we use none. */
+/** `main` 面板占位者收到框架运行时份额；我们不用。 */
 type MainPanelOwnerProps = Record<never, never>
 
-/** Registration options across the two seats this entry occupies. */
+/** 本入口占的两个座的注册选项。 */
 type RegistrationOptions =
   | {
       readonly name: 'sidebar.panellist'
@@ -57,20 +72,29 @@ interface ClientSlots {
   register(options: RegistrationOptions, component: (props: never) => unknown): () => void
 }
 
-/** The client context this plugin's `apply` receives. */
+/** 本插件 `apply` 收到的客户端上下文。 */
 export interface ClientContext {
   readonly slots: ClientSlots
 }
 
-/** Cordis client services this entry waits for. */
+/** 本入口等待的 cordis 客户端服务。 */
 export const inject = ['slots'] as const
 
+/** 幂等注入页面级样式：同标记的 <style> 已存在则跳过。 */
+function injectStyles(): void {
+  if (document.querySelector(`style[data-plugin="${STYLE_MARKER}"]`) !== null) return
+  const style = document.createElement('style')
+  style.setAttribute('data-plugin', STYLE_MARKER)
+  style.textContent = AGENTS_MANAGER_CSS
+  document.head.appendChild(style)
+}
+
 /**
- * Register the "智能体控制" panel: one left-sidebar row beside Plugins
- * (`plugins` is order 0, `schedules` 10 — 5 lands between them) and the central
- * `main` panel that the row selects.
+ * 注册「智能体控制」面板：左栏一行（紧邻 Plugins）+ 该行选中的中央 `main`
+ * 面板；顺手把页面样式注入宿主文档。
  */
 export function apply(ctx: ClientContext): void {
+  injectStyles()
   ctx.slots.inject('sidebar.panellist', () =>
     ctx.slots.register(
       { name: 'sidebar.panellist', id: PANEL_ID, order: 5, label: '智能体控制' },
@@ -81,10 +105,10 @@ export function apply(ctx: ClientContext): void {
 }
 
 /**
- * Decorative sidebar glyph: a three-channel mixer (one knob per channel).
- * Inheriting `currentColor` keeps it on-theme in both rail and wide states.
+ * 装饰性侧栏图标：三路调音台（每通道一枚旋钮）。继承 currentColor，
+ * 在窄轨与宽栏两种状态下都随主题。
  */
-export function AgentControlIcon({ size }: PanelIconOwnerProps): unknown {
+export function AgentControlIcon({ size }: PanelIconOwnerProps): ReactNode {
   return h(
     'svg',
     {
@@ -104,32 +128,43 @@ export function AgentControlIcon({ size }: PanelIconOwnerProps): unknown {
   )
 }
 
-/** The page shell: one snapshot read, loading / failure / retry, no domain rules. */
-export function AgentControlPage(_props: MainPanelOwnerProps): unknown {
+/** 页面壳：唯一 client 实例 + 快照状态机（loading / error / 重试），域规则全在页面组件。 */
+export function AgentControlPage(_props: MainPanelOwnerProps): ReactNode {
+  // useState 惰性初始化：整个面板生命周期共用一个 HTTP 客户端实例。
+  const [client] = useState(createHttpControlClient)
   const [state, setState] = useState<PageState>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     const controller = new AbortController()
     setState({ status: 'loading' })
-    createHttpControlClient()
+    client
       .snapshot({ signal: controller.signal })
       .then((snapshot) => {
         if (!controller.signal.aborted) setState({ status: 'ready', snapshot })
       })
       .catch((error: unknown) => {
-        if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) return
+        if (controller.signal.aborted || isAbortError(error)) return
         setState({ status: 'error', message: errorMessage(error) })
       })
+    // 卸载 / 重试即中止在途请求（清理语义与页面内写路径一致）。
     return () => controller.abort()
-  }, [attempt])
+  }, [client, attempt])
 
-  return h(
-    'div',
-    { className: 'agents-manager-page', 'data-testid': 'agents-manager-page' },
-    h('h1', { className: 'agents-manager-title' }, '智能体控制'),
-    renderBody(state, () => setAttempt(attempt + 1)),
-  )
+  // 就绪后整个舞台交给工作区：作用域根仍由壳持有（token / 前缀样式 / 拖拽 closest）。
+  if (state.status === 'ready') {
+    return h('div', { className: PAGE_ROOT_CLASS, 'data-testid': PAGE_TEST_ID },
+      h(AgentsWorkspace, { client, initialSnapshot: state.snapshot }))
+  }
+  // 引导态复用 list-chunk-status 的居中样式（加载中 / 失败 + 重试）。
+  if (state.status === 'error') {
+    return h('div', { className: PAGE_ROOT_CLASS, 'data-testid': PAGE_TEST_ID },
+      h('div', { className: 'list-chunk-status', role: 'alert' },
+        h('p', null, `快照加载失败：${state.message}`),
+        h('button', { type: 'button', className: 'btn btn-sm', onClick: () => setAttempt((a) => a + 1) }, '重试')))
+  }
+  return h('div', { className: PAGE_ROOT_CLASS, 'data-testid': PAGE_TEST_ID },
+    h('div', { className: 'list-chunk-status' }, h('p', null, '正在加载智能体…')))
 }
 
 type PageState =
@@ -137,30 +172,8 @@ type PageState =
   | { readonly status: 'ready'; readonly snapshot: ControlSnapshot }
   | { readonly status: 'error'; readonly message: string }
 
-function renderBody(state: PageState, retry: () => void): unknown {
-  if (state.status === 'loading') {
-    return h('p', { className: 'agents-manager-status' }, 'Loading agents…')
-  }
-  if (state.status === 'error') {
-    return h(
-      'div',
-      { className: 'agents-manager-error', role: 'alert' },
-      h('p', null, `Failed to load agents: ${state.message}`),
-      h('button', { type: 'button', onClick: retry }, 'Retry'),
-    )
-  }
-  const { snapshot } = state
-  return h(
-    'div',
-    { className: 'agents-manager-ready' },
-    h(
-      'p',
-      { className: 'agents-manager-summary' },
-      `${snapshot.agents.length} agents · ${snapshot.models.length} models · ${snapshot.aliases.length} aliases`,
-    ),
-    h('p', { className: 'agents-manager-findings' }, `${snapshot.findings.length} findings`),
-    h('button', { type: 'button', onClick: retry }, 'Reload'),
-  )
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
 }
 
 function errorMessage(error: unknown): string {
