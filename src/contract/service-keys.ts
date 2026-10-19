@@ -19,3 +19,11 @@ export const AGENT_REGISTRY_SERVICE = 'agentRegistry'
  * service instead of reaching into a native one (ADR-0001).
  */
 export const ALIAS_REGISTRY_SERVICE = 'aliasRegistry'
+
+/**
+ * Service key of the control core (ticket 11/12): the six-member write and
+ * composition face. Provided by the `./core` host row and consumed by the
+ * `./ui-host` row (the HTTP projection); the browser never holds this service,
+ * only the wire client of ticket 12.
+ */
+export const AGENT_CONTROL_SERVICE = 'agentControl'

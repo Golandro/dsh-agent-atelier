@@ -6,18 +6,25 @@ import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  AGENT_CONTROL_SERVICE,
   AGENT_PROVIDERS_SERVICE,
   AGENT_REGISTRY_SERVICE,
   ALIAS_REGISTRY_SERVICE,
   apply,
 } from '../src/index.ts'
 import { createAgentProviders } from '../src/core/providers-registry.ts'
-import { applyProviders } from '../src/dsh/host/providers.ts'
+import { apply as providerRowApply, applyProviders } from '../src/dsh/host/providers.ts'
 import { SERVICE_API_VERSION } from '../src/contract/index.ts'
 import type { AgentRegistry, AliasRegistry } from '../src/contract/types.ts'
 import type { AgentProviders } from '../src/contract/index.ts'
 
-async function mounted(): Promise<{ ctx: Context; registry: AgentRegistry; aliasRegistry: AliasRegistry; providers: AgentProviders }> {
+async function mounted(): Promise<{
+  ctx: Context
+  registry: AgentRegistry
+  aliasRegistry: AliasRegistry
+  providers: AgentProviders
+  control: Record<string, unknown>
+}> {
   const ctx = new Context()
   await ctx.plugin({ apply })
   const registry = ctx.get(AGENT_REGISTRY_SERVICE) as AgentRegistry | undefined
@@ -26,7 +33,9 @@ async function mounted(): Promise<{ ctx: Context; registry: AgentRegistry; alias
   if (aliasRegistry === undefined) throw new Error('alias registry service was not registered')
   const providers = ctx.get(AGENT_PROVIDERS_SERVICE) as AgentProviders | undefined
   if (providers === undefined) throw new Error('agent providers service was not registered')
-  return { ctx, registry, aliasRegistry, providers }
+  const control = ctx.get(AGENT_CONTROL_SERVICE) as Record<string, unknown> | undefined
+  if (control === undefined) throw new Error('agent control service was not registered')
+  return { ctx, registry, aliasRegistry, providers, control }
 }
 
 /** One throwaway directory under the OS temp dir. */
@@ -34,9 +43,9 @@ function scratchDir(): string {
   return mkdtempSync(join(tmpdir(), 'agents-manager-plugin-'))
 }
 
-/** The provider row exactly as the loader mounts it: a plugin object with `inject` + `apply`. */
-function providerRow(): { inject: readonly string[]; apply: typeof applyProviders } {
-  return { inject: [AGENT_PROVIDERS_SERVICE], apply: applyProviders }
+/** The provider row exactly as the loader mounts it: a plugin object with `inject` + the module's `apply` entry. */
+function providerRow(): { inject: readonly string[]; apply: typeof providerRowApply } {
+  return { inject: [AGENT_PROVIDERS_SERVICE], apply: providerRowApply }
 }
 
 describe('agents-manager plugin', () => {
@@ -63,6 +72,33 @@ describe('agents-manager plugin', () => {
     // The provider registry is a plain object, under its own key too.
     expect(AGENT_PROVIDERS_SERVICE).toBe('agentProviders')
     expect(AGENT_PROVIDERS_SERVICE).not.toBe(AGENT_REGISTRY_SERVICE)
+    // The control core is the fourth host service, under its own key.
+    expect(AGENT_CONTROL_SERVICE).toBe('agentControl')
+    expect(AGENT_CONTROL_SERVICE).not.toBe(AGENT_REGISTRY_SERVICE)
+  })
+
+  it('provides the six-member agentControl write face', async () => {
+    const { control } = await mounted()
+
+    expect(Object.keys(control).sort()).toEqual(['applyRegistryEdit', 'commit', 'compose', 'invalidate', 'plan', 'snapshot'])
+  })
+
+  it('mounts only the control routes when the bare client row asks for role ui-host', () => {
+    const ctx = new Context()
+    const routes: string[] = []
+    ctx.provide(AGENT_CONTROL_SERVICE, {})
+    ctx.provide('webServer', {
+      register(route: { path: string }) {
+        routes.push(route.path)
+        return () => {}
+      },
+    })
+
+    apply(ctx, { role: 'ui-host' })
+
+    expect(routes).toHaveLength(6)
+    // The ui-host row must not mount the registries a second time.
+    expect(ctx.get(AGENT_REGISTRY_SERVICE)).toBeUndefined()
   })
 
   it('provides agentProviders as a plain object service, not a Service instance', async () => {
@@ -197,7 +233,11 @@ describe('provider plugin row', () => {
     expect(typeof coreRow.apply).toBe('function')
     expect(typeof row.apply).toBe('function')
     expect(row.inject).toEqual(['agentProviders'])
-    expect(row.applyProviders).toBe(row.apply)
+    // The row entry is its own function — never the instance-accepting alias,
+    // because the loader calls apply(ctx, config) and the config must not be
+    // mistaken for a handed-over service instance.
+    expect(row.apply).not.toBe(row.applyProviders)
+    expect(row.apply.length).toBeLessThanOrEqual(2)
     // No default export: the loader would unwrap only `default` and drop `inject`.
     expect('default' in coreRow && coreRow.default !== undefined).toBe(false)
     expect('default' in row && row.default !== undefined).toBe(false)
@@ -220,6 +260,21 @@ describe('provider plugin row', () => {
 
     await fork.dispose()
 
+    expect(providers.listAgentProviders()).toEqual([])
+  })
+
+  it('mounts through the loader contract: apply(ctx, config) with a truthy row config', async () => {
+    const ctx = new Context()
+    const providers = createAgentProviders()
+    ctx.provide(AGENT_PROVIDERS_SERVICE, providers)
+
+    // The host loader calls the row entry as apply(ctx, config) — the row's
+    // YAML config `{}` is a truthy object that must never be mistaken for a
+    // handed-over service instance (the 2026-10-19 host activation failure).
+    const fork = await ctx.plugin(providerRow(), {})
+
+    expect(providers.listAgentProviders()).toHaveLength(5)
+    await fork.dispose()
     expect(providers.listAgentProviders()).toEqual([])
   })
 

@@ -47,12 +47,29 @@ export const BUNDLED_AGENTS_DIR = fileURLToPath(new URL('../../../bundled', impo
 export const inject = [AGENT_PROVIDERS_SERVICE]
 
 /**
- * Register the default agent source providers. When the instance is not handed
- * over (the provider-row path), it is read from the context — which `inject`
- * guarantees to exist by apply time.
+ * Structural guard for the instance hand-over: the host loader calls a row
+ * entry as `apply(ctx, config)`, so a truthy-but-wrong second argument (the
+ * row's YAML config `{}`) must never be mistaken for a handed-over service.
+ */
+function isAgentProviders(value: unknown): value is AgentProviders {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as AgentProviders).apiVersion === SERVICE_API_VERSION &&
+    typeof (value as AgentProviders).registerAgentProvider === 'function'
+  )
+}
+
+/**
+ * Register the default agent source providers. When a real instance is handed
+ * over (the all-in-one shell path), it is used directly; anything else —
+ * including the loader's row config — falls back to reading the context,
+ * which `inject` guarantees to exist by apply time.
  */
 export function applyProviders(ctx: Context, providers?: AgentProviders): void {
-  const service = providers ?? (ctx.get(AGENT_PROVIDERS_SERVICE) as AgentProviders | undefined)
+  const service = isAgentProviders(providers)
+    ? providers
+    : (ctx.get(AGENT_PROVIDERS_SERVICE) as AgentProviders | undefined)
   if (service === undefined) {
     throw new Error(`applyProviders requires the "${AGENT_PROVIDERS_SERVICE}" service (declare inject: ["${AGENT_PROVIDERS_SERVICE}"])`)
   }
@@ -131,5 +148,11 @@ export function applyProviders(ctx: Context, providers?: AgentProviders): void {
   })
 }
 
-/** Plugin entry alias: the loader mounts this module through its named `apply`. */
-export const apply = applyProviders
+/**
+ * Plugin entry: the loader mounts this module through its named `apply` and
+ * calls it as `apply(ctx, config)` — the row config is deliberately ignored,
+ * the service always comes from the injected context.
+ */
+export function apply(ctx: Context, _config?: Record<string, unknown>): void {
+  applyProviders(ctx)
+}

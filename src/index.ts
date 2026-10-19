@@ -5,9 +5,15 @@
  * re-exported from the public layer entries; no implementation lives in this
  * file.
  */
-export { AGENT_PROVIDERS_SERVICE, AGENT_REGISTRY_SERVICE, ALIAS_REGISTRY_SERVICE } from './contract/index.ts'
+export { AGENT_CONTROL_SERVICE, AGENT_PROVIDERS_SERVICE, AGENT_REGISTRY_SERVICE, ALIAS_REGISTRY_SERVICE } from './contract/index.ts'
 export { createAgentRegistry, createAgentRegistryService, createAliasRegistryService, inspectAliasRegistry } from './core/index.ts'
-export { createAgentDocPort, createControlCore, evaluateAgentQuery } from './control/index.ts'
+export {
+  createAgentDocPort,
+  createControlCore,
+  createMemoryControlClient,
+  evaluateAgentQuery,
+  planDirtyEdits,
+} from './control/index.ts'
 export { BUNDLED_AGENTS_DIR, apply, optionalFileSystem } from './dsh/host/index.ts'
 export type { AgentDefinition, AgentRegistry, AliasRegistry } from './contract/index.ts'
 export type {
@@ -15,6 +21,8 @@ export type {
   AgentListQuery,
   AgentRow,
   ComposedAgentDocument,
+  ControlClient,
+  ControlClientOptions,
   ControlCore,
   ControlSnapshot,
   DocumentEdit,

@@ -121,6 +121,49 @@ export function createControlCore(dependencies: ControlDependencies): ControlCor
   }
 }
 
+/**
+ * Plan a caller's dirty edits against the *current* disk state: group them per
+ * agent, compose each document, and plan one write per document.
+ *
+ * This is the single implementation of the edits-in → plan-out projection that
+ * both {@link AgentDocPort} and ticket 12's HTTP wire consume; the route must
+ * not re-group edits itself. Edits for an unknown agent become `unknown-agent`
+ * rejections instead of throws.
+ */
+export async function planDirtyEdits(
+  core: ControlCore,
+  dirty: readonly DocumentEdit[],
+  options: { readonly cwd?: string | undefined } = {},
+): Promise<WritePlan> {
+  const groups = new Map<string, { readonly edits: DocumentEdit[]; readonly firstIndex: number }>()
+  for (let index = 0; index < dirty.length; index += 1) {
+    const edit = dirty[index]
+    if (edit === undefined) break
+    const group = groups.get(edit.agentName)
+    if (group === undefined) groups.set(edit.agentName, { edits: [edit], firstIndex: index })
+    else group.edits.push(edit)
+  }
+  const entries: WritePlanEntry[] = []
+  const rejections: WriteRejection[] = []
+  for (const [agentName, group] of groups) {
+    let doc: ComposedAgentDocument
+    try {
+      doc = await core.compose(agentName, options)
+    } catch (error) {
+      rejections.push({
+        code: 'unknown-agent',
+        message: error instanceof Error ? error.message : String(error),
+        editIndex: group.firstIndex,
+      })
+      continue
+    }
+    const planned = core.plan(doc, group.edits)
+    entries.push(...planned.entries)
+    rejections.push(...planned.rejections)
+  }
+  return { entries, rejections }
+}
+
 /** The wiring seam ticket 12 binds components to: reads plus a dirty-edit commit. */
 export interface AgentDocPort {
   read(agentName: string): Promise<ComposedAgentDocument>
@@ -138,33 +181,7 @@ export function createAgentDocPort(core: ControlCore, options: { readonly cwd?: 
   return {
     read: (agentName) => core.compose(agentName, options),
     async commit(dirty) {
-      const groups = new Map<string, { readonly edits: DocumentEdit[]; readonly firstIndex: number }>()
-      for (let index = 0; index < dirty.length; index += 1) {
-        const edit = dirty[index]
-        if (edit === undefined) break
-        const group = groups.get(edit.agentName)
-        if (group === undefined) groups.set(edit.agentName, { edits: [edit], firstIndex: index })
-        else group.edits.push(edit)
-      }
-      const entries: WritePlanEntry[] = []
-      const rejections: WriteRejection[] = []
-      for (const [agentName, group] of groups) {
-        let doc: ComposedAgentDocument
-        try {
-          doc = await core.compose(agentName, options)
-        } catch (error) {
-          rejections.push({
-            code: 'unknown-agent',
-            message: error instanceof Error ? error.message : String(error),
-            editIndex: group.firstIndex,
-          })
-          continue
-        }
-        const planned = core.plan(doc, group.edits)
-        entries.push(...planned.entries)
-        rejections.push(...planned.rejections)
-      }
-      return await core.commit({ entries, rejections })
+      return await core.commit(await planDirtyEdits(core, dirty, options))
     },
     invalidate: () => core.invalidate(),
   }

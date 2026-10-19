@@ -1,12 +1,17 @@
 /**
  * Public entry of the control layer (ticket 11): the six-member control core,
- * the document port ticket 12 binds components to, and the one list-query
- * evaluator. The pure seams (`compose`, `planDocumentEdits`, the registry
- * splice) and the in-memory test adapter stay internal — tests import their
- * modules directly.
+ * the document port ticket 12 binds components to, the edits-in client port
+ * both of ticket 12's adapters implement, and the one list-query evaluator.
+ * The pure seams (`compose`, `planDocumentEdits`, the registry splice) and the
+ * in-memory test adapter stay internal — tests import their modules directly.
  */
-export { createAgentDocPort, createControlCore } from './core.ts'
+export { createAgentDocPort, createControlCore, planDirtyEdits } from './core.ts'
 export type { AgentDocPort, ControlCore, ControlDependencies } from './core.ts'
+export { createMemoryControlClient } from './client.ts'
+export type { ControlClient, ControlClientOptions } from './client.ts'
+export { createHttpControlClient } from './http-client.ts'
+export type { HttpControlClientOptions } from './http-client.ts'
+export { abortError, ControlClientError, statusForWriteReport, throwIfAborted } from './client-errors.ts'
 export { evaluateAgentQuery } from './query.ts'
 export type {
   AgentListQuery,

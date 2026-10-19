@@ -1,19 +1,22 @@
 /**
  * The core plugin row (ticket 18): the provider registry plus the two read
- * models. It provides `agentProviders` — a plain object, deliberately not in
- * the `Service` catalog so provider rows can `inject` it — and the
- * `agentRegistry` / `aliasRegistry` services that consume it. No default
- * provider registers here; that is the provider row's job
+ * models and ticket 11's control core. It provides `agentProviders` — a plain
+ * object, deliberately not in the `Service` catalog so provider rows can
+ * `inject` it — the `agentRegistry` / `aliasRegistry` read models, and the
+ * `agentControl` write/compose face that ticket 12's ui-host row consumes. No
+ * default provider registers here; that is the provider row's job
  * (`src/dsh/host/providers.ts`).
  */
 import type { Context } from '@deepseek-ai/cordis'
 
-import { AGENT_PROVIDERS_SERVICE, AGENT_REGISTRY_SERVICE, ALIAS_REGISTRY_SERVICE } from '../../contract/index.ts'
-import { createAgentProviders, createAgentRegistryService, createAliasRegistryService } from '../../core/index.ts'
-import { createNodeFileSystem } from '../../providers/fs/index.ts'
+import { AGENT_CONTROL_SERVICE, AGENT_PROVIDERS_SERVICE, AGENT_REGISTRY_SERVICE, ALIAS_REGISTRY_SERVICE } from '../../contract/index.ts'
+import { createAgentProviders, createAgentRegistryService, createAliasRegistryService, resolveDshHome } from '../../core/index.ts'
+import { createControlCore } from '../../control/index.ts'
+import { createNodeControlFileSystem, createNodeFileSystem } from '../../providers/fs/index.ts'
 import { optionalFileSystem } from './fs.ts'
 
 import type { AgentModelTarget, AgentProviders } from '../../contract/index.ts'
+import type { ControlCore } from '../../control/index.ts'
 
 /**
  * Wire the core services onto the context and return the provider registry so
@@ -49,6 +52,19 @@ export function applyCore(ctx: Context): { readonly providers: AgentProviders } 
     warn: (message) => ctx.logger.warn(message),
   })
   ctx.effect(() => ctx.provide(ALIAS_REGISTRY_SERVICE, aliasRegistry))
+
+  // Ticket 11's control core is the only compose/write face in the bundle.
+  // Ticket 12's ui-host row injects this service instead of re-deriving block
+  // routing, layer resolution or conflict handling in the route.
+  const control: ControlCore = createControlCore({
+    agentRegistry: registry,
+    aliasRegistry,
+    fileSystem: createNodeControlFileSystem(),
+    resolveProjectRoot: () => process.cwd(),
+    resolveDshHome: () => resolveDshHome(),
+    warn: (message) => ctx.logger.warn(message),
+  })
+  ctx.effect(() => ctx.provide(AGENT_CONTROL_SERVICE, control))
 
   return { providers }
 }
