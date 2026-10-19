@@ -8,6 +8,7 @@
  */
 import { createElement as h } from 'react'
 import { nsClass } from './class-names.ts'
+import { panelViewId } from './panel-types.ts'
 
 import type { PanelTab, ReloadState } from './panel-types.ts'
 import type { ReactNode } from 'react'
@@ -52,7 +53,7 @@ export function PanelHeader(props: PanelHeaderProps): ReactNode {
             id: `panel-tab-${tab.id}`,
             className: `panel-tab${props.tab === tab.id ? ' active' : ''}`,
             'aria-selected': props.tab === tab.id,
-            'aria-controls': `panel-view-${tab.id}`,
+            'aria-controls': panelViewId(tab.id),
             onClick: () => props.onTab(tab.id),
           },
           tab.label))),

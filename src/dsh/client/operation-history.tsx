@@ -9,6 +9,7 @@
  */
 import { createElement as h } from 'react'
 import { nsClass } from './class-names.ts'
+import { panelViewId } from './panel-types.ts'
 import type { WritePlan, WriteReport } from '../../control/index.ts'
 import type { ReactNode } from 'react'
 
@@ -28,7 +29,7 @@ export function OperationHistory(props: OperationHistoryProps): ReactNode {
   return h('section',
     {
       className: nsClass('history-view'),
-      id: 'panel-view-history',
+      id: panelViewId('history'),
       role: 'tabpanel',
       'aria-labelledby': 'panel-tab-history',
       hidden: props.hidden === true,

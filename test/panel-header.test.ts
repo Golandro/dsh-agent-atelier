@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { ConfigPlaceholder } from '../src/dsh/client/config-placeholder.tsx'
 import { OperationHistory } from '../src/dsh/client/operation-history.tsx'
 import { PanelHeader } from '../src/dsh/client/panel-header.tsx'
+import { panelViewId } from '../src/dsh/client/panel-types.ts'
 
 import type { WritePlan, WriteReport } from '../src/control/index.ts'
 
@@ -51,6 +52,14 @@ describe('插件面板头部', () => {
     expect(renderHeader('agents')).toMatch(/aria-selected="true"[^>]*>智能体<\/button>/)
     expect(renderHeader('history')).toMatch(/aria-selected="true"[^>]*>操作历史<\/button>/)
     expect(renderHeader('config')).toMatch(/aria-selected="true"[^>]*>配置<\/button>/)
+  })
+
+  it('aria-controls 指向三个视图共用的稳定 id', () => {
+    const html = renderHeader('agents')
+    expect(html).toContain('aria-controls="panel-view-agents"')
+    expect(html).toContain('aria-controls="panel-view-history"')
+    expect(html).toContain('aria-controls="panel-view-config"')
+    expect(panelViewId('agents')).toBe('panel-view-agents')
   })
 })
 

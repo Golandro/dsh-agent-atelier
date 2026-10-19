@@ -6,6 +6,7 @@
  */
 import { createElement as h } from 'react'
 import { nsClass } from './class-names.ts'
+import { panelViewId } from './panel-types.ts'
 import type { ReactNode } from 'react'
 
 export interface ConfigPlaceholderProps {
@@ -17,7 +18,7 @@ export function ConfigPlaceholder(props: ConfigPlaceholderProps): ReactNode {
   return h('section',
     {
       className: nsClass('config-view'),
-      id: 'panel-view-config',
+      id: panelViewId('config'),
       role: 'tabpanel',
       'aria-labelledby': 'panel-tab-config',
       hidden: props.hidden === true,

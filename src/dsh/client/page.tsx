@@ -28,6 +28,7 @@ import { createElement as h, Fragment, useEffect, useRef, useState } from 'react
 import { ControlClientError } from '../../control/client-errors.ts'
 import { nsClass } from './class-names.ts'
 import { loadListChunk } from './chunk-loader.ts'
+import { panelViewId } from './panel-types.ts'
 import { ConfigPlaceholder } from './config-placeholder.tsx'
 import { EditorMount } from './editor-mount.tsx'
 import { AdvisorPanel } from './advisor.tsx'
@@ -288,6 +289,9 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
       h('div',
         {
           className: pageClass,
+          id: panelViewId('agents'),
+          role: 'tabpanel',
+          'aria-labelledby': 'panel-tab-agents',
           hidden: tab !== 'agents',
           style: { '--list-width': `${Math.round(pane.listWidth)}px` } as CSSProperties,
         },

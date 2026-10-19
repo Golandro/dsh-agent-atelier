@@ -6,6 +6,11 @@
  */
 export type PanelTab = 'agents' | 'history' | 'config'
 
+/** 页签对应的 tabpanel id；头部 aria-controls 与视图根节点共用这一处。 */
+export function panelViewId(tab: PanelTab): string {
+  return `panel-view-${tab}`
+}
+
 /** invalidate 流程的状态（页面持有；头部只呈现，不参与刷新逻辑）。 */
 export type ReloadState =
   | { readonly status: 'idle' }
