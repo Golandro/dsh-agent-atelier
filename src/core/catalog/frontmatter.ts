@@ -2,9 +2,11 @@
  * Minimal YAML-subset frontmatter reader for agent documents (D23).
  *
  * The native skill loader parses frontmatter with the `yaml` package
- * (`skill/skill-filesystem/src/index.ts:812`), which this bundle cannot reach:
- * it ships with zero runtime dependencies (ADR-0001, enforced by
- * `scripts/check.mjs` import matrix). So this module hand-rolls exactly the subset the
+ * (`skill/skill-filesystem/src/index.ts:812`), which this module does not
+ * import: `js-yaml` and `zod` stay declared in `package.json` as reserved for
+ * the settings-UI work (2026-10-17 dependency ruling), but no reader imports
+ * them, so the bundle keeps exactly one hand-rolled YAML implementation. This
+ * module hand-rolls exactly the subset the
  * agent schema needs — `---` fences, plain and quoted scalars, flow and block
  * string arrays, and `{provider, model}` flow mappings — and keeps every
  * unrecognised key as raw text so a later editor can write it back unchanged
@@ -70,10 +72,23 @@ interface RawEntry {
   readonly value: RawValue
 }
 
-/** What the fence scan found. */
-type Fence =
-  | { readonly kind: 'closed'; readonly lines: readonly string[]; readonly body: string }
-  | { readonly kind: 'unterminated' }
+/** What a leading `---` fence scan found, with the raw bytes to reassemble the file (D14). */
+export interface SplitAgentFence {
+  /** `none`: no fence; `unterminated`: opens but never closes; `closed`: both fences found. */
+  readonly kind: 'none' | 'unterminated' | 'closed'
+  /** Raw bytes of the opening fence line including its terminating newline (`''` when `none`). */
+  readonly opening: string
+  /**
+   * Raw bytes between the two fences. The newline before the closing fence
+   * belongs here, so an empty block reads `''` and the file reassembles byte
+   * for byte as `opening + frontmatterText + closing + body`.
+   */
+  readonly frontmatterText: string
+  /** Raw bytes of the closing fence line including its terminating newline (`''` when absent). */
+  readonly closing: string
+  /** Raw bytes after the closing fence's newline (the whole text when `none`). */
+  readonly body: string
+}
 
 /**
  * Read one document into typed frontmatter plus the document body.
@@ -82,43 +97,57 @@ type Fence =
  * and the whole text is the body.
  */
 export function parseAgentDocument(text: string): AgentDocument {
-  const fence = splitFence(text)
+  const fence = splitAgentFence(text)
   const problems: string[] = []
-  if (fence === undefined) {
+  if (fence.kind === 'none') {
     return { hasFrontmatter: false, frontmatter: { extra: {}, problems }, body: text.trim() }
   }
   if (fence.kind === 'unterminated') {
     problems.push('frontmatter opens with --- but never closes')
     return { hasFrontmatter: true, frontmatter: { extra: {}, problems }, body: '' }
   }
+  const lines = fence.frontmatterText.split('\n').map((entry) => entry.replace(/\r$/, ''))
   return {
     hasFrontmatter: true,
-    frontmatter: mapFrontmatter(parseEntries(fence.lines, problems), problems),
+    frontmatter: mapFrontmatter(parseEntries(lines, problems), problems),
     body: fence.body.trim(),
   }
 }
 
-/** Split a leading `---` fenced block off the text, mirroring the native scanner. */
-function splitFence(text: string): Fence | undefined {
+/**
+ * Split a leading `---` fenced block off the text, mirroring the native scanner,
+ * and keep every fence byte so the document reassembles unchanged (D14).
+ *
+ * Exported for the write side (ticket 11): an edit rewrites one part and
+ * reassembles the rest, so the raw fence bytes must survive the round trip,
+ * CRLF included.
+ */
+export function splitAgentFence(text: string): SplitAgentFence {
+  const none: SplitAgentFence = { kind: 'none', opening: '', frontmatterText: '', closing: '', body: text }
   const firstLineEnd = text.indexOf('\n')
   /* v8 ignore next -- a document is a file, so it ends with a newline in practice. */
-  if (firstLineEnd < 0) return undefined
+  if (firstLineEnd < 0) return none
   const firstLine = text.slice(0, firstLineEnd).replace(/\r$/, '')
-  if (firstLine !== '---') return undefined
+  if (firstLine !== '---') return none
+  const opening = text.slice(0, firstLineEnd + 1)
   let lineStart = firstLineEnd + 1
   while (lineStart <= text.length) {
     const nextNewline = text.indexOf('\n', lineStart)
     const lineEnd = nextNewline < 0 ? text.length : nextNewline
     const line = text.slice(lineStart, lineEnd).replace(/\r$/, '')
     if (line === '---') {
-      const bodyStart = nextNewline < 0 ? text.length : nextNewline + 1
-      const lines = text.slice(firstLineEnd + 1, lineStart).split('\n').map((entry) => entry.replace(/\r$/, ''))
-      return { kind: 'closed', lines, body: text.slice(bodyStart) }
+      return {
+        kind: 'closed',
+        opening,
+        frontmatterText: text.slice(firstLineEnd + 1, lineStart),
+        closing: nextNewline < 0 ? text.slice(lineStart) : text.slice(lineStart, nextNewline + 1),
+        body: nextNewline < 0 ? '' : text.slice(nextNewline + 1),
+      }
     }
     if (nextNewline < 0) break
     lineStart = nextNewline + 1
   }
-  return { kind: 'unterminated' }
+  return { kind: 'unterminated', opening, frontmatterText: text.slice(firstLineEnd + 1), closing: '', body: '' }
 }
 
 /** Read every top-level key of the block, one entry per key. */

@@ -20,7 +20,7 @@
  */
 import { join, resolve } from 'node:path'
 
-import type { AgentFileSystem } from '../ports.ts'
+import type { AgentFileSystem, FileSystemDependencies } from '../ports.ts'
 import { createLazyLoad } from './lazy-load.ts'
 import { DEFAULT_ALIAS_NAME, readRegistryLayer } from './registry-file.ts'
 import { findProjectRoot, resolveDshHome } from './roots.ts'
@@ -41,19 +41,7 @@ import type {
 export const REGISTRY_FILE_NAME = 'registry.yaml'
 
 /** Host-side access injected into the service. */
-export interface AliasRegistryDependencies {
-  /**
-   * Resolves the host `fs` port when a load needs it; `undefined` reads through
-   * Node. Called at use time, never at plugin load, so an `fs` service mounted
-   * after this one is still honoured on the next load — the native
-   * `optionalFileSystem(ctx)` read (`skill/skill-filesystem/src/index.ts:849`).
-   */
-  readonly resolveFileSystem?: (() => AgentFileSystem | undefined) | undefined
-  /**
-   * Node filesystem used as the fallback when no host `fs` port resolves;
-   * every registry layer is user content, so none of them bypasses the host.
-   */
-  readonly nodeFileSystem: AgentFileSystem
+export interface AliasRegistryDependencies extends FileSystemDependencies {
   /**
    * Reads the DSH sub-agent default pair. Called once per load, so the built-in
    * alias is a load-time snapshot that only `invalidate()` refreshes (triage
@@ -61,8 +49,6 @@ export interface AliasRegistryDependencies {
    * has no built-in alias rather than a silently invented one.
    */
   readonly readDefaultPair?: (() => AgentModelTarget | undefined) | undefined
-  /** Diagnostic sink; `undefined` discards the log line. */
-  readonly warn?: ((message: string) => void) | undefined
 }
 
 /** Home override; injectable so tests never touch the real `~/.dsh`. */
@@ -80,9 +66,27 @@ interface AliasLoad {
 }
 
 /** One layer file, in precedence order. */
-interface AliasLayer {
+export interface AliasLayer {
   readonly path: string
   readonly source: AliasRegistrySource
+}
+
+/**
+ * The registry layer table for one project root, highest precedence first: the
+ * workspace's `<project>/.dsh/agents/registry.yaml`, then the global
+ * `$DSH_HOME/agents/registry.yaml`.
+ *
+ * Exported for the write side (ticket 11): an `addAlias`/`addModel` edit lands
+ * in the file its source names, and the control core derives that path from
+ * here so the precedence rule lives in exactly one place.
+ */
+export function aliasRegistryLayers(projectRoot: string | undefined, dshHome: string): readonly AliasLayer[] {
+  const layers: AliasLayer[] = []
+  if (projectRoot !== undefined) {
+    layers.push({ path: join(projectRoot, '.dsh', 'agents', REGISTRY_FILE_NAME), source: 'project-dsh' })
+  }
+  layers.push({ path: join(dshHome, 'agents', REGISTRY_FILE_NAME), source: 'user-dsh' })
+  return layers
 }
 
 /**
@@ -109,12 +113,7 @@ export function createAliasRegistryService(
 
   /** The layer table for one query, highest precedence first. */
   function buildLayers(projectRoot: string | undefined): readonly AliasLayer[] {
-    const layers: AliasLayer[] = []
-    if (projectRoot !== undefined) {
-      layers.push({ path: join(projectRoot, '.dsh', 'agents', REGISTRY_FILE_NAME), source: 'project-dsh' })
-    }
-    layers.push({ path: join(resolveDshHome(options.dshHome, env), 'agents', REGISTRY_FILE_NAME), source: 'user-dsh' })
-    return layers
+    return aliasRegistryLayers(projectRoot, resolveDshHome(options.dshHome, env))
   }
 
   /** Read every layer and merge them: first layer to claim a name wins. */

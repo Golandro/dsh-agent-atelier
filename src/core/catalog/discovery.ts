@@ -15,7 +15,7 @@
  */
 import { resolve } from 'node:path'
 
-import type { AgentFileSystem } from '../ports.ts'
+import type { AgentFileSystem, FileSystemDependencies } from '../ports.ts'
 import { parseAgentDocument } from './frontmatter.ts'
 import { createLazyLoad } from './lazy-load.ts'
 import { createAgentRegistry, type AgentDefinitionContainer } from './registry.ts'
@@ -45,25 +45,12 @@ const ADVISORY_CODES: ReadonlySet<AgentDiagnosticCode> = new Set<AgentDiagnostic
 const MISPLACED_DOC_PATTERN = /^([a-z0-9]+(?:-[a-z0-9]+)*)(?:\.agent)?\.md$/
 
 /** Host-side access injected into the service. */
-export interface AgentRegistryDependencies {
+export interface AgentRegistryDependencies extends FileSystemDependencies {
   /**
    * The provider registry; its members drive every scan (ticket 18). Register,
    * unregister and `control.invalidate()` clear the memoised scans.
    */
   readonly providers: AgentProviders
-  /**
-   * Resolves the host `fs` service port when the project-root walk needs it;
-   * `undefined` reads through Node. Called at use time, never at plugin load,
-   * so an `fs` service mounted after this one is still honoured on the next
-   * scan — the native `optionalFileSystem(ctx)` read
-   * (`skill/skill-filesystem/src/index.ts:849`). Providers pick their own
-   * filesystem ports; this one is only for the root walk.
-   */
-  readonly resolveFileSystem?: (() => AgentFileSystem | undefined) | undefined
-  /** Node filesystem for the project-root walk and as the walk's fallback. */
-  readonly nodeFileSystem: AgentFileSystem
-  /** Diagnostic sink; `undefined` discards the log line. */
-  readonly warn?: ((message: string) => void) | undefined
 }
 
 /** A trusted document could not be read; the bundled assets are broken. */

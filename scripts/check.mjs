@@ -51,7 +51,7 @@ const HINTS = {
   scratch: '删除残留探针目录（例如 `.probe/`，它被 .gitignore 隐藏）。',
   bundle: '把 `@deepseek-ai/*` 从 `dependencies` 移到 `peerDependencies` + `devDependencies`（ADR-0001）。',
   deps: '安装缺失的 devDependency：`pnpm install --store-dir "$PWD/.pnpm-store"`（沙箱内，见 docs/agents/harness-facts.md）。',
-  matrix: '跨层 import 只走公共入口：`src/contract/index.ts`、`src/core/index.ts`、`src/core/ports.ts`、`src/providers/fs/index.ts`、`src/dsh/host/index.ts`。',
+  matrix: '跨层 import 只走公共入口：`src/contract/index.ts`、`src/core/index.ts`、`src/core/ports.ts`、`src/providers/fs/index.ts`、`src/control/index.ts`、`src/dsh/host/index.ts`。',
   anchors: '修正票面/文档里的 `path:line`，或先跑 `pnpm run check:static` 看解析详情。',
 }
 
@@ -89,6 +89,7 @@ export const PUBLIC_ENTRIES = [
   'src/core/index.ts',
   'src/core/ports.ts',
   'src/providers/fs/index.ts',
+  'src/control/index.ts',
   'src/dsh/host/index.ts',
 ]
 
@@ -101,7 +102,8 @@ const IMPORT_MATRIX = [
   { name: 'contract', dir: 'src/contract/', entries: [], node: [], cordis: false },
   { name: 'core', dir: 'src/core/', entries: ['src/contract/index.ts'], node: ['node:path', 'node:os'], cordis: false },
   { name: 'providers', dir: 'src/providers/', entries: ['src/contract/index.ts', 'src/core/ports.ts'], node: true, cordis: false },
-  { name: 'dsh/host', dir: 'src/dsh/host/', entries: ['src/contract/index.ts', 'src/core/index.ts', 'src/core/ports.ts', 'src/providers/fs/index.ts'], node: true, cordis: true },
+  { name: 'control', dir: 'src/control/', entries: ['src/contract/index.ts', 'src/core/index.ts', 'src/core/ports.ts', 'src/providers/fs/index.ts'], node: ['node:path'], cordis: false },
+  { name: 'dsh/host', dir: 'src/dsh/host/', entries: ['src/contract/index.ts', 'src/core/index.ts', 'src/core/ports.ts', 'src/providers/fs/index.ts', 'src/control/index.ts'], node: true, cordis: true },
   { name: 'entry', dir: null, entries: PUBLIC_ENTRIES, node: [], cordis: false },
 ]
 
@@ -180,7 +182,7 @@ export function analyzeImportMatrix(root = ROOT) {
     const rel = `src/${file}`
     const layer = layerOf(rel)
     if (layer === undefined) {
-      problems.push(`矩阵：${rel} 不在任何层（contract/core/providers/dsh，或入口 src/index.ts）`)
+      problems.push(`矩阵：${rel} 不在任何层（contract/core/providers/control/dsh，或入口 src/index.ts）`)
       continue
     }
     files += 1
@@ -451,7 +453,7 @@ function main() {
   const matrix = analyzeImportMatrix()
   reportStep(5, 'import 矩阵', matrix.problems.length === 0 ? 'ok' : 'fail',
     matrix.problems.length === 0
-      ? `四层依赖方向零违规（扫描 ${matrix.files} 文件 / ${matrix.imports} 条 import）`
+      ? `五层依赖方向零违规（扫描 ${matrix.files} 文件 / ${matrix.imports} 条 import）`
       : `${matrix.problems.length} 处违规（扫描 ${matrix.files} 文件 / ${matrix.imports} 条 import）`,
     Math.round(performance.now() - stepStarted))
   if (verbose) {

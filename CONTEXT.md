@@ -77,3 +77,17 @@ _Avoid_: 错误（硬错误另有所指，如链耗尽）
 
 **Dsh-default**:
 指向 DSH 子代理默认模型对的内置别名（别名注册表范围）：装载时快照读取，`invalidate()` 是唯一刷新点；匹配不到已声明条目时合成隐式条目，保持「别名 = 纯指针」不变式。该名在 `models:` 与 `aliases:` 两处都是保留字。
+
+### 组合与写面
+
+**组合文档（ComposedAgentDocument）**:
+控制核心 `compose` 的输出：一份 Agent 文档的域视图——身份字段 ＋ `frontmatterText`/`bodyText` 原始字节 ＋ 块序列 ＋ framing ＋ `baseText`。域形状，无编辑器字符偏移；写回以 `baseText` 为底，commit 靠它拒绝覆盖外部改动。
+_Avoid_: 编辑器视图模型（偏移/折叠状态归 UI 层）、AgentDefinition（冻结读面的扁平形状，其 body 已 trim，不携带原始字节）
+
+**块（Block）**:
+组合文档里一段连续原文（`id` / `kind` / `file` / `text`）。v1 只有两种：`frontmatter` 与 `prose`（Q1 裁决：单文件 body，无切片）；`id` 是稳定派生键，行号与数组下标不是身份。
+_Avoid_: 切片 / section（v1 不存在，归 14 票再议）
+
+**写入计划（WritePlan）**:
+`plan(doc, edits)` 的纯函数输出：逐文件 `{ file, content, blockIds, baseText }` ＋ 数据化拒绝（rejection，带 `editIndex`，永不 throw）。`commit` 逐条目原子落盘（temp ＋ rename、`0600`）、写后重读验证、覆盖冲突拒绝；所有失败都是 `WriteReport` 里的行，不是异常。
+_Avoid_: 伪造行数 / 占位文件名（原型的 bug 面，禁止回归）

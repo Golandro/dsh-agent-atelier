@@ -10,7 +10,7 @@
 ## 0. 结论
 
 1. **插件单位是 Cordis 插件行，不是层。** 一个包可以暴露多个子入口（`name` 允许子路径），一个 bundle patch 可以插入多行；服务 key 是跨 bundle 的唯一契约。把每层强绑成一个插件仍然不做——纯算法留在 module 内部，只有被其他 bundle 消费的能力才 provide。
-2. **六层**：`contract`（types only）、`core`（目录 / 编排 / 写面）、`providers`（来源与写入适配器）、`dsh`（宿主 / 浏览器连接器）、`ui-core`（界面核心）、`ui-react`（React 组件库）。依赖单向指向 `contract`；宿主翼与界面翼不共享实现，只共享 `contract`（wire 是它的投影）。
+2. **六层**：`contract`（types only）、`core`（目录 / 编排 / 写面）、`providers`（来源与写入适配器）、`dsh`（宿主 / 浏览器连接器）、`ui-core`（界面核心）、`ui-react`（React 组件库）。依赖单向指向 `contract`；宿主翼与界面翼不共享实现，只共享 `contract`（wire 是它的投影）。（2026-10-19 落地现状：`src/` 按**五层**矩阵运行——contract / core / providers / control / dsh；`control` 自票 11 起从 core 独立成层（`src/control/`），`ui-core` / `ui-react` 待 05/12。）
 3. **能力切分（Q1 的「部分 A / 部分 B」）**：
 
    | 能力 | A（module 内部） | B（Cordis 服务） | 理由 |
@@ -121,7 +121,7 @@ dsh/host                                         dsh/client
 **内容**：跨 bundle / 跨翼的形状与契约，types only。
 
 - 目录：`AgentDefinition`、`AgentRegistry`、`AliasRegistry` 及其诊断 / findings（01/02 冻结）；
-- 控制：`ControlSnapshot`、`ComposedAgentDocument`、`DocumentEdit`、`WritePlan`、`WriteReport`、`RegistryEdit`（11）；
+- 控制：`ControlSnapshot`、`ComposedAgentDocument`、`DocumentEdit`、`WritePlan`、`WriteReport`、`RegistryEdit`（11）；**票 11 现状**：这批形状暂置 `src/control/types.ts`（尚无跨 bundle 消费者，按本节不变量「跨 bundle 被消费才进 contract」推迟上提；12 接线出 wire 时再评估）；
 - 编排：`PrepareOptions`、`PreparedAgent`、`ResolutionResult`、`AssemblyPlan`、`ToolPlan`、归一化 `Warning`（服务边界，所以进 contract）；
 - provider：`AgentProviders`、`ProviderControl`、`AgentSourceProvider`、`ProviderLookupOptions`、`SourceEntry`、`SourceDocument`、`SourceRead`（agent 侧已落地，票 18）；`ModelLayerProvider`、`DefaultModelProvider` 仍在本设计节，随各自票进 `contract`；
 - 服务：`AgentOrchestrator`、`AgentControl` 的接口形状、服务 key 常量、`SERVICE_API_VERSION`；
@@ -223,6 +223,8 @@ interface PreparedAgent {
 **消费关系**：summon（07）注入 `agentOrchestrator`；control（11）用 `ctx.get` **可选**注入，03 未落地时 `snapshot` 显式标注「链解析待 03」；06 不消费它（06 只依赖目录与 `tool-capability`，不因 03 未落地而受阻）。
 
 ### 3.4 `core/control`（写面服务）
+
+**票 11 落地为 `src/control/` 独立层**（check.mjs 矩阵五层之一；公开面 `src/control/index.ts`，跨层 import 只走它），服务 provide（`agentControl`）仍归 12/16 接线。
 
 接口与语义以票 11 为准（`snapshot` / `compose` / `plan` / `commit` / `applyRegistryEdit` / `invalidate`），provide 为 `agentControl`。位置与不变量：
 
@@ -343,7 +345,7 @@ interface ProviderLookupOptions {
 
 ### 3.7 `ui-core`（界面核心）
 
-**文档端口**（12 wire 的投影；内存 / HTTP 两适配器）：
+**文档端口**（12 wire 的投影；内存 / HTTP 两适配器；**与票 11 已落地的同名 seam 区分**：`src/control` 的 `AgentDocPort` 是本地 3 成员缝——`read` / `commit(dirty)` / `invalidate`，按 agentName 分组编辑、组内一次 commit——本节的 6 成员形状是 12 票在 ui-core 侧的远程/HTTP 投影，不要混同）：
 
 ```ts
 interface AgentDocPort {

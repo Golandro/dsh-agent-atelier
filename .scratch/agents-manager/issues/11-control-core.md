@@ -24,10 +24,10 @@ Blocked by: —
 
 ## 宿主现状（动工前必须知道）
 
-- 读面已存在、已冻结：`parseAgentDocument`（`src/core/catalog/frontmatter.ts:84`）、`AgentFrontmatter`（`src/core/catalog/frontmatter.ts:22`）、`readRegistryLayer`（`src/core/catalog/registry-file.ts:104`）、两个服务在 `src/dsh/host/core.ts:24` 的 `applyCore` 里注册（`ctx.agentRegistry` / `ctx.aliasRegistry`；18 票拆行前在 plugin.ts 的 `apply`）。
+- 读面已存在、已冻结：`parseAgentDocument`（`src/core/catalog/frontmatter.ts:99`）、`AgentFrontmatter`（`src/core/catalog/frontmatter.ts:24`）、`readRegistryLayer`（`src/core/catalog/registry-file.ts:106`）、两个服务在 `src/dsh/host/core.ts:24` 的 `applyCore` 里注册（`ctx.agentRegistry` / `ctx.aliasRegistry`；18 票拆行前在 plugin.ts 的 `apply`）。
 - **写面完全不存在**：全 `src/` 无 `writeFile` / `rename` / 原子写（grep 为空）。原型的 `serializeFrontmatter` 是唯一的序列化实现，且只认识已知键 ＋ `extra` 原文、无转义、不可往返（D14 要求原文回写）。
 - **原型不在 `tsconfig.json` 的 include**（`"include": ["src", "test"]`）⇒ 原型的类型漂移不受 `pnpm run check` 保护，两套同名类型长期共存无人报警。
-- 「零运行时依赖」的注释在 `src/core/catalog/frontmatter.ts:6`、`src/core/catalog/yaml-scalar.ts:6`、`src/core/catalog/registry-file.ts:15` 已与 2026-10-17 的依赖裁决（`js-yaml` / `zod` 保留在 `dependencies`，05 票 Q4「我们需要这些依赖」）不一致，但代码仍未引用这两个包 ⇒ 声明按裁决保留，本票要**改三处注释**，并决定写面/校验是用这两个包还是扩展现有 `yaml-scalar.ts`（二选一，只留一份实现）。
+- 「零运行时依赖」的注释在 `src/core/catalog/frontmatter.ts:6`、`src/core/catalog/yaml-scalar.ts:7`、`src/core/catalog/registry-file.ts:16` 已与 2026-10-17 的依赖裁决（`js-yaml` / `zod` 保留在 `dependencies`，05 票 Q4「我们需要这些依赖」）不一致，但代码仍未引用这两个包 ⇒ 声明按裁决保留，本票要**改三处注释**，并决定写面/校验是用这两个包还是扩展现有 `yaml-scalar.ts`（二选一，只留一份实现）。
 
 ## 现状分析（原型实现）
 
@@ -128,24 +128,47 @@ Blocked by: —
 
 ## 动工前必须裁决
 
-- **Q1（阻断）clip 切片模型**：`{% include clip <name> %}` 模板 ＋ `sections/<name>.md` 独立文件是原型提案，而 01 冻结契约的 body 是单文件。三选一：(A) 引入切片文件并冻结新契约（01 需修订）；(B) 只做单文件 body，不引入切片（`compose` 退化为 frontmatter ＋ body 两块）；(C) 切片只存在于 UI 概念层、落盘保持单文件。**推荐 (A)**——P1 标注的「编辑 Clip 保存时改涉及的所有 clip 文件」只有切片成文件才成立；但这是产品决定，不是实现细节。（2026-10-18 诊断补：原型切片落点是 `<发现根>/sections/<name>.md`，而 `src/core/catalog/discovery.ts:200` 起把根下每个 kebab 目录都当 agent 候选 ⇒ `sections/` 会被判 `missing-document`，用户根每次扫描一条诊断、受信 bundled 根更会直接抛错。选 A 必须同时改发现面（保留目录名）或改用点号目录；成本落在 `discoverDirectory`，**不动** `src/contract/types.ts` 的冻结读面。维护者追问后补：`~/repo/ChunkStellar/.harness` 的组装是先例，但属**交付层**；作者层仍用 include（可嵌套、禁参数化）。落点取点号目录 `.sections/` 则 `src/core/catalog/discovery.ts:202` 直接跳过 ⇒ 发现面零改动。详见诊断记录「Q1 目标评价」。）
+- **Q1（阻断）clip 切片模型**：`{% include clip <name> %}` 模板 ＋ `sections/<name>.md` 独立文件是原型提案，而 01 冻结契约的 body 是单文件。三选一：(A) 引入切片文件并冻结新契约（01 需修订）；(B) 只做单文件 body，不引入切片（`compose` 退化为 frontmatter ＋ body 两块）；(C) 切片只存在于 UI 概念层、落盘保持单文件。**推荐 (A)**——P1 标注的「编辑 Clip 保存时改涉及的所有 clip 文件」只有切片成文件才成立；但这是产品决定，不是实现细节。（2026-10-18 诊断补：原型切片落点是 `<发现根>/sections/<name>.md`，而 `src/core/catalog/discovery.ts:141` 起把根下每个 kebab 目录都当 agent 候选 ⇒ `sections/` 会被判 `missing-document`，用户根每次扫描一条诊断、受信 bundled 根更会直接抛错。选 A 必须同时改发现面（保留目录名）或改用点号目录；成本落在 `discoverDirectory`，**不动** `src/contract/types.ts` 的冻结读面。维护者追问后补：`~/repo/ChunkStellar/.harness` 的组装是先例，但属**交付层**；作者层仍用 include（可嵌套、禁参数化）。落点取点号目录 `.sections/` 则 `src/core/catalog/discovery.ts:144` 直接跳过 ⇒ 发现面零改动。详见诊断记录「Q1 目标评价」。）
 - **Q2 front-matter 编辑形态**：(A) 文本编辑 ＋ 写前用 D23 解析器校验、按原文回写（保注释/未知键）；(B) 字段表单（每字段一个控件，写入时序列化）。**推荐 (A)**——与 P1 标注一致，且 D14 的 1:1 回写只有文本形态能满足。（2026-10-18 诊断补：原型 `model.ts` 行 175-193 的 `serializeFrontmatter` 不转义 `name`/`description`、丢注释与键序，B 形态无法满足 D14 原文回写；选 B 需先推翻 D14，不是自由二选一。）
 - **Q3 归属**：本票与 05 的关系。**推荐**：本票 = 05 的后端优先第一刀，05 的 brief 继续有效并收到本票指针。（2026-10-18 诊断补：05 正文范围 6 仍把写器写作「本票新增」、范围 3 仍认领数据通道，且 05 现为 `ready-for-agent` 且无 `Blocked by: 11` ⇒ 边界不落，先领 05 的 agent 会造出第二份写器/通道；另本票内部 seam 第 11 项 `MasterDetailPane` 是组件实现，与本票范围「不含 UI 组件实现（05）」自相矛盾，需一并裁决。）
 
 裁决后本票转 `ready-for-agent`。
 
+## 契约（冻结）
+
+2026-10-19 实施完成时冻结。公开面 = `src/control/index.ts`（跨层 import 只走它，check.mjs 矩阵已加 control 层）；新形状进新文件（`src/control/types.ts`），`src/contract/types.ts` 未改动；所有可选字段一律显式 `?: T | undefined`（`exactOptionalPropertyTypes`）。
+
+### ControlCore（`createControlCore(deps: ControlDependencies)`，六成员）
+
+- `snapshot(options?): Promise<ControlSnapshot>` — `agents` / `models` / `aliases` 用冻结读面类型（`AgentDefinition` / `ModelDefinition` / `AliasDefinition`）＋ 原始 `agentDiagnostics` / `aliasDiagnostics` ＋ 归一化 `findings: ControlFinding[]`（`origin: 'agent-scan' | 'registry-layer' | 'cross-layer'` 判别联合；cross-layer 复用 `inspectAliasRegistry`，不重实现）。
+- `compose(agentName, options?): Promise<ComposedAgentDocument>` — `agentName` / `path` / `source` / `origin` / `providerId` ＋ `frontmatterText` / `bodyText` 原始字节 ＋ `baseText` ＋ `framing`（`plain | fenced`，含 opening/closing 原始字节）＋ `blocks[]`（v1 仅 `frontmatter` / `prose` 两种 kind；`id` / `kind` / `file` / `text`）。无编辑器偏移。agent 未找到或文件不可读 throw（读面错误）。
+- `plan(doc, edits): WritePlan` — 同步纯函数：同输入同输出、无 I/O、不改参。逐编辑应用到草稿并经 `parseAgentDocument` 验证，失败回滚为数据化 rejection（`code` / `message` / `editIndex`），永不 throw；无变化不产生 entry（`content !== baseText` 才写，D14）。
+- `commit(plan): Promise<WriteReport>` — 永不 throw：逐 entry 再验证（`invalid-content`）→ 读盘比对（不一致 → `conflict`；文件消失 → `not-found`）→ 原子写（`ensureDirectory` → `writeNewFile`（wx、`0600`）→ `renameFile`）→ 写后重读验证；失败清理临时文件。`WriteFailureCode = conflict | invalid-content | io-error | invalid-edit | not-found | read-only`。
+- `applyRegistryEdit(edit: RegistryEdit): Promise<WriteReport>` — 7 kind 判别联合（`setAvailable` / `setSysPrompt` / `remapAlias` / `addAlias` / `deleteAlias` / `addModel` / `deleteModel`）；层解析、路径推导、删除回退全藏在内。行手术保留注释 / 未知键 / 键序；层文件手术前后各验一次 `readRegistryLayer`（坏层整体拒绝 → `invalid-content`）。`built-in` 或 path 缺失 → `read-only`；未找到 → `not-found`；`addAlias` / `addModel` 须显式 `source: 'project-dsh' | 'user-dsh'`；保留名 `dsh-default`；名字须 `/^[A-Za-z0-9_.-]+$/`；`addAlias` 目标须存在于 registry。成功后失效别名注册表缓存。
+- `invalidate(): void` — 同时失效 agent 与 alias 两注册表缓存。
+
+### 序列化（唯一实现，ADR-0005）
+
+文件 = `opening + frontmatterText + closing + bodyText` 逐字节往返（CRLF、注释、未知键、键序保留）；`frontmatterText` 含 closing 前的换行。frontmatter 编译器不变式：结果为 `''` 或以 `\n` 结尾；plain 文档 ＋ 字段编辑 ⇒ 合成 `---\n` ＋ 文本 ＋ `---\n`。`DocumentEdit` 两种：`setBlockText`（原始文本替换）与 `setFrontmatterField`（9 字段，编译成原文编辑——Q5 裁决，不引入第二数据路径）。
+
+### 接线 seam（12 票消费）
+
+- `evaluateAgentQuery(rows, query: AgentListQuery): AgentRow[]` — 唯一列表求值器（filter / sort 纯函数，UI 共用，不自行内联权重公式）。
+- `AgentDocPort` = `{ read(agentName), commit(dirty: DocumentEdit[]), invalidate }`；`createAgentDocPort(core, { cwd? })` 按 agentName 分组 dirty edits、逐组 compose（unknown agent → `unknown-agent` rejection，`editIndex` = 组首索引）、一次 commit 一份报告。
+- 适配器：内存适配器 `createInMemoryControlCore`（`src/control/memory.ts`，测试 / 演示）；Node 写适配器 `createNodeControlFileSystem()`（`src/providers/fs/write.ts`）；宿主 HTTP 适配器归 12 票，同接口。
+
 ## 验收
 
-- [ ] 契约冻结并回写本票 `## 契约（冻结）`；`src/contract/types.ts` 未被改动（新形状进新文件）
-- [ ] 核心接口成员 ≤ 6；内部纯函数可单独测试（internal seam）
-- [ ] 写面存在且与既有读者配对：往返不丢注释/未知键（D14），有原子写与失败路径
-- [ ] 主线无第二份 frontmatter / registry 解析模型；registry 层类型用 `AliasRegistrySource`
-- [ ] `AgentDiagnostic` 与 `AliasFinding` 分族保留，归一化视图带 `origin` 判别
-- [ ] 模板行语法、分隔行规则、行号口径、脏口径、块→文件路由各只有**一份**实现
-- [ ] 主线不存在 `disabled`、`Finding` 归并模型、伪造的 offset / file 占位串 / `lines`
-- [ ] `plan()` 是纯函数（同输入同输出）；`commit()` 覆盖冲突有明确错误
-- [ ] 三处「零运行时依赖」注释与 `package.json` 一致；原型专用包（codemirror / @codemirror/* / @tanstack/react-table）不进主线（2026-10-18 已成立，回归即可）
-- [ ] `pnpm run check` 全绿（含 `hostRuntimeDeps` 判定）；`CONTEXT.md` 术语更新；原型分支不合并
+- [x] 契约冻结并回写本票 `## 契约（冻结）`；`src/contract/types.ts` 未被改动（新形状进新文件）
+- [x] 核心接口成员 ≤ 6；内部纯函数可单独测试（internal seam）
+- [x] 写面存在且与既有读者配对：往返不丢注释/未知键（D14），有原子写与失败路径
+- [x] 主线无第二份 frontmatter / registry 解析模型；registry 层类型用 `AliasRegistrySource`
+- [x] `AgentDiagnostic` 与 `AliasFinding` 分族保留，归一化视图带 `origin` 判别
+- [x] 模板行语法、分隔行规则、行号口径、脏口径、块→文件路由各只有**一份**实现（Q1=B：v1 无切片 ⇒ 模板行/分隔行不存在；行号/脏口径归 05 UI；块→文件路由唯一实现于 `src/control/writes.ts`）
+- [x] 主线不存在 `disabled`、`Finding` 归并模型、伪造的 offset / file 占位串 / `lines`
+- [x] `plan()` 是纯函数（同输入同输出）；`commit()` 覆盖冲突有明确错误
+- [x] 三处「零运行时依赖」注释与 `package.json` 一致；原型专用包（codemirror / @codemirror/* / @tanstack/react-table）不进主线（2026-10-18 已成立，回归即可）
+- [x] `pnpm run check` 全绿（含 `hostRuntimeDeps` 判定）；`CONTEXT.md` 术语更新；原型分支不合并（2026-10-19：静态 6 项 ＋ typecheck ＋ 147 测试全绿）
 
 ## 已知约束
 
@@ -183,7 +206,7 @@ Blocked by: —
 - 缺片占位串当文件名：`model.ts` 行 274 把 ``（未找到切片 ${clipName}）`` 展示串写进 `DocBlock.file`，`saveWrites` 与 Inspector 还拿它当文件键。
 - 重复引用未定义：同一 body 两次引用同一 clip 时块 id 都是 `clip-${name}`，`layoutBlocks` 的 `ranges[block.id]` 后写覆盖前写 ⇒ 编辑/保存只认一块（嵌套与重复引用的语义要在契约里显式定为诊断或 fail-fast）。
 - 序列化不可往返：`model.ts` 行 175-193 的 `serializeFrontmatter` 只写已知键 + `extra` 原文，`name`/`description` 不转义、注释与键序全丢 ⇒ 满足不了 D14 的 1:1 原文回写（❓Q2 的硬约束）。
-- Q1 的具体代价：原型切片落点是 `<发现根>/sections/<name>.md`（`prototype/settings-ui/src/fixtures.ts` 第 109 行；`App.tsx` 的「外部手改」演示也用同路径），而 `src/core/catalog/discovery.ts:200` 起把根下每个 kebab 目录都当 agent 候选 ⇒ `sections/` 会被判 `missing-document`（用户根每次扫描一条诊断；若出现在受信 bundled 根会直接抛错）⇒ 选 A 必须同时改发现面（保留目录名）或改用点号目录（点号目录在 `src/core/catalog/discovery.ts:202` 直接被跳过 ⇒ 零发现面改动）。
+- Q1 的具体代价：原型切片落点是 `<发现根>/sections/<name>.md`（`prototype/settings-ui/src/fixtures.ts` 第 109 行；`App.tsx` 的「外部手改」演示也用同路径），而 `src/core/catalog/discovery.ts:141` 起把根下每个 kebab 目录都当 agent 候选 ⇒ `sections/` 会被判 `missing-document`（用户根每次扫描一条诊断；若出现在受信 bundled 根会直接抛错）⇒ 选 A 必须同时改发现面（保留目录名）或改用点号目录（点号目录在 `src/core/catalog/discovery.ts:144` 直接被跳过 ⇒ 零发现面改动）。
 - 票面事实漂移（已就地修正）：主线 `dependencies` 只剩 `js-yaml`/`zod`（`hostRuntimeDeps` 合规）；`codemirror`/`@codemirror/*`/`@tanstack/react-table` 只在 `proto/settings-ui` 的 `package.json`，**未进主线**；05 票 Q4 裁决「我们需要这些依赖」已定 js-yaml/zod 保留 ⇒ 原文「原型专用依赖会装进任何使用者的 profile」「要么把声明去掉」已过时，本票只剩三处注释要改。
 - 冗余检查：`src/`、`test/`、`bundled/` 无 control/compose/write 实现；`.out-of-scope/` 不存在 ⇒ 无既有实现、无历史拒绝记录。
 
@@ -248,17 +271,17 @@ Blocked by: —
 - `AgentDocPort`（12 票接线用）：`read(agentName)` / `commit(dirty)` / `invalidate`。
 
 **Acceptance criteria:**
-- [ ] 接口 ≤ 6 成员；`plan` 纯函数（同输入同输出）；`commit` 原子写 ＋ 写后重校验 ＋ 覆盖冲突错误。
-- [ ] D14 往返：手写 front-matter（含注释、未知键、键序）经 compose → plan → commit 后除实际编辑部分外逐字节不变。
-- [ ] 主线只有一份序列化实现、一份 frontmatter 模型、一份 registry 层类型（`AliasRegistrySource`）。
-- [ ] `compose` 的块只有 `frontmatter` / `prose`；`plan` 不按 kind 路由到多文件。
-- [ ] 删除 `disabled`、伪 offset、伪文件名占位串、伪造行数；`AgentDiagnostic` / `AliasFinding` 分族，归一化视图带 `origin`。
-- [ ] 内存适配器与 HTTP 适配器同接口；组件不 import fixtures（12/13 验收）。
-- [ ] 三处「零运行时依赖」注释与 `package.json` 一致；原型分支不合并。
-- [ ] `pnpm run check` 全绿（含 `hostRuntimeDeps`）；术语表按 v1 范围更新（不引入切片/装配源术语）。
-- [ ] 视觉/交互不在本票验收内（05 负责）。
-- [ ] 新增第三方运行时依赖（js-yaml / zod 等）前，先修订 `scripts/check.mjs` 的矩阵规则（else 分支现拒 `src/` 一切外部 import；票 16 复核记入）。
-- [ ] 收拢两个 Dependencies 接口重复的 fs 依赖三件套（`resolveFileSystem` / `nodeFileSystem` / `warn`）为共享基类型（票 16 复核 Data Clumps 记账；本票必动这些接口，顺手收）。
+- [x] 接口 ≤ 6 成员；`plan` 纯函数（同输入同输出）；`commit` 原子写 ＋ 写后重校验 ＋ 覆盖冲突错误。
+- [x] D14 往返：手写 front-matter（含注释、未知键、键序）经 compose → plan → commit 后除实际编辑部分外逐字节不变。
+- [x] 主线只有一份序列化实现、一份 frontmatter 模型、一份 registry 层类型（`AliasRegistrySource`）。
+- [x] `compose` 的块只有 `frontmatter` / `prose`；`plan` 不按 kind 路由到多文件。
+- [x] 删除 `disabled`、伪 offset、伪文件名占位串、伪造行数；`AgentDiagnostic` / `AliasFinding` 分族，归一化视图带 `origin`。
+- [x] 内存适配器与 HTTP 适配器同接口；组件不 import fixtures（12/13 验收）（内存适配器 `createInMemoryControlCore` 已交付；HTTP 适配器与组件约束由 12/13 各自票验收）。
+- [x] 三处「零运行时依赖」注释与 `package.json` 一致；原型分支不合并。
+- [x] `pnpm run check` 全绿（含 `hostRuntimeDeps`）；术语表按 v1 范围更新（不引入切片/装配源术语）。
+- [x] 视觉/交互不在本票验收内（05 负责）。
+- [x] 新增第三方运行时依赖（js-yaml / zod 等）前，先修订 `scripts/check.mjs` 的矩阵规则（else 分支现拒 `src/` 一切外部 import；票 16 复核记入）（本票未新增运行时依赖——未引 js-yaml/zod，义务未触发；矩阵已加 control 层）。
+- [x] 收拢两个 Dependencies 接口重复的 fs 依赖三件套（`resolveFileSystem` / `nodeFileSystem` / `warn`）为共享基类型（票 16 复核 Data Clumps 记账；本票必动这些接口，顺手收）（`FileSystemDependencies` 落于 `src/core/ports.ts`）。
 
 **Out of scope:**
 - 切片 / include / `.sections/`（Q1=B：v1 单文件 body）。

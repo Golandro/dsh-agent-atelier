@@ -11,8 +11,10 @@
  * This is a *second* minimal reader next to `./frontmatter.ts`, not a reuse of
  * it: registry.yaml needs booleans, a two-level block mapping and multi-field
  * flow mappings, none of which the agent-document subset can express. Both
- * readers sit on the scalar rules in `./yaml-scalar.ts`, and both keep the
- * bundle's zero runtime dependencies (ADR-0001, `scripts/check.mjs` import matrix).
+ * readers sit on the scalar rules in `./yaml-scalar.ts`, and neither imports a
+ * YAML library — `js-yaml` and `zod` stay declared in `package.json` as
+ * reserved for the settings-UI work (2026-10-17 dependency ruling) — so the
+ * bundle keeps exactly one YAML implementation.
  *
  * A layer is read whole or rejected whole (triage Q4): every problem is
  * collected, syntax problems come back as `unparseable-registry` and schema
