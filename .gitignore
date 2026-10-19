@@ -8,3 +8,5 @@ lib/
 
 # prototype build output
 prototype/settings-ui/dist/
+
+.dsh/

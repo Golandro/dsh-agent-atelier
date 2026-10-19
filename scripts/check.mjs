@@ -17,7 +17,7 @@
  *   node scripts/check.mjs              全量静态检查
  *   node scripts/check.mjs --self-test 只跑守卫自测
  *   node scripts/check.mjs --hook      pre-commit 模式：附带分支/暂存文件与修复建议
- *   node scripts/check.mjs --verbose   打印每层扫描统计
+ *   node scripts/check.mjs --verbose   打印每层扫描统计与逐条违规（默认只报数量）
  *   node scripts/check.mjs --no-color  关闭 ANSI 颜色
  */
 import { execFileSync } from 'node:child_process'
@@ -469,8 +469,8 @@ function main() {
   if (verbose) {
     const layers = Object.entries(matrix.byLayer).map(([name, count]) => `${name} ${count}`).join(' · ')
     console.log(`      ${dim(`层文件数：${layers}`)}`)
+    for (const problem of matrix.problems) console.error(`      ${red('✗')} ${problem}`)
   }
-  for (const problem of matrix.problems) console.error(`      ${red('✗')} ${problem}`)
   problems.push(...matrix.problems.map((text) => ({ kind: 'matrix', text })))
 
   // 6/6 anchors：票面/文档里的 path:line 必须能解析。

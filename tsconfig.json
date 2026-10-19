@@ -25,7 +25,8 @@
     "noUnusedParameters": true,
     "noEmit": true,
     "rootDir": ".",
-    "outDir": "lib"
+    "outDir": "lib",
+    "types": ["node"]
   },
   "include": ["src", "test", "client-editor", "client-list"]
 }
