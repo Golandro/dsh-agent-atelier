@@ -179,7 +179,7 @@ Status 维持 `ready-for-agent`，本票可开工；agent brief 挂票（见下�
 
 - `ctx.agentDefaultModel` 服务键与 `currentSelection()` 签名在 `core/agent-default-model/src/index.ts:67` 核对：同步、返回 `{provider, model, reasoningEffort?}`、不抛。本 profile 的 patch 里该服务带 `provider: volcengine-plan` / `model: glm-5.3`，故真机上默认对可读。
 - 服务键 `aliasRegistry` 在 DSH 源码、装好的 dsh lib bundle、profile patch 三处 grep 均无占用。本会话没有 `cordis_inspect_query` 工具，故未走 harness-facts 推荐的 `listService` 探针——该探针按 harness-facts 本身也照不到 plain-object service。
-- 票面锚点漂移由守卫 anchors 项兜住（50 处全解析，含本票新增的 `core/agent-default-model/src/index.ts:24`、`src/contract/types.ts:64-66`、`agent-control-prototype.html:209`）。
+- 票面锚点漂移由守卫 anchors 项兜住（50 处全解析，含本票新增的 `core/agent-default-model/src/index.ts:24`、`src/contract/types.ts:64-66`；原型文件锚点 2026-10-19 随其退役移除）。
 
 **两轴 `/code-review`**：fixed point `5bfa19b` ⇒ `git diff 5bfa19b...HEAD` 只含本票那一笔（`85fa97d`）；两轴各跑一个子代理（`deepseek-official/deepseek-flash`）。
 
@@ -229,7 +229,7 @@ Status 维持 `ready-for-agent`，本票可开工；agent brief 挂票（见下�
 - 服务键 `aliasRegistry`（原生无占用，已核验 2026-10-15；参照 01 避开 `agents` 的教训）。
 - `ctx.agentDefaultModel.currentSelection(): {provider, model, reasoningEffort?}`——默认对读取面（ADR-0001：不可 import 原生包）。
 - 跨层校验纯函数入参：`AgentDefinition.modelOrder` / `model`（`src/contract/types.ts:64-66`，01 已交付）。
-- 原型领域参照：`agent-control-prototype.html:209`（REAL_MODELS 条目）与 `:266`（aliases 映射）——注意原型别名是字符串单目标，v1 schema 是单目标数组；`resolveModel`（`:282-285`）属 03 的规格参照，不在本票。
+- 原型领域参照：agent-control-prototype.html（2026-10-19 已退役，git 历史可查）的 REAL_MODELS 条目与 aliases 映射——注意原型别名是字符串单目标，v1 schema 是单目标数组；`resolveModel` 属 03 的规格参照，不在本票；两表 uplift 后的落点 = spec §5.2。
 - 契约（读面形状 / finding 类型）实施期冻结并回写本票（01 票 Q4 先例）。
 
 **Acceptance criteria:**

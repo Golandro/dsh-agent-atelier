@@ -5,7 +5,7 @@
 - 特性目录：`.scratch/agents-manager/`；spec = `spec.md`（完整共识记录 + 事实速查 + 数据模型 + 通道映射 + 里程碑）；票据 = `issues/01..10`（单票单文件）。
 - 插件产品边界：**只管、且深度管会话启动参数**（persona / 模型链 / 工具过滤 / prompt 组装 / 首条消息）；运行时工作流委托 DSH 原生。
 - deck 闸恢复后可由 deck 接管本目录票据管理（文件已按 `docs/agents/issue-tracker.md` 约定落盘）。
-- 原型 `agent-control-prototype.html` 保留在仓库根，其纯逻辑模块是 M3 解析引擎的规格参照。
+- 原型 `agent-control-prototype.html` 已于 2026-10-19 退役删除（纯逻辑模块已 uplift 为 M3 规格 spec §5.3；git 历史可查）。
 - UI 设计原型在 throwaway 分支 `proto/settings-ui`（`prototype/settings-ui/`：React 19 + Vite + CodeMirror 6 + TanStack Table）；`/codebase-design` 分析（2026-10-17）把它的验证结论收敛成三票：`issues/11-control-core.md`、`issues/12-host-wiring.md`、`issues/13-frontend-tests.md`。
 - 领域文档已起步：`CONTEXT.md`（词汇表，随 grilling 增补）+ `docs/adr/`（0001 结构照抄、0002 目录制布局、0003 Core 分层）。
 - Core 分层设计（2026-10-18，`/codebase-design`）：`docs/core-design.md` + ADR-0003/0004。六层（contract / core / providers / dsh / ui-core / ui-react）、宿主翼与界面翼只共享 contract；Q1 = 部分 A/部分 B（读面 + `agentProviders` + `agentOrchestrator` + `agentControl` 服务化，纯算法 / sink / UI 内部保持 module）；Q2 = 优先 Cordis 特性、provider 实例经 `agentProviders` 注册；Q3 = 先落 P1（票 16）；Q4 = 单包多插件行；Q5 = 允许运行期 `@deepseek-ai/cordis`，`Service` 子类只在 `dsh/host`（安装探针 P2）。无待决项。

@@ -6,7 +6,7 @@ Blocked by: 10, 01, 02
 
 ## 范围
 
-实现链解析纯函数（spec §5.3），原型 `agent-control-prototype.html` 的 `resolveModel` 为规格参照，升级点：
+实现链解析纯函数（spec §5.3）。规格参照原为原型 agent-control-prototype.html 的 `resolveModel`——原型已于 2026-10-19 退役（git 历史可查），其语义已 uplift 为 spec §5.3 与 D8。升级点：
 
 1. **双轨遍历**：`modelOrder` 条目为别名 → 展开别名目标数组（v1 单目标）跳过 `available:false`；条目为 raw `{provider,model}` → 直连（触发逃逸口 lint）。
 2. **白名单**：每个候选过 `assertAllowedModelSelection` 语义的 policy.routes 白名单（事实参照 `tool-subagent/src/model-selection.ts:139`）；全链被拦 ⇒ 按不可用处理。

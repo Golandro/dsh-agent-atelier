@@ -2,7 +2,7 @@
 
 > 状态：grilling 已收敛（四轮问答 + 4 个源码探员），共识已确认。本文件 = spec + roadmap；分模块票据在 `issues/`；wayfinding map 在 `map.md`。
 > 2026-10-14 二轮 grilling（01 票，/triage /grill-with-docs）增补 D19–D24，修订 §5.1/§5.3/§6/§8；裁决记录见票 01 的二轮评论。
-> 原型参照：`agent-control-prototype.html`（其纯逻辑模块提升为解析引擎的规格参照，保留于仓库根）。
+> 原型参照：`agent-control-prototype.html` 已于 2026-10-19 退役（其纯逻辑模块已 uplift 为解析引擎规格 §5.3；git 历史可查）。
 
 ## 1. 背景与目标
 

@@ -84,7 +84,7 @@ export interface AgentDefinition {
 - `ls -d $DSH_HOME/agents ~/.agents/agents $WORKSPACE/.dsh/agents` → 三者均**不存在** ⇒ 双根目录尚未建立。
 - 仓库根 `ls`：只有 `agent-control-prototype.html` / `AGENTS.md` / `docs/` / `.scratch/`，无 `package.json`、无 `src/`、无测试配置 ⇒ 票面「单测」验收当前**无法执行**，需先落脚手架。
 - 先例核验（可定位）：`packages/skill/skill-filesystem/src/index.ts:244-263` 的 `roots()`；`bundledSkillDir` 先例 = `dsh-mattpocock-skills-deck/bundled-skills/`、`@michengai/dsh-agency-agents/assets`（均存在）。
-- 原型参照 `agent-control-prototype.html:280` 的 `resolveModel` 存在（03 票的规格参照有效）。
+- 原型参照 agent-control-prototype.html 的 `resolveModel` 存在（03 票的规格参照有效）。〔2026-10-19 注：原型文件已退役删除，git 历史可查〕
 - `.out-of-scope/` 知识库不存在 ⇒ 无历史拒绝记录可比对。
 
 **根因候选（置信度）**
