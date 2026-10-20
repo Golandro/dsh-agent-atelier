@@ -52,5 +52,5 @@ Delivered: agent discovery + `agentRegistry` (01), alias/model registry (02),
 provider sub-plugin (18), control core + HTTP wiring + sidebar editor
 (11/12/05). Model resolution (03), prompt assembly (04), catalog injection (06)
 and the summon tool (07) follow the roadmap: spec and tickets live in
-`.scratch/agents-manager/`, domain terms in `CONTEXT.md`, decisions in
+`.scratch/agents-manager/`, domain terms in `GLOSSARY.md`, decisions in
 `docs/adr/`.

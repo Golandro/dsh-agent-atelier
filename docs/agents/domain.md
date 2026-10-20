@@ -2,37 +2,41 @@
 
 How the engineering skills should consume this repo's domain documentation when exploring the codebase.
 
-## Layout: single-context
+## Layout: multi-context
 
-This repo's domain-doc layout was confirmed at setup time as **single-context**: one domain-doc context for the whole repository — a single `CONTEXT.md` at the repo root, with architecture decisions in `docs/adr/`. There is no `CONTEXT-MAP.md` and no per-subproject `CONTEXT.md`.
+This repo's domain-doc layout was confirmed at setup time as **multi-context**: each subproject keeps its own `GLOSSARY.md`, and a root `GLOSSARY-MAP.md` points at them. The repo root also carries a `GLOSSARY.md` for repo-wide terms, and `docs/adr/` holds system-wide decisions; context-scoped decisions live under `src/<context>/docs/adr/`.
 
-Naming note: this repo's glossary file is `CONTEXT.md`. The bundled `domain-modeling` template defaults to `GLOSSARY.md` / `GLOSSARY-MAP.md`; in this repo `CONTEXT.md` is the name to read and to write, and `GLOSSARY.md` is not used.
+State at setup time: `GLOSSARY.md` exists at the repo root with the terms resolved so far. `GLOSSARY-MAP.md` and the per-subproject `GLOSSARY.md` files are created lazily, at the first term actually written for a context — from then on the root map points at them.
 
 ## Before exploring, read these
 
-- **`CONTEXT.md`** at the repo root.
-- **`docs/adr/`**: read ADRs that touch the area you're about to work in.
+- **`GLOSSARY.md`** at the repo root.
+- **`GLOSSARY-MAP.md`** at the repo root if it exists: it points at one `GLOSSARY.md` per context. Read each one relevant to the topic.
+- **`docs/adr/`**: read ADRs that touch the area you're about to work in. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions.
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
 
 ## File structure
 
-Single-context repo:
+Multi-context repo:
 
 ```
 /
-├── CONTEXT.md
-├── docs/adr/
-│   ├── 0001-event-sourced-orders.md
-│   └── 0002-postgres-for-write-model.md
+├── GLOSSARY.md                       ← repo-wide terms
+├── GLOSSARY-MAP.md                   ← points at per-context glossaries
+├── docs/adr/                         ← system-wide decisions
 └── src/
+    ├── <context>/
+    │   ├── GLOSSARY.md
+    │   └── docs/adr/                 ← context-specific decisions
+    └── ...
 ```
 
-`CONTEXT.md` and the ADRs are created lazily, at the first resolved term or decision — neither exists yet, and that is expected.
+`GLOSSARY-MAP.md` and the per-context `GLOSSARY.md` files are created lazily, at the first resolved term — their absence is expected.
 
 ## Use the glossary's vocabulary
 
-When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `CONTEXT.md`. Don't drift to synonyms the glossary explicitly avoids.
+When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `GLOSSARY.md`. Don't drift to synonyms the glossary explicitly avoids.
 
 If the concept you need isn't in the glossary yet, that's a signal: either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/domain-modeling`).
 

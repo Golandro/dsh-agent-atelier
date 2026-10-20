@@ -9,9 +9,23 @@ session-start parameters — persona / model chain / tool filter / prompt assemb
 first message — and leaves runtime orchestration to native DSH: the atelier
 prepares the summon, DSH runs it.
 
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live in GitHub Issues (`Golandro/dsh-agent-atelier`) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles, label strings equal to their names (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+multi-context (`GLOSSARY-MAP.md` at the root pointing at per-context `GLOSSARY.md`). See `docs/agents/domain.md`.
+
 ## Pointers
 
-- **Domain terms** → `CONTEXT.md` — reach when naming or challenging vocabulary
+- **Domain terms** → `GLOSSARY.md` — reach when naming or challenging vocabulary
   (Agent vs subagent/teammate, alias, channel).
 - **Decisions** → `docs/adr/` — reach before re-litigating structure (discovery
   shape, directory layout, layering).

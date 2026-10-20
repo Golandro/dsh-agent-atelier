@@ -3,7 +3,7 @@
  * `.scratch/agents-manager/issues/01-agent-registry.md`, section
  * `## 契约（冻结）`).
  *
- * Member names follow the domain glossary (`CONTEXT.md`): the address key is
+ * Member names follow the domain glossary (`GLOSSARY.md`): the address key is
  * `agentName` (the `agent-name` directory, never the deprecated frontmatter
  * `id`) and the document text is `body` (正文, not "persona").
  *
