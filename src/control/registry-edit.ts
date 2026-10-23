@@ -18,8 +18,9 @@ import { aliasRegistryLayers, DEFAULT_ALIAS_NAME, readRegistryLayer } from '../c
 
 import type { AliasRegistry } from '../contract/index.ts'
 import type { ControlFileSystem } from '../core/ports.ts'
+import { errorMessage } from './client-errors.ts'
 import { serializeFrontmatterScalar } from './frontmatter-edit.ts'
-import { atomicWriteFile, errorMessage } from './writes.ts'
+import { atomicWriteFile } from './writes.ts'
 import type { RegistryEdit, WriteReport, WriteResult } from './types.ts'
 
 /** Everything a registry edit needs from the control core. */

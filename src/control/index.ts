@@ -11,7 +11,18 @@ export { createMemoryControlClient } from './client.ts'
 export type { ControlClient, ControlClientOptions } from './client.ts'
 export { createHttpControlClient } from './http-client.ts'
 export type { HttpControlClientOptions } from './http-client.ts'
-export { abortError, ControlClientError, statusForWriteReport, throwIfAborted } from './client-errors.ts'
+export {
+  abortError,
+  CLIENT_MARKER_HEADER,
+  CLIENT_MARKER_VALUE,
+  codeForReport,
+  ControlClientError,
+  errorMessage,
+  isAbortError,
+  statusForWriteReport,
+  throwIfAborted,
+  UnknownAgentError,
+} from './client-errors.ts'
 export { evaluateAgentQuery } from './query.ts'
 export type {
   AgentListQuery,

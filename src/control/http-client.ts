@@ -3,11 +3,12 @@
  * the browser bundle and the adapter contract suite in `test/` can use it.
  *
  * It speaks the frozen wire contract in `src/dsh/host/wire.ts`: document-relative
- * URLs (Desktop forwards the same path), a JSON marker header on mutations, the
- * caller's `AbortSignal` all the way to `fetch`, and non-2xx bodies mapped onto
+ * URLs (Desktop forwards the same path), a JSON marker header on mutations
+ * (the one shared definition in `./client-errors.ts`), the caller's
+ * `AbortSignal` all the way to `fetch`, and non-2xx bodies mapped onto
  * {@link ControlClientError}.
  */
-import { abortError, ControlClientError } from './client-errors.ts'
+import { abortError, CLIENT_MARKER_HEADER, CLIENT_MARKER_VALUE, ControlClientError } from './client-errors.ts'
 
 import type { ControlClient, ControlClientOptions } from './client.ts'
 import type {
@@ -22,8 +23,6 @@ import type {
 
 /** Route namespace registered by `src/dsh/host/ui-host.ts`. */
 const DEFAULT_BASE_URL = 'agent-atelier'
-/** Marker header every mutation must carry; the host refuses without it. */
-const CLIENT_MARKER_HEADER = 'x-dsh-agent-atelier'
 
 /** Construction options of the HTTP control client. */
 export interface HttpControlClientOptions {
@@ -59,7 +58,7 @@ export function createHttpControlClient(options: HttpControlClientOptions = {}):
     const headers: Record<string, string> = { accept: 'application/json', ...options.headers }
     if (method === 'POST') {
       headers['content-type'] = 'application/json'
-      headers[CLIENT_MARKER_HEADER] = '1'
+      headers[CLIENT_MARKER_HEADER] = CLIENT_MARKER_VALUE
     }
     const body = method === 'POST'
       ? JSON.stringify(cwd === undefined ? payload ?? {} : { ...payload, cwd })

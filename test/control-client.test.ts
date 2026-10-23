@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
-import { ControlClientError, createMemoryControlClient } from '../src/control/index.ts'
+import {
+  CLIENT_MARKER_HEADER,
+  CLIENT_MARKER_VALUE,
+  errorMessage,
+  isAbortError,
+} from '../src/control/client-errors.ts'
 import { createHttpControlClient } from '../src/control/http-client.ts'
+import { ControlClientError, createMemoryControlClient } from '../src/control/index.ts'
 import { createInMemoryControlCore } from '../src/control/memory.ts'
 import { dispatchControlRequest } from '../src/dsh/host/index.ts'
 
-import type { ControlClient } from '../src/control/index.ts'
+import type { ControlClient, ControlCore } from '../src/control/index.ts'
 import type { InMemoryControlCore } from '../src/control/memory.ts'
 
 const PROJECT = '/client-proj'
@@ -157,11 +163,45 @@ describe('control client adapters', () => {
     await expect(http).rejects.toMatchObject({ status: 404, code: 'not-found' })
   })
 
-  it('rejects pre-aborted calls with an AbortError through both adapters', async () => {
+  it('maps a read-only refusal to the same 409 code through both adapters', async () => {
+    const readOnly: ControlCore['commit'] = async () => ({ results: [{ ok: false, file: DOC, code: 'read-only', message: 'file is read-only' }] })
+    const memory = createMemoryControlClient({ ...createCore(), commit: readOnly })
+    const http = createHttpControlClient({
+      baseUrl: 'http://host/agent-atelier',
+      fetchImpl: bridge({ ...createCore(), commit: readOnly }),
+      cwd: PROJECT,
+    })
+
+    await expect(memory.commit([DESCRIPTION_EDIT])).rejects.toMatchObject({ status: 409, code: 'read-only' })
+    await expect(http.commit([DESCRIPTION_EDIT])).rejects.toMatchObject({ status: 409, code: 'read-only' })
+  })
+
+  it('sends the shared mutation marker the wire enforces, on mutations only', async () => {
+    const sent: Record<string, string>[] = []
+    const core = createCore()
+    const recording: typeof fetch = async (input, init) => {
+      sent.push(Object.fromEntries(new Headers(init?.headers).entries()))
+      return await bridge(core)(input, init)
+    }
+    const http = createHttpControlClient({ baseUrl: 'http://host/agent-atelier', fetchImpl: recording, cwd: PROJECT })
+
+    await expect(http.compose('alpha')).resolves.toMatchObject({ agentName: 'alpha' })
+    await http.snapshot()
+    expect(sent[0]?.[CLIENT_MARKER_HEADER]).toBe(CLIENT_MARKER_VALUE)
+    expect(sent[1]?.[CLIENT_MARKER_HEADER]).toBeUndefined()
+  })
+
+  it('rejects pre-aborted calls with the same abort name and message through both adapters', async () => {
     const pair = adapters()
     const controller = new AbortController()
     controller.abort()
-    await expect(pair.memory.snapshot({ signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' })
-    await expect(pair.http.snapshot({ signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' })
+    const errors = await Promise.all([
+      pair.memory.snapshot({ signal: controller.signal }).catch((error: unknown) => error),
+      pair.http.snapshot({ signal: controller.signal }).catch((error: unknown) => error),
+    ])
+    for (const error of errors) {
+      expect(isAbortError(error)).toBe(true)
+      expect(errorMessage(error)).toBe('The operation was aborted')
+    }
   })
 })

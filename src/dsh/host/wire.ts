@@ -19,7 +19,17 @@
 import { Buffer } from 'node:buffer'
 import { isAbsolute } from 'node:path'
 
-import { planDirtyEdits, statusForWriteReport, throwIfAborted } from '../../control/index.ts'
+import {
+  CLIENT_MARKER_HEADER,
+  CLIENT_MARKER_VALUE,
+  codeForReport,
+  errorMessage,
+  isAbortError,
+  planDirtyEdits,
+  statusForWriteReport,
+  throwIfAborted,
+  UnknownAgentError,
+} from '../../control/index.ts'
 
 import type { ControlCore, DocumentEdit, FrontmatterField, RegistryEdit, WriteReport } from '../../control/index.ts'
 
@@ -50,10 +60,13 @@ export const MAX_FIELD_VALUE_LENGTH = 64 * 1024
 export const MAX_FIELD_ITEMS = 64
 /** Largest cwd accepted. */
 export const MAX_CWD_LENGTH = 4096
-/** Mutation marker header; browser clients must send it (CSRF defence in depth). */
-export const CLIENT_MARKER_HEADER = 'x-dsh-agent-atelier'
-/** The only accepted marker value. */
-export const CLIENT_MARKER_VALUE = '1'
+/**
+ * Mutation marker header and its only accepted value — the one shared
+ * definition lives in `src/control/client-errors.ts` (browser-safe, so the
+ * HTTP client and this wire cannot drift); re-exported here because host-side
+ * consumers import the wire's surface.
+ */
+export { CLIENT_MARKER_HEADER, CLIENT_MARKER_VALUE }
 
 const FRONTMATTER_FIELDS: readonly FrontmatterField[] = [
   'name',
@@ -139,7 +152,7 @@ export async function dispatchControlRequest(input: ControlDispatchInput): Promi
     }
   } catch (error) {
     if (isAbortError(error)) return fail(499, 'aborted', 'request cancelled')
-    return fail(500, 'internal', error instanceof Error ? error.message : String(error))
+    return fail(500, 'internal', errorMessage(error))
   }
 }
 
@@ -165,7 +178,7 @@ async function handleCompose(input: ControlDispatchInput): Promise<ControlDispat
     const document = await input.control.compose(agentName.value, { cwd: resolved })
     return { status: 200, body: { cwd: resolved, document } }
   } catch (error) {
-    if (isUnknownAgent(error)) return fail(404, 'not-found', messageOf(error))
+    if (isUnknownAgent(error)) return fail(404, 'not-found', errorMessage(error))
     throw error
   }
 }
@@ -223,7 +236,7 @@ function reportResult(cwd: string, report: WriteReport): ControlDispatchResult {
   if (status === 200) return { status, body: { cwd, report } }
   const failure = report.results.find((result) => !result.ok)
   const message = failure !== undefined && !failure.ok ? failure.message : 'write failed'
-  const code = status === 404 ? 'not-found' : status === 409 ? 'conflict' : 'internal'
+  const code = codeForReport(report)
   return { status, body: { cwd, error: { code, message }, report } }
 }
 
@@ -241,16 +254,8 @@ function header(headers: Readonly<Record<string, string | string[] | undefined>>
   return undefined
 }
 
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
 function isUnknownAgent(error: unknown): boolean {
-  return error instanceof Error && error.message.startsWith('unknown agent')
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
+  return error instanceof UnknownAgentError
 }
 
 type ReadResult<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly message: string }

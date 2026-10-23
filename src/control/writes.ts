@@ -15,6 +15,7 @@ import { dirname } from 'node:path'
 import { parseAgentDocument } from '../core/index.ts'
 
 import type { ControlFileSystem } from '../core/ports.ts'
+import { errorMessage } from './client-errors.ts'
 import { assembleAgentDocument } from './compose.ts'
 import { applyFrontmatterField } from './frontmatter-edit.ts'
 import type {
@@ -28,11 +29,6 @@ import type {
   WriteReport,
   WriteResult,
 } from './types.ts'
-
-/** One-line message of an unknown thrown value, for result rows that never throw. */
-export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
 
 /**
  * Plan the writes for one composed document's edits — sync and pure: no I/O,

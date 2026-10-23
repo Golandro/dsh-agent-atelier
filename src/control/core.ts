@@ -13,6 +13,7 @@ import { inspectAliasRegistry } from '../core/index.ts'
 
 import type { AgentRegistry, AliasRegistry } from '../contract/index.ts'
 import type { ControlFileSystem } from '../core/ports.ts'
+import { errorMessage, UnknownAgentError } from './client-errors.ts'
 import { composeAgentDocument } from './compose.ts'
 import { applyRegistryEdit, type RegistryEditContext } from './registry-edit.ts'
 import { commitPlan, planDocumentEdits } from './writes.ts'
@@ -89,7 +90,7 @@ export function createControlCore(dependencies: ControlDependencies): ControlCor
     async compose(agentName, options) {
       const cwd = options?.cwd ?? resolveProjectRoot()
       const definition = await dependencies.agentRegistry.get(agentName, { cwd })
-      if (definition === undefined) throw new Error(`unknown agent: "${agentName}"`)
+      if (definition === undefined) throw new UnknownAgentError(agentName)
       const baseText = await dependencies.fileSystem.readTextFile(definition.path)
       if (baseText === undefined) throw new Error(`agent document is unreadable: ${definition.path}`)
       return composeAgentDocument(definition, baseText)
@@ -152,7 +153,7 @@ export async function planDirtyEdits(
     } catch (error) {
       rejections.push({
         code: 'unknown-agent',
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
         editIndex: group.firstIndex,
       })
       continue

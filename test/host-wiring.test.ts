@@ -155,6 +155,20 @@ describe('wire dispatcher', () => {
     expect((result.body as { error: { code: string } }).error.code).toBe('conflict')
   })
 
+  it('POST /commit maps a read-only refusal to 409 with the read-only code', async () => {
+    const base = createCore()
+    const readOnly: ControlCore = {
+      ...base,
+      async commit() {
+        return { results: [{ ok: false, file: DOC, code: 'read-only', message: 'file is read-only' }] }
+      },
+    }
+    const result = await call(readOnly, '/agent-atelier/commit', { body: { edits: [DESCRIPTION_EDIT], cwd: PROJECT } })
+
+    expect(result.status).toBe(409)
+    expect((result.body as { error: { code: string } }).error.code).toBe('read-only')
+  })
+
   it('POST /registry applies a tuning edit and maps unknown models to 404', async () => {
     const core = createCore()
     const ok = await call(core, '/agent-atelier/registry', {

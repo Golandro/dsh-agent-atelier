@@ -4,9 +4,13 @@ lib/
 .pnpm-store/
 .probe/
 .vendor/
+.scratch/
+.dsh-mattskillsdeck-cache/
 *.tsbuildinfo
 
 # prototype build output
 prototype/settings-ui/dist/
 
+
+AGENTS.local.md
 .dsh/

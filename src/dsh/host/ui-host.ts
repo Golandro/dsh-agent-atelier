@@ -11,6 +11,7 @@
 import { Buffer } from 'node:buffer'
 
 import { AGENT_CONTROL_SERVICE } from '../../contract/index.ts'
+import { errorMessage, isAbortError } from '../../control/index.ts'
 import { CONTROL_ROUTE_PATHS, MAX_BODY_BYTES, dispatchControlRequest } from './wire.ts'
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -121,7 +122,7 @@ export async function handleControlRequest(
     if (isAbortError(error)) {
       if (!res.writableEnded) sendJson(res, 499, { error: { code: 'aborted', message: 'request cancelled' } })
     } else if (!res.headersSent) {
-      sendJson(res, 500, { error: { code: 'internal', message: error instanceof Error ? error.message : String(error) } })
+      sendJson(res, 500, { error: { code: 'internal', message: errorMessage(error) } })
     } else {
       res.destroy()
     }
@@ -179,10 +180,6 @@ function optionalConnection(ctx: Context): HostConnection | undefined {
   if (typeof candidate !== 'object' || candidate === null) return undefined
   const connection = candidate as Partial<HostConnection>
   return typeof connection.requestRejection === 'function' ? (connection as HostConnection) : undefined
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
 }
 
 /** Exposed for the host-row test; the loader only needs {@link applyUiHost}. */
