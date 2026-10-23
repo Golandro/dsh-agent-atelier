@@ -274,3 +274,149 @@ export interface AgentChainInput {
   readonly modelOrder?: readonly string[] | undefined
   readonly model?: readonly AgentModelTarget[] | undefined
 }
+
+/* ── Model chain resolution (ticket 03, spec §5.3) ───────────────────────────
+ *
+ * Third half of the frozen contract: what the pure resolution engine answers.
+ * It is frozen here because 05 (UI) and 06 (catalog warnings) render the
+ * report itself, and 07 maps the failure onto a tool `isError`; only the
+ * engine's internal signatures stay inside `core/` (docs/core-design.md §3.1).
+ */
+
+/**
+ * Where one candidate entered the chain.
+ *
+ * Both sources converge on the engine's single internal candidate pipeline
+ * (2026-10-20 residual K): an alias expands to its model entries, the legacy
+ * `model:` array contributes `raw` entries, and from there on the steps —
+ * availability, whitelist, effort — are one code path. This tag is the only
+ * difference that survives, because it is *provenance*: consumers warn on
+ * `raw` ("prefer an alias", D5) and never branch on it otherwise.
+ */
+export type ChainCandidateOrigin = 'alias' | 'raw'
+
+/** Why one candidate did not win; absent on the chain's winner. */
+export type ChainSkipReason =
+  /** The alias a `modelOrder` entry names is not in the registry snapshot. */
+  | 'unknown-alias'
+  /** The alias points at a model entry the snapshot does not have. */
+  | 'unknown-model'
+  /** The model entry declares `available: false`, the v1 manual switch (D6). */
+  | 'unavailable'
+  /** The route is not in the selection policy's allowed routes (spec §5.3-2). */
+  | 'not-allowed'
+
+/** One exact child LLM route authorized to be chosen (DSH `AllowedModelRoute`). */
+export interface ModelRoute {
+  readonly provider: string
+  readonly model: string
+}
+
+/**
+ * What the resolution engine is allowed to choose, mirroring DSH
+ * `ModelSelectionPolicy` (`model-selection.ts` in the `tool-subagent` package).
+ *
+ * `routes` omitted means this session has no allowlist and every route is
+ * allowed; an empty array allows nothing. Unlike DSH's model-facing selection,
+ * an agent document is *always* an explicit selection (frontmatter names the
+ * route), so the policy applies to every candidate — there is no "pure
+ * inheritance" exemption here.
+ */
+export interface ModelSelectionPolicy {
+  readonly routes?: readonly ModelRoute[] | undefined
+}
+
+/** The agent document fields chain resolution reads; plain data, nothing else. */
+export interface ChainResolutionInput {
+  /** Address key, for the report and for the hard error's message. */
+  readonly agentName: string
+  /** Alias names, tried in declaration order before {@link model}. */
+  readonly modelOrder?: readonly string[] | undefined
+  /** Legacy direct provider/model chain, tried after `modelOrder` is exhausted (D5). */
+  readonly model?: readonly AgentModelTarget[] | undefined
+  /** Agent-level effort default; a chain item's own effort still wins (D7). */
+  readonly reasoningEffort?: string | undefined
+  /** Document body (正文): the persona channel, passed through untouched (D11). */
+  readonly body: string
+  /** Tool names the agent expects; passed through as the tool filter (D9). */
+  readonly requiredTools?: readonly string[] | undefined
+  /** Default flavor written in the document; the call site's override wins (D13). */
+  readonly spawn?: 'spawn' | 'fork' | undefined
+}
+
+/** One step of the alias chain: the alias, and what its model entries led to. */
+export interface AliasChainStep {
+  /** Position in `modelOrder`, 0-based. */
+  readonly orderIndex: number
+  /** The alias name exactly as the document wrote it. */
+  readonly alias: string
+  /** Model entry names the alias points at, in pointer order (v1: one). */
+  readonly targets: readonly string[]
+  /** The registry entry that won from this alias, when one did. */
+  readonly modelName?: string | undefined
+  /**
+   * Why the alias itself contributed nothing — set only for `unknown-alias`;
+   * per-target refusals are reported per candidate in {@link ChainResolutionReport.candidates}.
+   */
+  readonly skipped?: Extract<ChainSkipReason, 'unknown-alias'> | undefined
+}
+
+/** One candidate the engine considered, wherever it came from. */
+export interface ChainCandidateReport {
+  /** Route being considered; absent only when the alias target is unknown. */
+  readonly route?: ModelRoute | undefined
+  readonly origin: ChainCandidateOrigin
+  /** Registry model entry name; absent for `raw` candidates and unknown targets. */
+  readonly modelName?: string | undefined
+  /** `modelOrder` position this candidate came through; absent for `raw` candidates. */
+  readonly orderIndex?: number | undefined
+  /** Why it did not win, or that the chain stopped at an earlier target; absent on the winner. */
+  readonly skipped?: ChainSkipReason | 'not-reached' | undefined
+}
+
+/** Which layer supplied the effective `reasoningEffort` (D7). */
+export type EffortSource = 'chain' | 'agent' | 'none'
+
+/** The full trace consumers render; same inputs always produce the same report. */
+export interface ChainResolutionReport {
+  /** The alias half, in declaration order. */
+  readonly aliasChain: readonly AliasChainStep[]
+  /** Whether the raw `model:` fallback was reached (spec §8 "escape hatch" warning). */
+  readonly rawFallbackUsed: boolean
+  /** Every candidate considered, alias half first, then raw, in declaration order. */
+  readonly candidates: readonly ChainCandidateReport[]
+  /** Why the winner won: first surviving alias target, or a raw entry; `none` when the chain ran out. */
+  readonly selectedBy: 'alias' | 'raw' | 'none'
+  /** Where the effective `reasoningEffort` came from. */
+  readonly effortSource: EffortSource
+}
+
+/** A chain that resolved: the route plus what session start needs. */
+export interface ChainResolutionSuccess {
+  readonly ok: true
+  readonly provider: string
+  readonly model: string
+  /** Chain item, then agent default, then absent (D7); never invented. */
+  readonly reasoningEffort?: string | undefined
+  /** Document body (正文), passed through; the persona channel (D11). */
+  readonly persona: string
+  /** Tool names the agent expects; warnable, never enforced here (D9). */
+  readonly toolFilter: readonly string[]
+  /** Effective flavor: the call site's override, else the document's, else `spawn` (D13). */
+  readonly flavor: 'spawn' | 'fork'
+  readonly report: ChainResolutionReport
+}
+
+/** A chain that ran out: the hard error, carried as data (docs/core-design §3.3). */
+export interface ChainResolutionFailure {
+  readonly ok: false
+  /** Stable machine code; 07 maps it onto the tool `isError`. */
+  readonly code: 'chain-exhausted'
+  /** The hard error message, echoing the whole chain (D8); ready for `throw new Error(message)`. */
+  readonly message: string
+  readonly report: ChainResolutionReport
+}
+
+/** What chain resolution answers; a failure is data, never a throw. */
+export type ChainResolution = ChainResolutionSuccess | ChainResolutionFailure
+
