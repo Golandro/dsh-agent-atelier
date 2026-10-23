@@ -10,8 +10,8 @@
  *   scratch    已知探针目录不得残留（被 .gitignore 隐藏，`git status` 看不出来）
  *   bundle     `package.json` 运行时依赖不得含 `@deepseek-ai/*` 宿主包（ADR-0001 import 边界，宿主共享实例走 peer+dev；第三方库允许——2026-10-17 维护者裁决，install_bundle 随装入解析）
  *   deps       声明的每个 devDependency 必须已安装
- *   matrix     src/ 的 import 矩阵（ticket 16）：跨层只准公共入口；`@deepseek-ai/*` 只在 dsh/host 且 type-only（P1 现状，运行期放开归 P2/ADR-0004）；node:fs 只在 providers/dsh/host。type-only 由 AST 判定，不靠文本上溯
- *   anchors    `.scratch`/`docs` 里每一处 `path:line` 断言都必须能解析且行号在范围内
+ *   matrix     src/ 与两个 chunk 根（`client-editor/`、`client-list/`，ticket 17）的 import 矩阵（ticket 16）：跨层只准公共入口；`@deepseek-ai/*` 只在 dsh/host 且 type-only（P1 现状，运行期放开归 P2/ADR-0004）；node:fs 只在 providers/dsh/host。type-only 由 AST 判定，不靠文本上溯
+ *   anchors    `.scratch`/`docs` 里每一处 `path:line` 断言都必须能解析且行号在范围内；另含裸 `src/...` 路径令牌存在性（ticket 17）
  *
  * 用法：
  *   node scripts/check.mjs              全量静态检查
@@ -31,6 +31,12 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const DSH_SOURCE = process.env.DSH_SOURCE ?? join(homedir(), 'repo/deepseek-harness')
 const SCRATCH_DIRS = ['.probe']
 const ANCHOR_RE = /`([A-Za-z0-9_./@-]+\.(?:ts|tsx|js|mjs|json|yml|yaml|md|html)):(\d+)(?:-(\d+))?`/g
+/**
+ * 裸路径令牌（ticket 17）：反引号包裹、以 `src/` 开头的仓库内路径，不带 `:line`。
+ * `...` 是省略写法（`src/...` 指「src 下的锚点」），不是路径断言，故排除；
+ * `*`/`{`/空格等同样不在字符集里——通配与叙述片段不当地址。
+ */
+const BARE_PATH_RE = /`(src\/[A-Za-z0-9_./@-]+)`/g
 const STEP_TOTAL = 6
 const ARGS = new Set(process.argv.slice(2))
 
@@ -51,8 +57,8 @@ const HINTS = {
   scratch: '删除残留探针目录（例如 `.probe/`，它被 .gitignore 隐藏）。',
   bundle: '把 `@deepseek-ai/*` 从 `dependencies` 移到 `peerDependencies` + `devDependencies`（ADR-0001）。',
   deps: '安装缺失的 devDependency：`pnpm install --store-dir "$PWD/.pnpm-store"`（沙箱内，见 docs/agents/harness-facts.md）。',
-  matrix: '跨层 import 只走公共入口：`src/contract/index.ts`、`src/core/index.ts`、`src/core/ports.ts`、`src/providers/fs/index.ts`、`src/control/index.ts`、`src/control/client-errors.ts`、`src/control/http-client.ts`、`src/dsh/host/index.ts`。',
-  anchors: '修正票面/文档里的 `path:line`，或先跑 `pnpm run check:static` 看解析详情。',
+  matrix: '跨层 import 只走公共入口：`src/contract/index.ts`、`src/core/index.ts`、`src/core/ports.ts`、`src/providers/fs/index.ts`、`src/control/index.ts`、`src/control/client-errors.ts`、`src/control/http-client.ts`、`src/dsh/host/index.ts`；chunk（`client-editor/`、`client-list/`）只准 `src/control/index.ts` 与 `src/dsh/client/chunk-contracts.ts`。',
+  anchors: '修正票面/文档里的 `path:line` 或裸 `src/...` 路径，或先跑 `pnpm run check:static` 看解析详情。',
 }
 
 /** @returns {string[]} 实际存在的探针目录 */
@@ -96,10 +102,22 @@ export const PUBLIC_ENTRIES = [
 ]
 
 /**
+ * 两个 chunk 源（`client-editor/`、`client-list/`）与宿主翼的全部接触面（ticket 17）：
+ * 打包产物的共享契约 `src/dsh/client/chunk-contracts.ts`，加 control 公共入口
+ * （`client-list` 的查询求值走 `evaluateAgentQuery`）。其余 `src/` 深路径一律报错。
+ */
+export const CHUNK_ENTRIES = [
+  'src/control/index.ts',
+  'src/dsh/client/chunk-contracts.ts',
+]
+
+/**
  * 每层的依赖面：`dir` 内部深引用随便；跨层只准 `entries`；
  * `node` 列出允许的 `node:` 模块（true = 全部）；`cordis` = 允许 `@deepseek-ai/cordis`
  * 且仅 type-only（Q5 的运行期 `Service` 例外在 P2 生效）；`external` = 由宿主
- * 平台注入的运行时模块白名单（client 层的 react 由模块加载器提供，打包时保持 external）。
+ * 平台注入的运行时模块白名单（client 层的 react 由模块加载器提供，打包时保持 external）；
+ * `thirdParty` = 浏览器 chunk：第三方库随 chunk 打包（自带 vendor），但宿主包
+ * （`@deepseek-ai/*`）与 `node:*` 不许进来——界面翼只与宿主共享 contract（ticket 17）。
  */
 const IMPORT_MATRIX = [
   { name: 'contract', dir: 'src/contract/', entries: [], node: [], cordis: false },
@@ -108,8 +126,13 @@ const IMPORT_MATRIX = [
   { name: 'control', dir: 'src/control/', entries: ['src/contract/index.ts', 'src/core/index.ts', 'src/core/ports.ts', 'src/providers/fs/index.ts'], node: ['node:path'], cordis: false },
   { name: 'dsh/client', dir: 'src/dsh/client/', entries: ['src/contract/index.ts', 'src/core/ports.ts', 'src/control/index.ts', 'src/control/client-errors.ts', 'src/control/http-client.ts'], node: [], cordis: false, external: ['react'] },
   { name: 'dsh/host', dir: 'src/dsh/host/', entries: ['src/contract/index.ts', 'src/core/index.ts', 'src/core/ports.ts', 'src/providers/fs/index.ts', 'src/control/index.ts'], node: true, cordis: true },
+  { name: 'chunk-editor', dir: 'client-editor/', entries: CHUNK_ENTRIES, node: [], cordis: false, thirdParty: true },
+  { name: 'chunk-list', dir: 'client-list/', entries: CHUNK_ENTRIES, node: [], cordis: false, thirdParty: true },
   { name: 'entry', dir: null, entries: PUBLIC_ENTRIES, node: [], cordis: false },
 ]
+
+/** 矩阵扫描根：`src/` 加两个发布 chunk 的源码根（ticket 17 起不再只扫 src/）。 */
+const MATRIX_ROOTS = ['src', 'client-editor', 'client-list']
 
 /**
  * 用 TypeScript AST 扫一个模块的 import/export-from：静态、副作用、动态。
@@ -172,31 +195,32 @@ function layerOf(file) {
 }
 
 /**
- * import 矩阵判定（ticket 16），AST 版。
+ * import 矩阵判定（ticket 16 / 17），AST 版。
+ * 扫描根：`src/`、`client-editor/`、`client-list/`。
  * @returns {{problems: string[], files: number, imports: number, byLayer: Record<string, number>}}
  */
 export function analyzeImportMatrix(root = ROOT) {
   const problems = []
-  const srcDir = join(root, 'src')
   const byLayer = Object.fromEntries(IMPORT_MATRIX.map((layer) => [layer.name, 0]))
   let files = 0
   let imports = 0
-  const sourceFiles = listFiles(srcDir, srcDir).filter((f) => /\.tsx?$/.test(f)).sort()
-  for (const file of sourceFiles) {
-    const rel = `src/${file}`
+  const sourceFiles = MATRIX_ROOTS
+    .flatMap((base) => listFiles(join(root, base), join(root, base)).filter((f) => /\.tsx?$/.test(f)).map((f) => `${base}/${f}`))
+    .sort()
+  for (const rel of sourceFiles) {
     const layer = layerOf(rel)
     if (layer === undefined) {
-      problems.push(`矩阵：${rel} 不在任何层（contract/core/providers/control/dsh/client/dsh/host，或入口 src/index.ts）`)
+      problems.push(`矩阵：${rel} 不在任何层（contract/core/providers/control/dsh/client/dsh/host/chunk-editor/chunk-list，或入口 src/index.ts）`)
       continue
     }
     files += 1
     byLayer[layer.name] += 1
-    for (const imp of scanImports(rel, readFileSync(join(srcDir, file), 'utf8'))) {
+    for (const imp of scanImports(rel, readFileSync(join(root, rel), 'utf8'))) {
       imports += 1
       const where = `${rel}:${imp.line}`
       const source = imp.source
       if (source.startsWith('.')) {
-        const target = `src/${relative(srcDir, resolve(srcDir, dirname(file), source)).split('\\').join('/')}`
+        const target = relative(root, resolve(root, dirname(rel), source)).split('\\').join('/')
         const within = layer.dir !== null && target.startsWith(layer.dir)
         if (within || layer.entries.includes(target)) continue
         problems.push(`矩阵：${where} 相对引用 "${source}" 越层（${layer.name} 层跨层只准 ${layer.entries.join(', ') || '无'}）`)
@@ -206,6 +230,11 @@ export function analyzeImportMatrix(root = ROOT) {
         }
       } else if (layer.cordis && source === '@deepseek-ai/cordis') {
         if (imp.runtime) problems.push(`矩阵：${where} 运行期引用 "${source}"（dsh 层本票只准 type-only，Q5 的运行期例外在 P2）`)
+      } else if (layer.thirdParty === true) {
+        // 浏览器 chunk 自带 vendor：第三方库随包打进 chunk；宿主包不许跨翼。
+        if (source.startsWith('@deepseek-ai/')) {
+          problems.push(`矩阵：${where} 引用宿主包 "${source}"（${layer.name} 与宿主翼只共享 contract）`)
+        }
       } else if (Array.isArray(layer.external) && layer.external.includes(source)) {
         // 平台注入的运行时模块（client 层 react），打包时保持 external。
       } else {
@@ -259,6 +288,59 @@ export function resolveAnchor(anchor, { root = ROOT, dshSource = DSH_SOURCE } = 
   return { status: 'ok', file, total }
 }
 
+/** 去掉三反引号/波浪线围栏代码块：围栏里是示例代码，不是路径断言（ticket 17）。 */
+export function stripFencedBlocks(text) {
+  const kept = []
+  let fence = null
+  for (const line of text.split('\n')) {
+    const marker = /^\s*(```|~~~)/.exec(line)
+    if (fence === null && marker !== null) {
+      fence = marker[1]
+      continue
+    }
+    if (fence !== null) {
+      if (marker !== null && marker[1] === fence) fence = null
+      continue
+    }
+    kept.push(line)
+  }
+  return kept.join('\n')
+}
+
+/** 从 markdown 文本抽取裸 `src/...` 路径令牌（fenced 之外；`...` 省略写法不算地址） */
+export function parseBarePaths(text, source = '') {
+  const out = []
+  for (const m of stripFencedBlocks(text).matchAll(BARE_PATH_RE)) {
+    if (m[1].includes('...')) continue
+    out.push({ token: m[0], path: m[1], source })
+  }
+  return out
+}
+
+/**
+ * 裸路径存在性判定（ticket 17）：`.scratch`/`docs` 的 markdown 与 `README.md` 里
+ * 每一处反引号包裹的 `src/...` 都必须真实存在。只认 workspace 相对路径——
+ * 裸令牌是「本仓地址」陈述，不套锚点的 DSH 源码树回退。
+ * @returns {{problems: string[], tokens: number, files: number}}
+ */
+export function analyzeBarePaths(root = ROOT) {
+  const files = []
+  for (const base of [join(root, '.scratch'), join(root, 'docs')]) {
+    for (const f of listFiles(base, base)) if (f.endsWith('.md')) files.push(join(base, f))
+  }
+  if (existsSync(join(root, 'README.md'))) files.push(join(root, 'README.md'))
+  const problems = []
+  let tokens = 0
+  for (const file of files) {
+    for (const bare of parseBarePaths(readFileSync(file, 'utf8'), relative(root, file))) {
+      tokens += 1
+      if (existsSync(join(root, bare.path))) continue
+      problems.push(`裸路径：${bare.source} ${bare.token} → 仓库内不存在该路径`)
+    }
+  }
+  return { problems, tokens, files: files.length }
+}
+
 function collectAnchors(root = ROOT) {
   const files = []
   for (const base of [join(root, '.scratch'), join(root, 'docs')]) {
@@ -307,6 +389,26 @@ function selfTest() {
     writeFileSync(join(tmp, 'packages', 'b', 'x.ts'), '\n\n')
     check('resolveAnchor 对同名多命中报 ambiguous', resolveAnchor({ path: 'x.ts', line: 1 }, { root: tmp, dshSource: tmp }).status === 'ambiguous')
 
+    // 裸路径守卫（ticket 17）：存在的放行、缺失的报错，围栏与带行号写法不误报。
+    const btmp = mkdtempSync(join(tmpdir(), 'check-bare-'))
+    try {
+      mkdirSync(join(btmp, 'src'), { recursive: true })
+      mkdirSync(join(btmp, 'docs'), { recursive: true })
+      writeFileSync(join(btmp, 'src', 'index.ts'), 'export const a = 1\n')
+      const doc = (text) => writeFileSync(join(btmp, 'docs', 'note.md'), text)
+      doc('见 `src/index.ts`、`src/...`（省略写法）与 `src/index.ts:3`（带行号，归锚点项）\n')
+      check('裸路径：存在的令牌与省略/带行号写法都放行', analyzeBarePaths(btmp).problems.length === 0)
+      check('裸路径：抽得到裸令牌且跳过带行号令牌', parseBarePaths('`src/a/b.ts` `src/a/b.ts:7`\n').length === 1)
+      doc('```\n`src/gone/away.ts`\n```\n')
+      check('裸路径：围栏代码块里的令牌不扫', analyzeBarePaths(btmp).problems.length === 0)
+      doc('见 `src/gone/away.ts`\n')
+      check('裸路径：缺失的令牌必须报错', analyzeBarePaths(btmp).problems.some((p) => p.includes('src/gone/away.ts')))
+      writeFileSync(join(btmp, 'README.md'), '见 `src/gone/away.ts`\n')
+      check('裸路径：README.md 也在扫描面内', analyzeBarePaths(btmp).problems.filter((p) => p.includes('README.md')).length === 1)
+    } finally {
+      rmSync(btmp, { recursive: true, force: true })
+    }
+
     // import 矩阵：干净的四层树零违规；七种合成越界都必须报错（ticket 16）。
     const mtmp = mkdtempSync(join(tmpdir(), 'check-matrix-'))
     try {
@@ -328,10 +430,23 @@ function selfTest() {
       put('src/control/client-errors.ts', 'export const e = 1\n')
       put('src/dsh/client/index.ts', 'import { e } from \'../../control/client-errors.ts\'\nimport { createElement } from \'react\'\nexport function apply(): unknown { return createElement(\'div\', null, e) }\n')
       check('matrix client 层允许平台 react 与 client-errors 子入口', checkImportMatrix(mtmp).length === 0)
+      // 第二扫描根（ticket 17）：chunk 只准 chunk-contracts + control 公共入口，第三方库随包 vendor。
+      put('src/control/index.ts', 'export const e = 1\nexport function evaluateAgentQuery(): string { return \'q\' }\n')
+      put('src/dsh/client/chunk-contracts.ts', 'export interface ChunkProps { readonly p: string }\n')
+      put('client-editor/index.ts', 'import type { ChunkProps } from \'../src/dsh/client/chunk-contracts.ts\'\nimport { layoutDocument } from \'./layout.ts\'\nexport const props: ChunkProps = { p: layoutDocument() }\n')
+      put('client-editor/layout.ts', 'import { EditorState } from \'@codemirror/state\'\nexport function layoutDocument(): string { return EditorState.allowMultipleSelections.toString() }\n')
+      put('client-list/rows.ts', 'export const rows: string[] = []\n')
+      put('client-list/index.tsx', 'import { createElement as h } from \'react\'\nimport { useTable } from \'@tanstack/react-table\'\nimport { evaluateAgentQuery } from \'../src/control/index.ts\'\nimport type { ChunkProps } from \'../src/dsh/client/chunk-contracts.ts\'\nimport { rows } from \'./rows.ts\'\nexport const view = (props: ChunkProps) => h(\'div\', null, useTable, evaluateAgentQuery(), rows, props)\n')
+      check('matrix chunk 两根本身零违规（白名单 + vendor 第三方库）', checkImportMatrix(mtmp).length === 0)
       const violation = (name, file, content, needle) => {
         put(file, content)
         check(name, checkImportMatrix(mtmp).some((p) => p.includes(needle)))
       }
+      violation('matrix chunk-editor 引用 node:fs 应报错', 'client-editor/bad-node.ts', 'import { readFileSync } from \'node:fs\'\n', 'client-editor/bad-node.ts:1')
+      violation('matrix chunk-list 引用宿主包应报错', 'client-list/bad-host.ts', 'import { Context } from \'@deepseek-ai/cordis\'\n', 'client-list/bad-host.ts:1')
+      violation('matrix chunk-list 走 core 公共入口应报错（只白名单 control 入口）', 'client-list/bad-core.ts', 'import { f } from \'../src/core/index.ts\'\n', 'client-list/bad-core.ts:1')
+      violation('matrix chunk-editor 走 control 子入口应报错', 'client-editor/bad-sub.ts', 'import { e } from \'../src/control/client-errors.ts\'\n', 'client-editor/bad-sub.ts:1')
+      violation('matrix chunk-list 越层到 chunk-editor 应报错', 'client-list/bad-cross.ts', 'import { props } from \'../client-editor/index.ts\'\n', 'client-list/bad-cross.ts:1')
       violation('matrix client 层引用 node:fs 应报错', 'src/dsh/client/bad-node.ts', 'import { readFileSync } from \'node:fs\'\n', 'bad-node.ts:1')
       violation('matrix core+node:fs 应报错', 'src/core/catalog/bad-fs.ts', 'import { readFileSync } from \'node:fs\'\n', 'bad-fs.ts:1')
       violation('matrix core 走 providers 深路径应报错', 'src/core/catalog/bad-deep.ts', 'import { r } from \'../../../providers/fs/index.ts\'\n', 'bad-deep.ts:1')
@@ -458,12 +573,12 @@ function main() {
     Math.round(performance.now() - stepStarted))
   if (missingDeps.length > 0) problems.push({ kind: 'deps', text: `devDependency 未安装：${missingDeps.join(', ')} → 跑 \`pnpm install\`（沙箱内注意 store 陷阱，见 docs/agents/harness-facts.md）` })
 
-  // 5/6 import 矩阵：TS AST 判定，不读 lib/。
+  // 5/6 import 矩阵：TS AST 判定，不读 lib/。扫描根 = src/ + 两个 chunk 源。
   stepStarted = performance.now()
   const matrix = analyzeImportMatrix()
   reportStep(5, 'import 矩阵', matrix.problems.length === 0 ? 'ok' : 'fail',
     matrix.problems.length === 0
-      ? `五层依赖方向零违规（扫描 ${matrix.files} 文件 / ${matrix.imports} 条 import）`
+      ? `依赖方向零违规（扫描 ${matrix.files} 文件 / ${matrix.imports} 条 import，含 client-editor/client-list 两个 chunk 根）`
       : `${matrix.problems.length} 处违规（扫描 ${matrix.files} 文件 / ${matrix.imports} 条 import）`,
     Math.round(performance.now() - stepStarted))
   if (verbose) {
@@ -473,9 +588,10 @@ function main() {
   }
   problems.push(...matrix.problems.map((text) => ({ kind: 'matrix', text })))
 
-  // 6/6 anchors：票面/文档里的 path:line 必须能解析。
+  // 6/6 anchors：票面/文档里的 path:line 必须能解析；裸 src/... 令牌必须存在。
   stepStarted = performance.now()
   const { anchors, files: anchorFiles } = collectAnchors()
+  const bare = analyzeBarePaths()
   const dshMissing = !existsSync(DSH_SOURCE)
   let anchorFailures = 0
   let anchorUnverified = 0
@@ -495,10 +611,11 @@ function main() {
         : '解析不到该文件'
     problems.push({ kind: 'anchors', text: `锚点漂移：${anchor.source} ${anchor.token} → ${detail}` })
   }
-  const anchorDetail = anchorFailures > 0
-    ? `${anchorFailures}/${anchors.length} 处漂移（扫描 ${anchorFiles} 个 markdown 文件）`
-    : `${anchors.length} 处 path:line 全解析（扫描 ${anchorFiles} 个 markdown 文件${dshMissing ? `；缺少 DSH 源码树，${anchorUnverified} 处未判定` : ''}）`
-  reportStep(6, 'anchors', anchorFailures > 0 ? 'fail' : anchorUnverified > 0 ? 'warn' : 'ok',
+  problems.push(...bare.problems.map((text) => ({ kind: 'anchors', text })))
+  let anchorDetail = anchorFailures + bare.problems.length > 0
+    ? `${anchorFailures + bare.problems.length} 处漂移（${anchorFailures} 处 path:line / ${bare.problems.length} 处裸路径；扫描 ${anchorFiles} 个 markdown 文件）`
+    : `${anchors.length} 处 path:line 全解析 + ${bare.tokens} 处裸 src/ 路径存在（扫描 ${anchorFiles} 个 markdown 文件${dshMissing ? `；缺少 DSH 源码树，${anchorUnverified} 处未判定` : ''}）`
+  reportStep(6, 'anchors', anchorFailures + bare.problems.length > 0 ? 'fail' : anchorUnverified > 0 ? 'warn' : 'ok',
     anchorDetail, Math.round(performance.now() - stepStarted))
   for (const problem of problems.filter((item) => item.kind === 'anchors')) console.error(`      ${red('✗')} ${problem.text}`)
 
