@@ -274,7 +274,7 @@ describe('host row wiring', () => {
   it('turns the host model-selection setting into a policy, read at use time', () => {
     let allowed: { provider: string; model: string }[] = [{ provider: 'openai', model: 'gpt-5' }]
     const ctx = new Context()
-    ctx.provide('subagentModelSelection', { current: () => ({ allowedModels: allowed }) })
+    ctx.provide('subagentModelSelection', { current: () => ({ enabled: true, allowedModels: allowed }) })
     expect(optionalSelectionPolicy(ctx)).toEqual({ routes: [{ provider: 'openai', model: 'gpt-5' }] })
 
     // The native default (no routes) is "the preference is off", never "refuse
@@ -282,10 +282,18 @@ describe('host row wiring', () => {
     allowed = []
     expect(optionalSelectionPolicy(ctx)).toBeUndefined()
 
+    // A disabled setting keeps its routes but must not enforce them: the native
+    // service gates the allowlist on `enabled` (and refuses enabled + empty).
+    const disabled = new Context()
+    disabled.provide('subagentModelSelection', {
+      current: () => ({ enabled: false, allowedModels: [{ provider: 'openai', model: 'gpt-5' }] }),
+    })
+    expect(optionalSelectionPolicy(disabled)).toBeUndefined()
+
     // Malformed rows are skipped rather than trusted; nothing left is no policy.
     const malformed = new Context()
     malformed.provide('subagentModelSelection', {
-      current: () => ({ allowedModels: [{ provider: 'x', model: '' }, { provider: 7 }] as never }),
+      current: () => ({ enabled: true, allowedModels: [{ provider: 'x', model: '' }, { provider: 7 }] as never }),
     })
     expect(optionalSelectionPolicy(malformed)).toBeUndefined()
     // No service at all is no policy either.

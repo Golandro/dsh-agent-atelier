@@ -84,25 +84,33 @@ interface HostDefaultModel {
 
 /** The slice of the host `subagentModelSelection` settings service this bundle reads. */
 interface HostModelSelection {
-  current(): { readonly allowedModels?: readonly ModelRoute[] | undefined }
+  current(): { readonly enabled?: boolean; readonly allowedModels?: readonly ModelRoute[] | undefined }
 }
 
 /**
  * The host setting's route allowlist as a {@link ModelSelectionPolicy}.
  *
- * Only an explicitly configured, non-empty route list becomes a policy: the
- * native default (`allowedModels: []`) is "the preference is off", which must
- * not read as "an empty allowlist refuses everything" — that would break every
- * agent the moment the service exists. Read at use time, structurally, for the
- * same reason as {@link optionalDefaultPair} (the native package is not
- * importable from this bundle, ADR-0001).
+ * Only an **enabled**, explicitly configured, non-empty route list becomes a
+ * policy: the native service gates the allowlist on `enabled` (and refuses
+ * `enabled` with an empty list), so a disabled setting's retained routes must
+ * not become a stale allowlist. The native default (`allowedModels: []`) is
+ * "the preference is off", which must not read as "an empty allowlist refuses
+ * everything" — that would break every agent the moment the service exists.
+ * Read at use time, structurally, for the same reason as
+ * {@link optionalDefaultPair} (the native package is not importable from this
+ * bundle, ADR-0001).
  */
 export function optionalSelectionPolicy(ctx: Context): ModelSelectionPolicy | undefined {
   const candidate: unknown = ctx.get('subagentModelSelection')
   if (typeof candidate !== 'object' || candidate === null) return undefined
   const service = candidate as Partial<HostModelSelection>
   if (typeof service.current !== 'function') return undefined
-  const routes = service.current().allowedModels
+  const current = service.current()
+  // The native service gates the allowlist on `enabled`; a disabled setting
+  // keeps its routes but must not enforce them (and an enabled empty list is
+  // refused upstream), so only an explicitly enabled setting is a policy.
+  if (current.enabled !== true) return undefined
+  const routes = current.allowedModels
   if (!Array.isArray(routes)) return undefined
   const allowed: ModelRoute[] = []
   for (const route of routes) {
