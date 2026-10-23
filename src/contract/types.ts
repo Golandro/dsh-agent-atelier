@@ -305,6 +305,15 @@ export type ChainSkipReason =
   | 'unavailable'
   /** The route is not in the selection policy's allowed routes (spec §5.3-2). */
   | 'not-allowed'
+  /**
+   * The target model cannot run the chain's effective `reasoningEffort`
+   * (R2 §2.7-2, ticket 03 enhancement). DSH refuses such a route in its own
+   * preflight with `UNSUPPORTED_REASONING_EFFORT`, before the child exists, so
+   * the engine refuses it earlier — as a skip, never as a hard error, and
+   * never by silently rewriting the effort. Judged only when the caller
+   * injects a support surface; absent input decides nothing.
+   */
+  | 'unsupported-effort'
 
 /** One exact child LLM route authorized to be chosen (DSH `AllowedModelRoute`). */
 export interface ModelRoute {
@@ -372,7 +381,71 @@ export interface ChainCandidateReport {
   readonly orderIndex?: number | undefined
   /** Why it did not win, or that the chain stopped at an earlier target; absent on the winner. */
   readonly skipped?: ChainSkipReason | 'not-reached' | undefined
+  /**
+   * Runtime projection of the candidate's route (R2 §3.2): what the failure
+   * ledger says about it, kept on its own axis from the configuration switch
+   * {@link ModelDefinition.available}. Absent reads as `'active'` — a report
+   * built without observations is byte-for-byte the report it always was.
+   */
+  readonly health?: RouteHealth | undefined
 }
+
+/* ── Failure ledger projection (R2, ticket 03 enhancement) ───────────────────
+ *
+ * The second input of chain resolution besides the static snapshot: what the
+ * runtime learned about each route. Pure data in, pure projection out — the
+ * engine (03) only *reads* the ledger; whoever records failures (07, v2) owns
+ * writing it, and the UI (15) owns showing it.
+ */
+
+/**
+ * One route's failure ledger entry, as the recorder maintains it.
+ *
+ * `route` is the ledger key: a route is exactly `provider/model`, so several
+ * registry entries pointing at the same pair share one health. Every count is
+ * already classified by the recorder (R2 §2.3) — the engine never invents
+ * thresholds from raw error text; it only reads the numbers below.
+ */
+export interface RouteObservation {
+  /** The route this entry is about; the entry applies to every entry with that pair. */
+  readonly route: ModelRoute
+  /** Most recent DSH failure code (`SERVER`/`AUTH`/`RATE_LIMIT`…); display only. */
+  readonly lastFailureCode?: string | undefined
+  /** Epoch milliseconds of that failure; display only. */
+  readonly lastFailureAt?: number | undefined
+  /**
+   * Count of same-class failures for this route (R2 §2.2): resolved at
+   * `>= 2` (they are already carried by llm-retry, so one is noise).
+   */
+  readonly failures?: number | undefined
+  /** Consecutive `RATE_LIMIT` hits, resolved at `>= 3` (R2 §2.4 `RL_STREAK`). */
+  readonly rateLimitStreak?: number | undefined
+  /** Epoch milliseconds of the first hit in that streak; display only. */
+  readonly rateLimitSince?: number | undefined
+}
+
+/**
+ * The ledger as a whole: the engine's optional second input (v1 absent — pure
+ * and static; v2 injected by 07, which is the only party that runs a node).
+ */
+export interface ChainObservations {
+  readonly routes: readonly RouteObservation[]
+}
+
+/**
+ * Runtime health of one route, projected from the ledger (R2 §2.5).
+ *
+ * Deliberately *not* written back into `available`: the switch is the user's
+ * durable configuration, health is the runtime's ephemeral view, and v1 never
+ * lets one rewrite the other.
+ */
+export type RouteHealth =
+  /** No supervised failure, or recovered: tried first, in declaration order. */
+  | 'active'
+  /** Supervised failures on record: still selectable, but demoted below every `active` sibling. */
+  | 'degraded'
+  /** `available: false`, the configuration switch: never selected. */
+  | 'disabled'
 
 /** Which layer supplied the effective `reasoningEffort` (D7). */
 export type EffortSource = 'chain' | 'agent' | 'none'

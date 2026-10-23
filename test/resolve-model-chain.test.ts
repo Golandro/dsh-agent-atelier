@@ -3,12 +3,15 @@ import { describe, expect, it } from 'vitest'
 import type {
   AgentChainInput,
   AliasRegistrySnapshot,
+  ChainObservations,
   ChainResolutionInput,
   ChainResolutionReport,
   ModelDefinition,
   ModelSelectionPolicy,
+  RouteObservation,
 } from '../src/contract/types.ts'
-import { resolveModelChain, type ChainResolutionContext } from '../src/core/resolve/model-chain.ts'
+import { resolveModelChain, routeKeyOf, type ChainResolutionContext } from '../src/core/resolve/model-chain.ts'
+import { withAvailability } from '../src/core/resolve/observations.ts'
 
 /**
  * Entry names follow the spec's own example (`ds-chat` → `deepseek-chat`), so
@@ -398,6 +401,319 @@ describe('resolution report', () => {
 
     expect(frozen.aliases[0]?.targets).toEqual(['ds-chat'])
     expect(Object.keys(frozen.aliases[0] ?? {})).toEqual(['alias', 'targets', 'source'])
+  })
+})
+
+describe('failure ledger (ticket 03 enhancement / #33)', () => {
+  /** Two provider lines of one model, plus a second model — the shape a pool has. */
+  const pooled = snapshot({
+    models: [
+      model('reasoner-official', { provider: 'deepseek', model: 'deepseek-reasoner' }),
+      model('reasoner-account', { provider: 'deepseek-account', model: 'deepseek-reasoner' }),
+      model('chat', { provider: 'deepseek', model: 'deepseek-chat' }),
+      model('retired', { provider: 'deepseek', model: 'deepseek-retired', available: false }),
+    ],
+    aliases: [
+      { alias: 'smart', targets: ['reasoner-official', 'reasoner-account'] },
+      { alias: 'chatty', targets: ['chat'] },
+      { alias: 'old', targets: ['retired'] },
+    ],
+  })
+
+  const NOW = 1_750_000_000_000
+  const failed = (provider: string, modelId: string, failures: number): RouteObservation => ({ route: { provider, model: modelId }, failures })
+
+  it('reports exactly what it reported before when no ledger is injected', () => {
+    const context: ChainResolutionContext = {
+      agent: agent({ modelOrder: ['smart', 'old'], model: [{ provider: 'local', model: 'llama' }], reasoningEffort: 'high' }),
+      snapshot: pooled,
+    }
+
+    const before = success(context)
+    const withoutLedger = success({ ...context, observations: undefined, now: NOW })
+
+    expect(withoutLedger).toEqual(before)
+    expect(withoutLedger.report.candidates).toEqual([
+      { route: { provider: 'deepseek', model: 'deepseek-reasoner' }, origin: 'alias', modelName: 'reasoner-official', orderIndex: 0 },
+      { route: { provider: 'deepseek-account', model: 'deepseek-reasoner' }, origin: 'alias', modelName: 'reasoner-account', orderIndex: 0, skipped: 'not-reached' },
+      // The first target of `smart` resolved, so nothing after it was even tried —
+      // not the disabled `old`, not the raw fallback: the pre-R2 reading, unchanged.
+      { route: { provider: 'deepseek', model: 'deepseek-retired' }, origin: 'alias', modelName: 'retired', orderIndex: 1, skipped: 'not-reached' },
+      { route: { provider: 'local', model: 'llama' }, origin: 'raw', skipped: 'not-reached' },
+    ])
+    // The exact-key discipline: no candidate row grew a 'health' key.
+    expect(withoutLedger.report.candidates.some((candidate) => 'health' in candidate)).toBe(false)
+    expect(reportOf({ ...context, observations: undefined, now: NOW })).toEqual(reportOf(context))
+  })
+
+  it('leaves the projected snapshot alone: no health borrowed, no reordering from it', () => {
+    const observations: ChainObservations = {
+      routes: [
+        failed('deepseek', 'deepseek-reasoner', 2),
+        { route: { provider: 'deepseek', model: 'deepseek-chat' }, rateLimitStreak: 3, rateLimitSince: NOW - 1_000 },
+      ],
+    }
+    const context: ChainResolutionContext = { agent: agent({ modelOrder: ['smart', 'chatty'] }), snapshot: pooled }
+
+    const routes = (report: ChainResolutionReport) => report.candidates.map((candidate) => [candidate.modelName, candidate.skipped])
+    const withLedger = success({ ...context, observations, now: NOW })
+    const projected = success({ ...context, snapshot: { ...pooled, models: withAvailability(pooled, observations, NOW) } })
+
+    // A snapshot is not a ledger: the engine writes no `health` from one, and
+    // does not reorder from one, so the pre-projection winner stands where
+    // declaration put it (see the ticket's drift list). The ledger path demotes.
+    expect(projected.report.candidates.map((candidate) => 'health' in candidate)).toEqual([false, false, false])
+    expect(routes(projected.report)[0]).toEqual(['reasoner-official', undefined])
+    expect(routes(withLedger.report)[0]).toEqual(['reasoner-account', undefined])
+    expect(withLedger.report.candidates.map((candidate) => [candidate.modelName, candidate.health])).toEqual([
+      ['reasoner-account', 'active'],
+      ['reasoner-official', 'degraded'],
+      ['chat', 'degraded'],
+    ])
+    expect(routes(projected.report)[0]).toEqual(['reasoner-official', undefined])
+    expect(routes(withLedger.report)[0]).toEqual(['reasoner-account', undefined])
+    expect(projected.report.selectedBy).toBe(withLedger.report.selectedBy)
+  })
+
+  it('demotes a degraded candidate behind its active pool siblings and picks the sibling', () => {
+    const entries = snapshot({
+      models: [
+        model('a', { provider: 'deepseek', model: 'model-a' }),
+        model('b', { provider: 'deepseek-account', model: 'model-a' }),
+      ],
+      aliases: [{ alias: 'pool', targets: ['a', 'b'] }],
+    })
+
+    const result = success({
+      agent: agent({ modelOrder: ['pool'] }),
+      snapshot: entries,
+      observations: { routes: [failed('deepseek', 'model-a', 2)] },
+      now: NOW,
+    })
+
+    expect(result.provider).toBe('deepseek-account')
+    expect(result.report.candidates.map((candidate) => [candidate.modelName, candidate.health, candidate.skipped])).toEqual([
+      ['b', 'active', undefined],
+      ['a', 'degraded', 'not-reached'],
+    ])
+  })
+
+  it('keeps declaration order inside each health layer', () => {
+    const entries = snapshot({
+      models: [model('a'), model('b'), model('c')],
+      aliases: [{ alias: 'pool', targets: ['a', 'b', 'c'] }],
+    })
+
+    const result = success({
+      agent: agent({ modelOrder: ['pool'] }),
+      snapshot: entries,
+      observations: { routes: [failed('deepseek', 'model-a', 2), failed('deepseek', 'model-c', 2)] },
+      now: NOW,
+    })
+
+    expect(result.report.candidates.map((candidate) => candidate.modelName)).toEqual(['b', 'a', 'c'])
+  })
+
+  it('demotes only within the pool: an earlier alias still supplies the winner', () => {
+    const result = success({
+      agent: agent({ modelOrder: ['smart', 'chatty'] }),
+      snapshot: pooled,
+      observations: { routes: [failed('deepseek', 'deepseek-reasoner', 2)] },
+      now: NOW,
+    })
+
+    // 'smart' still carries the chain's first survivor — its healthy sibling line,
+    // not the later alias: degradation reorders a pool, it never lets a later
+    // alias overtake an earlier one.
+    expect([result.provider, result.model]).toEqual(['deepseek-account', 'deepseek-reasoner'])
+    expect(result.report.aliasChain.map((step) => step.modelName)).toEqual(['reasoner-account', undefined])
+    // Each pool in layer order — `smart`'s degraded line behind its healthy one,
+    // then the later alias, then `old`, which is still skipped out of the pool
+    // altogether. The raw tail was never even reached.
+    expect(result.report.candidates.map((candidate) => [candidate.modelName, candidate.health, candidate.skipped])).toEqual([
+      ['reasoner-account', 'active', undefined],
+      ['chat', 'active', 'not-reached'],
+      ['reasoner-official', 'degraded', 'not-reached'],
+    ])
+  })
+
+  it('still skips a disabled candidate as unavailable, keeping the ledger off the switch', () => {
+    const result = resolve({
+      agent: agent({ modelOrder: ['old'] }),
+      snapshot: pooled,
+      observations: { routes: [failed('deepseek', 'deepseek-retired', 0)] },
+      now: NOW,
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.report.candidates).toEqual([
+      { route: { provider: 'deepseek', model: 'deepseek-retired' }, origin: 'alias', modelName: 'retired', orderIndex: 0, skipped: 'unavailable', health: 'disabled' },
+    ])
+    expect(pooled.models.find((entry) => entry.modelName === 'retired')?.available).toBe(false)
+  })
+
+  it('keeps the ledger health of a not-allowed candidate while still refusing it', () => {
+    const entries = snapshot({ models: [model('a')], aliases: [{ alias: 'pool', targets: ['a'] }] })
+
+    const result = resolve({
+      agent: agent({ modelOrder: ['pool'] }),
+      snapshot: entries,
+      policy: { routes: [{ provider: 'x', model: 'y' }] },
+      observations: { routes: [failed('deepseek', 'model-a', 2)] },
+      now: NOW,
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.report.candidates).toEqual([
+      { route: { provider: 'deepseek', model: 'model-a' }, origin: 'alias', modelName: 'a', orderIndex: 0, skipped: 'not-allowed', health: 'degraded' },
+    ])
+  })
+
+  it('R1-C: the alias step names the candidate that won, not the first of its pool', () => {
+    // The pool's head is disabled: it is skipped first, and the alias resolves
+    // through the sibling — which is the entry the step must name.
+    const entries = snapshot({
+      models: [model('a', { available: false }), model('b')],
+      aliases: [{ alias: 'pool', targets: ['a', 'b'] }],
+    })
+
+    const result = success({ agent: agent({ modelOrder: ['pool'] }), snapshot: entries })
+
+    expect(result.model).toBe('model-b')
+    expect(result.report.aliasChain).toEqual([{ orderIndex: 0, alias: 'pool', targets: ['a', 'b'], modelName: 'b' }])
+  })
+
+  it('R1-C: a degraded head does not name the step either', () => {
+    const entries = snapshot({ models: [model('a'), model('b')], aliases: [{ alias: 'pool', targets: ['a', 'b'] }] })
+
+    const result = success({
+      agent: agent({ modelOrder: ['pool'] }),
+      snapshot: entries,
+      observations: { routes: [failed('deepseek', 'model-a', 2)] },
+      now: NOW,
+    })
+
+    expect(result.report.aliasChain[0]?.modelName).toBe('b')
+  })
+})
+
+describe('effort supportability (R2 §2.7-2)', () => {
+  const entries = snapshot({
+    models: [
+      model('strong', { provider: 'deepseek', model: 'deepseek-reasoner' }),
+      model('plain', { provider: 'deepseek', model: 'deepseek-chat' }),
+    ],
+    aliases: [
+      { alias: 'strong', targets: ['strong'] },
+      { alias: 'plain', targets: ['plain'] },
+    ],
+  })
+
+  const supports = (...pairs: [provider: string, modelId: string, efforts: readonly string[]][]) =>
+    Object.fromEntries(pairs.map(([provider, modelId, efforts]) => [routeKeyOf({ provider, model: modelId }), efforts]))
+
+  it('skips an unsupported target and moves on within the pipeline', () => {
+    const result = success({
+      agent: agent({ modelOrder: ['strong', 'plain'], reasoningEffort: 'high' }),
+      snapshot: entries,
+      supportedEfforts: supports(['deepseek', 'deepseek-reasoner', ['low', 'medium']], ['deepseek', 'deepseek-chat', ['high']]),
+    })
+
+    expect(result.model).toBe('deepseek-chat')
+    expect(result.reasoningEffort).toBe('high')
+    expect(result.report.candidates.map((candidate) => [candidate.modelName, candidate.skipped])).toEqual([
+      ['strong', 'unsupported-effort'],
+      ['plain', undefined],
+    ])
+    // The skipped alias resolves nothing, so its step stays unnamed.
+    expect(result.report.aliasChain.map((step) => step.modelName)).toEqual([undefined, 'plain'])
+  })
+
+  it('judges by the chain item effort when it overrides the agent default', () => {
+    const refused = resolve({
+      agent: agent({ modelOrder: ['strong'], reasoningEffort: 'low' }),
+      snapshot: entries,
+      itemEffort: { strong: 'high' },
+      supportedEfforts: supports(['deepseek', 'deepseek-reasoner', ['low']]),
+    })
+    const accepted = success({
+      agent: agent({ modelOrder: ['plain'], reasoningEffort: 'high' }),
+      snapshot: entries,
+      itemEffort: { plain: 'low' },
+      supportedEfforts: supports(['deepseek', 'deepseek-chat', ['low']]),
+    })
+
+    expect(refused.report.candidates[0]?.skipped).toBe('unsupported-effort')
+    expect(accepted.model).toBe('deepseek-chat')
+    expect(accepted.reasoningEffort).toBe('low')
+  })
+
+  it('treats a route with no table row as capability-unknown, never as refused', () => {
+    const result = success({
+      agent: agent({ modelOrder: ['strong'], reasoningEffort: 'high' }),
+      snapshot: entries,
+      supportedEfforts: supports(['deepseek', 'deepseek-chat', []]),
+    })
+
+    expect(result.model).toBe('deepseek-reasoner')
+  })
+
+  it('judges nothing without a table, or without an effort to judge', () => {
+    const noTable = success({ agent: agent({ modelOrder: ['strong'], reasoningEffort: 'high' }), snapshot: entries })
+    const noEffort = success({
+      agent: agent({ modelOrder: ['strong'] }),
+      snapshot: entries,
+      supportedEfforts: supports(['deepseek', 'deepseek-reasoner', []]),
+    })
+
+    expect(noTable.model).toBe('deepseek-reasoner')
+    expect(noEffort.model).toBe('deepseek-reasoner')
+    expect(noEffort.report.effortSource).toBe('none')
+  })
+
+  it('applies to the raw escape hatch through the same pipeline', () => {
+    const result = success({
+      agent: agent({ model: [{ provider: 'local', model: 'llama' }, { provider: 'local', model: 'qwen' }], reasoningEffort: 'high' }),
+      snapshot: snapshot({}),
+      supportedEfforts: supports(['local', 'llama', ['low']]),
+    })
+
+    expect(result.model).toBe('qwen')
+    expect(result.report.candidates).toEqual([
+      { route: { provider: 'local', model: 'llama' }, origin: 'raw', skipped: 'unsupported-effort' },
+      { route: { provider: 'local', model: 'qwen' }, origin: 'raw' },
+    ])
+  })
+
+  it('never rewrites the effort to make a route fit: the chain just runs out', () => {
+    const result = resolve({
+      agent: agent({ modelOrder: ['strong'], reasoningEffort: 'high' }),
+      snapshot: entries,
+      supportedEfforts: supports(['deepseek', 'deepseek-reasoner', ['low']]),
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('unreachable')
+    expect('reasoningEffort' in result).toBe(false)
+    expect(result.message).toContain('modelOrder[0] strong → strong (deepseek/deepseek-reasoner): unsupported-effort')
+  })
+
+  it('checks availability before the allowlist and the allowlist before effort', () => {
+    const unavailable = resolve({
+      agent: agent({ modelOrder: ['strong'], reasoningEffort: 'high' }),
+      snapshot: snapshot({ models: [model('strong', { provider: 'deepseek', model: 'deepseek-reasoner', available: false })], aliases: [{ alias: 'strong', targets: ['strong'] }] }),
+      policy: { routes: [] },
+      supportedEfforts: supports(['deepseek', 'deepseek-reasoner', []]),
+    })
+    const disallowed = resolve({
+      agent: agent({ modelOrder: ['strong'], reasoningEffort: 'high' }),
+      snapshot: entries,
+      policy: { routes: [] },
+      supportedEfforts: supports(['deepseek', 'deepseek-reasoner', []]),
+    })
+
+    expect(unavailable.report.candidates[0]?.skipped).toBe('unavailable')
+    expect(disallowed.report.candidates[0]?.skipped).toBe('not-allowed')
   })
 })
 
