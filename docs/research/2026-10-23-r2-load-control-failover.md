@@ -294,3 +294,4 @@ export interface ProjectedModel extends ModelDefinition {
 - §3.3 的「投影快照等价」硬口径**不成立**：投影列表不带台账，`resolveModelChain` 无法从快照得知谁该后置。实际实现：等价性只承诺「无 `observations` 时新旧报告逐字段相同」（有回归测试）；`withAvailability` 只承担展示投影，排序由显式 `observations` 入参承担。
 - §3.2 的「传投影列表」不实现；排序范围 = **池内** degraded 后置（同层保声明序），不跨别名（与「转移只在池内」一致）。
 - `supportedEfforts` 输入按 `provider/model` 精确对建键（`routeKeyOf`）；表缺失 = 能力未知不判定。
+- §6 的观测盲区已由 #34 研究解答（部分可观测：`agent/request-error` waterfall 可观察、`turn/end.reason.error` 兜底、`llm/stream` 覆盖流开始后失败）；见 `docs/research/2026-10-23-r2-obs-observability.md`。
