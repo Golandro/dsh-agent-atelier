@@ -7,6 +7,16 @@
  */
 export { createAgentDocPort, createControlCore, planDirtyEdits } from './core.ts'
 export type { AgentDocPort, ControlCore, ControlDependencies } from './core.ts'
+export { ChainExhaustedError } from './session-agent.ts'
+export { projectItemEffort, routeNotAllowed, sessionChainContext } from './resolve.ts'
+export type {
+  EffortCapabilities,
+  ItemEffortOverrides,
+  SelectionPolicy,
+  SessionChainContext,
+  SessionResolutionRequest,
+} from './resolve.ts'
+export type { ComposeSessionOptions, ComposedAgentSession, SessionStartParameters } from './session.ts'
 export { createMemoryControlClient } from './client.ts'
 export type { ControlClient, ControlClientOptions } from './client.ts'
 export { createHttpControlClient } from './http-client.ts'

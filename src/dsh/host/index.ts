@@ -8,7 +8,7 @@
  */
 export { apply } from './plugin.ts'
 export type { AgentManagerPluginConfig } from './plugin.ts'
-export { applyCore } from './core.ts'
+export { applyCore, optionalSelectionPolicy } from './core.ts'
 export { applyProviders, BUNDLED_AGENTS_DIR, CUSTOM_RANK, PROJECT_AGENTS_RANK, PROJECT_DSH_RANK, USER_AGENTS_RANK, USER_DSH_RANK, BUNDLED_AGENT_RANK, inject as providerRowInject } from './providers.ts'
 export { applyUiHost, handleControlRequest } from './ui-host.ts'
 export type { HostWebServer } from './ui-host.ts'

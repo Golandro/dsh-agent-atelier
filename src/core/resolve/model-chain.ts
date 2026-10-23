@@ -59,9 +59,13 @@ import { routeKey, withAvailability } from './observations.ts'
 
 /**
  * Per-model-entry effort overrides, keyed by registry model name (D7's "链项
- * 自带"). A `models:` entry has no effort column in spec §5.2, so the override
- * table is injected rather than read from the snapshot; when nothing supplies
- * one, the agent-level default is used, exactly as the spec spells it out.
+ * 自带"). Since R1/#35 a `models:` entry does declare an `effort` column
+ * (`ModelDefinition.effort`, #31 ruling), so the table is the *projection* of
+ * that column, assembled by whoever owns the snapshot (ticket 19's
+ * `src/control/resolve.ts`); a caller's override wins for the entries it names.
+ * The engine still reads only the table it is handed — it never opens the
+ * snapshot itself — and when neither the table nor the document names an
+ * effort, the agent-level default is used, exactly as the spec spells it out.
  */
 export type ChainItemEffort = Readonly<Record<string, string | undefined>>
 

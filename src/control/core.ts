@@ -8,14 +8,24 @@
  * The {@link AgentDocPort} is the wiring seam ticket 12 binds components to:
  * same reads, but `commit(dirty)` takes the editor's edit list instead of a
  * plan, grouping the edits per agent and planning one write per document.
+ *
+ * Ticket 19 (#32) adds one optional seventh member, {@link ControlCore.composeSession}:
+ * the session-start path, where the same core reads an agent document and the
+ * registry snapshot *once* and hands them to the frozen chain engine (ticket
+ * 03). The six members of ticket 11 stay as they were — the addition is a new
+ * member, never a change to an existing one, so every consumer keeps the exact
+ * shapes it froze.
  */
-import { inspectAliasRegistry } from '../core/index.ts'
+import { inspectAliasRegistry, resolveModelChain } from '../core/index.ts'
 
-import type { AgentRegistry, AliasRegistry } from '../contract/index.ts'
+import type { AgentRegistry, AliasRegistry, ChainResolution, ModelSelectionPolicy } from '../contract/index.ts'
 import type { ControlFileSystem } from '../core/ports.ts'
 import { errorMessage, UnknownAgentError } from './client-errors.ts'
 import { composeAgentDocument } from './compose.ts'
 import { applyRegistryEdit, type RegistryEditContext } from './registry-edit.ts'
+import { sessionChainContext } from './resolve.ts'
+import type { ComposeSessionOptions, ComposedAgentSession } from './session.ts'
+import { ChainExhaustedError, chainInputOf, composeSessionOf } from './session-agent.ts'
 import { commitPlan, planDocumentEdits } from './writes.ts'
 import type {
   ComposedAgentDocument,
@@ -40,6 +50,14 @@ export interface ControlDependencies {
   readonly resolveDshHome: () => string
   /** Diagnostic sink; `undefined` discards the log line. */
   readonly warn?: ((message: string) => void) | undefined
+  /**
+   * The host setting's route allowlist (ticket 19 / #32, spec §5.3-2), read at
+   * use time rather than captured: the setting can change while the plugin is
+   * mounted, and a policy resolved in `apply()` would keep a stale list. Absent
+   * — or returning `undefined` — means no allowlist: every route is allowed,
+   * exactly the engine's own default. A per-call `policy` wins over this.
+   */
+  readonly resolveSelectionPolicy?: (() => ModelSelectionPolicy | undefined) | undefined
 }
 
 /** The control face: six members, everything else is inside. */
@@ -56,6 +74,23 @@ export interface ControlCore {
   applyRegistryEdit(edit: RegistryEdit): Promise<WriteReport>
   /** Drop the memoised reads; the next query rescans. */
   invalidate(): void
+  /**
+   * Session start (ticket 19): one agent document + one registry snapshot, read
+   * once through the injected registries, resolved by the frozen chain engine
+   * into the parameters a child Agent is started with.
+   *
+   * Unlike {@link ControlCore.compose}, this path **throws** the engine's
+   * `chain-exhausted` hard error (message and report echoed by the engine,
+   * unrewritten): running out of model is a hard error by contract, not a
+   * document-editing concern. A single route refused by the host's allowlist
+   * is flagged on the error as `notAllowed`, so a caller can tell its own
+   * setting from the registry's switch without parsing the message. An agent
+   * that declares no alias still goes through the engine — its raw `model:`
+   * chain resolves as the escape hatch it is, and a document with neither says
+   * so in the engine's own message — so there is never a second resolution
+   * path to keep in step.
+   */
+  composeSession(agentName: string, options?: ComposeSessionOptions): Promise<ComposedAgentSession>
 }
 
 /** Create the control core over the two registries and the write port. */
@@ -119,7 +154,42 @@ export function createControlCore(dependencies: ControlDependencies): ControlCor
       dependencies.agentRegistry.invalidate()
       dependencies.aliasRegistry.invalidate()
     },
+
+    async composeSession(agentName, options) {
+      const cwd = options?.cwd ?? resolveProjectRoot()
+      // One read each, in parallel: the registries memoise per root, so the
+      // document and the snapshot a caller resolves against are the ones this
+      // call was answered from — never a half-refreshed pair.
+      const [definition, snapshot] = await Promise.all([
+        dependencies.agentRegistry.get(agentName, { cwd }),
+        dependencies.aliasRegistry.snapshot({ cwd }),
+      ])
+      if (definition === undefined) throw new UnknownAgentError(agentName)
+      // The engine call: the document as it was read, the snapshot as it was
+      // read, and the session inputs composed from that same snapshot — the
+      // entry's own `effort` column is the base and a caller's explicit value
+      // only replaces the entries it names (D7).
+      const agent = chainInputOf(definition)
+      const resolution = resolveModelChain({
+        agent,
+        snapshot,
+        ...sessionChainContext({
+          agent,
+          snapshot,
+          policy: options?.policy ?? dependencies.resolveSelectionPolicy?.(),
+          flavor: options?.flavor,
+          itemEffort: options?.itemEffort,
+        }),
+      })
+      if (!resolution.ok) throw new ChainExhaustedError(resolution, refusalByPolicy(resolution))
+      return composeSessionOf(definition, cwd, resolution)
+    },
   }
+}
+
+/** Whether any route in the failed chain was refused by the host's allowlist. */
+function refusalByPolicy(resolution: Extract<ChainResolution, { readonly ok: false }>): boolean {
+  return resolution.report.candidates.some((candidate) => candidate.skipped === 'not-allowed')
 }
 
 /**

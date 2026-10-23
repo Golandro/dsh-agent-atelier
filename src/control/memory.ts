@@ -16,7 +16,7 @@ import { createAgentRegistryService, createAgentProviders, createAliasRegistrySe
 import type { AgentDirEntry, AgentFileSystem, ControlFileSystem } from '../core/ports.ts'
 import { createFileSystemAgentProvider } from '../providers/fs/index.ts'
 import { createControlCore, type ControlCore } from './core.ts'
-import type { AgentDiagnostic, AgentModelTarget } from '../contract/index.ts'
+import type { AgentDiagnostic, AgentModelTarget, ModelSelectionPolicy } from '../contract/index.ts'
 
 /** Construction options; every path is in-memory and never touched on disk. */
 export interface InMemoryControlOptions {
@@ -30,6 +30,8 @@ export interface InMemoryControlOptions {
   readonly agentDiagnostics?: readonly AgentDiagnostic[] | undefined
   /** The DSH default pair the built-in `dsh-default` alias points at; `undefined` means no built-in. */
   readonly readDefaultPair?: (() => AgentModelTarget | undefined) | undefined
+  /** The session allowlist the host setting would hand over; `undefined` means every route (ticket 19). */
+  readonly selectionPolicy?: ModelSelectionPolicy | undefined
 }
 
 /** The in-memory core, plus direct access to its files for test assertions. */
@@ -127,6 +129,7 @@ export function createInMemoryControlCore(options: InMemoryControlOptions = {}):
     fileSystem: memoryFileSystem,
     resolveProjectRoot: () => projectRoot,
     resolveDshHome: () => dshHome,
+    resolveSelectionPolicy: () => options.selectionPolicy,
   })
 
   const injected = options.agentDiagnostics ?? []

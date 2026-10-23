@@ -8,6 +8,7 @@ import {
   CONTROL_ROUTE_PATHS,
   MAX_BODY_BYTES,
   applyUiHost,
+  optionalSelectionPolicy,
   dispatchControlRequest,
   handleControlRequest,
 } from '../src/dsh/host/index.ts'
@@ -268,6 +269,27 @@ describe('host row wiring', () => {
 
     expect([...routes.keys()].sort()).toEqual([...CONTROL_ROUTE_PATHS].sort())
     expect([...routes.values()].every((route) => route.kind === 'exact')).toBe(true)
+  })
+
+  it('turns the host model-selection setting into a policy, read at use time', () => {
+    let allowed: { provider: string; model: string }[] = [{ provider: 'openai', model: 'gpt-5' }]
+    const ctx = new Context()
+    ctx.provide('subagentModelSelection', { current: () => ({ allowedModels: allowed }) })
+    expect(optionalSelectionPolicy(ctx)).toEqual({ routes: [{ provider: 'openai', model: 'gpt-5' }] })
+
+    // The native default (no routes) is "the preference is off", never "refuse
+    // everything": it must not become an empty allowlist.
+    allowed = []
+    expect(optionalSelectionPolicy(ctx)).toBeUndefined()
+
+    // Malformed rows are skipped rather than trusted; nothing left is no policy.
+    const malformed = new Context()
+    malformed.provide('subagentModelSelection', {
+      current: () => ({ allowedModels: [{ provider: 'x', model: '' }, { provider: 7 }] as never }),
+    })
+    expect(optionalSelectionPolicy(malformed)).toBeUndefined()
+    // No service at all is no policy either.
+    expect(optionalSelectionPolicy(new Context())).toBeUndefined()
   })
 
   it('applies the connection trust fence before dispatching', async () => {

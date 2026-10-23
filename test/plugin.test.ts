@@ -77,10 +77,20 @@ describe('agent-atelier plugin', () => {
     expect(AGENT_CONTROL_SERVICE).not.toBe(AGENT_REGISTRY_SERVICE)
   })
 
-  it('provides the six-member agentControl write face', async () => {
+  it('provides the six-member agentControl write face plus the session-start member', async () => {
     const { control } = await mounted()
 
-    expect(Object.keys(control).sort()).toEqual(['applyRegistryEdit', 'commit', 'compose', 'invalidate', 'plan', 'snapshot'])
+    // Ticket 19 adds one optional seventh member on top of ticket 11's six; the
+    // six keep their exact names and shapes.
+    expect(Object.keys(control).sort()).toEqual([
+      'applyRegistryEdit',
+      'commit',
+      'compose',
+      'composeSession',
+      'invalidate',
+      'plan',
+      'snapshot',
+    ])
   })
 
   it('mounts only the control routes when the bare client row asks for role ui-host', () => {

@@ -15,7 +15,7 @@ import { createControlCore } from '../../control/index.ts'
 import { createNodeControlFileSystem, createNodeFileSystem } from '../../providers/fs/index.ts'
 import { optionalFileSystem } from './fs.ts'
 
-import type { AgentModelTarget, AgentProviders } from '../../contract/index.ts'
+import type { AgentModelTarget, AgentProviders, ModelRoute, ModelSelectionPolicy } from '../../contract/index.ts'
 import type { ControlCore } from '../../control/index.ts'
 
 /**
@@ -63,6 +63,11 @@ export function applyCore(ctx: Context): { readonly providers: AgentProviders } 
     resolveProjectRoot: () => process.cwd(),
     resolveDshHome: () => resolveDshHome(),
     warn: (message) => ctx.logger.warn(message),
+    // Ticket 19: the host setting's allowlist, read per call — the user can
+    // change it while the plugin is mounted, so capturing it here would keep
+    // a stale list. No service, or one that has never been given routes,
+    // means no allowlist (every route allowed).
+    resolveSelectionPolicy: () => optionalSelectionPolicy(ctx),
   })
   ctx.effect(() => ctx.provide(AGENT_CONTROL_SERVICE, control))
 
@@ -75,6 +80,39 @@ export const apply = applyCore
 /** The slice of the host `agentDefaultModel` service this bundle reads. */
 interface HostDefaultModel {
   currentSelection(): { readonly provider: string; readonly model: string }
+}
+
+/** The slice of the host `subagentModelSelection` settings service this bundle reads. */
+interface HostModelSelection {
+  current(): { readonly allowedModels?: readonly ModelRoute[] | undefined }
+}
+
+/**
+ * The host setting's route allowlist as a {@link ModelSelectionPolicy}.
+ *
+ * Only an explicitly configured, non-empty route list becomes a policy: the
+ * native default (`allowedModels: []`) is "the preference is off", which must
+ * not read as "an empty allowlist refuses everything" — that would break every
+ * agent the moment the service exists. Read at use time, structurally, for the
+ * same reason as {@link optionalDefaultPair} (the native package is not
+ * importable from this bundle, ADR-0001).
+ */
+export function optionalSelectionPolicy(ctx: Context): ModelSelectionPolicy | undefined {
+  const candidate: unknown = ctx.get('subagentModelSelection')
+  if (typeof candidate !== 'object' || candidate === null) return undefined
+  const service = candidate as Partial<HostModelSelection>
+  if (typeof service.current !== 'function') return undefined
+  const routes = service.current().allowedModels
+  if (!Array.isArray(routes)) return undefined
+  const allowed: ModelRoute[] = []
+  for (const route of routes) {
+    if (typeof route !== 'object' || route === null) continue
+    const { provider, model } = route
+    if (typeof provider !== 'string' || typeof model !== 'string') continue
+    if (provider === '' || model === '') continue
+    allowed.push({ provider, model })
+  }
+  return allowed.length === 0 ? undefined : { routes: allowed }
 }
 
 /**
