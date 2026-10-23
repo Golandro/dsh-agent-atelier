@@ -288,3 +288,9 @@ export interface ProjectedModel extends ModelDefinition {
 - **未核实**：`preflightChildLlmRoute` 的 `UNSUPPORTED_REASONING_EFFORT` 真机可达性（`resolveCallWithInfo` 会抛，但需要「目标模型不支持该 effort」的组合）；来自源码阅读，未做真机实验。
 - **未做**：真机 429/5xx 复现实验（account 限流会让实验本身污染台账，且**并行会话在跑**）。本文件全部结论来自源码与安装树阅读，§1 已给逐条锚点。
 - **R1 对齐**：`docs/research/2026-10-23-r1-alias-association.md` 在本次核查时**尚不存在**；§2.1 的 A1–A5 是**假设**，若 R1 落地结论不同，按 A5 的映射机械重述即可（结论不依赖 R1 的条目形状）。
+
+## 7. 实现期回注（2026-10-23，S1 / #33 落地后，Lead）
+
+- §3.3 的「投影快照等价」硬口径**不成立**：投影列表不带台账，`resolveModelChain` 无法从快照得知谁该后置。实际实现：等价性只承诺「无 `observations` 时新旧报告逐字段相同」（有回归测试）；`withAvailability` 只承担展示投影，排序由显式 `observations` 入参承担。
+- §3.2 的「传投影列表」不实现；排序范围 = **池内** degraded 后置（同层保声明序），不跨别名（与「转移只在池内」一致）。
+- `supportedEfforts` 输入按 `provider/model` 精确对建键（`routeKeyOf`）；表缺失 = 能力未知不判定。
