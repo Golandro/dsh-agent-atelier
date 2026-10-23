@@ -189,6 +189,14 @@ aliases:                                   # 有序池：模型条目名，顺�
 | `src/dsh/client/advisor.tsx:114`、`:219` | `targets[0]` → 渲染整个池 |
 | `test/registry-file.test.ts:122-128` | 「拒绝池」翻转为「接受池、拒绝空数组/重复」 |
 
+> **R1-A 落地回注（ticket #35，2026-10-23）**：上表前三行与末行已实施，池语义写入读器与装载；其余行按票面边界留给 R1-B/C/D。
+>
+> - **读器**（`registry-file.ts`）：池 = ≥1 个非空、无重复的模型条目名，流式与块式同形；形状文案「a list of model entry names」，重复目标单独报错（台账按条目计数，重复会重复计）。`MODEL_FIELDS` 增 `modelGroup`/`effort` 两列标量，**读器不给缺省**（`modelGroup` 缺省 = 自身名的读法属于消费方）。
+> - **组级可用性落点**：`alias-registry.ts` 的 `foldModelGroups` 在**合并 + 内置指针之后**把组开关折进每条目的 `available`（同组任一条目 `false` ⇒ 全组读 `false`）。引擎因此保持「逐条目判 `available`」的单一流水线，零新分支；换层覆盖改变的是「生效集合」，折叠看的就是它。折叠**不改**条目的 `modelGroup` 字段，也不删条目。
+> - **fan-in 口径**（D-8）：按**线路键 `provider/model`** 计数，非条目名；同一别名在一个线路上只计一次；内置指针仍排除。**R1-F 的同池等价冗余**（两条目同名不同线路、同一池）因此**不产生**独立 hint——fan-in 按线路判之，两条同线路条目不会互增——留给 R1-F 决定是否单列一条信息性 hint。
+> - **两条新 hint**：`pool-mixed-models`（池内 `model` 不同，文案指向 agent 的 `modelOrder`）与 `pool-mixed-groups`（池内 `modelGroup ?? modelName` 不一致）。注意：`modelGroup` 是可选的，**视而不见地混池**（两条目都不写组）同样报 `pool-mixed-groups`，这与 §7.4「同池异组 ⇒ 组级开关失效」一致。
+> - **锚点**：本文与 R2 findings 中指向这三个源文件的 `path:line` 经核对**仍落在原语句上**（W1/W2/W3/W5/W10/W11/W16；W4 自 `271` 起现落 `readFields` 的块分支，`readItems` 现自 `301` 起）；`src/contract/types.ts:347-362`（W7）与 `:299-307`（R2 W2）随契约注释增行而下移，内容本身未变。
+
 ### 3.3 迁移示例（三档，全部「不改也行」）
 
 **A. 零迁移（今天的文件原样合法）**

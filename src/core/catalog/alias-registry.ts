@@ -34,6 +34,7 @@ import type {
   AliasRegistry,
   AliasRegistrySnapshot,
   AliasRegistrySource,
+  ModelDeclaration,
   ModelDefinition,
 } from '../../contract/index.ts'
 
@@ -148,7 +149,7 @@ export function createAliasRegistryService(
         aliases.push({ ...entry, source: layer.source, path: layer.path })
       }
     }
-    return { snapshot: withBuiltInAlias({ models, aliases }, readDefaultPair?.()), diagnostics }
+    return { snapshot: foldModelGroups(withBuiltInAlias({ models, aliases }, readDefaultPair?.())), diagnostics }
   }
 
   /**
@@ -210,6 +211,16 @@ function withBuiltInAlias(
 }
 
 /**
+ * Model-level availability key of one entry: its `modelGroup`, or its own name
+ * when the entry declares none (R1 §2.2/§6.2). This is also the ledger's
+ * model-level aggregation key, so the loader and the engine's own aggregation
+ * use one reading of the field.
+ */
+export function modelGroupOf(entry: ModelDeclaration): string {
+  return entry.modelGroup ?? entry.modelName
+}
+
+/**
  * Inspect a merged registry, and optionally a set of agent chains, for problems
  * the user can fix. Pure: same inputs, same findings; no filesystem, no host
  * context (triage Q5).
@@ -225,7 +236,10 @@ export function inspectAliasRegistry(
 ): readonly AliasFinding[] {
   const findings: AliasFinding[] = []
   const aliasNames = new Set(snapshot.aliases.map((entry) => entry.alias))
-  const modelNames = new Set(snapshot.models.map((entry) => entry.modelName))
+  // The whole entry is indexed, not just its name: a pool is judged by the
+  // routes it collects, and a route is the entry's provider+model line (R1 D-8).
+  const entriesByName = new Map(snapshot.models.map((entry) => [entry.modelName, entry]))
+  const modelNames = new Set(entriesByName.keys())
 
   for (const entry of snapshot.aliases) {
     for (const target of entry.targets) {
@@ -239,22 +253,46 @@ export function inspectAliasRegistry(
     }
   }
 
-  // Fan-in ignores the built-in pointer: it mirrors the default pair, so it
-  // would otherwise flag every user alias that happens to name the same model.
-  const byTarget = new Map<string, string[]>()
+  // Fan-in is judged per route, not per entry name (R1 D-8): two entries of one
+  // model behind two different providers are two lines, so a pool that spends
+  // both of them on one model is redundancy, while two aliases naming the same
+  // line really do share a capability.
+  //
+  // An alias counts once per route — twice the same line in two entries of one
+  // pool is not shared intent — and the built-in pointer is ignored entirely:
+  // it mirrors the default pair, so it would flag every user alias that happens
+  // to name the same route.
+  const byRoute = new Map<string, { readonly names: string[]; readonly labels: string[] }>()
   for (const entry of snapshot.aliases) {
     if (entry.source === 'built-in') continue
-    for (const target of entry.targets) byTarget.set(target, [...(byTarget.get(target) ?? []), entry.alias])
+    const routes = new Map<string, readonly string[]>()
+    for (const target of entry.targets) {
+      const model = entriesByName.get(target)
+      if (model === undefined) continue
+      const key = routeKeyOf(model)
+      const names = routes.get(key)
+      if (names === undefined) routes.set(key, [target])
+      else if (!names.includes(target)) routes.set(key, [...names, target])
+    }
+    for (const [key, targets] of routes) {
+      const slot = byRoute.get(key) ?? { names: [], labels: [] }
+      byRoute.set(key, {
+        names: [...slot.names, entry.alias],
+        labels: [...slot.labels, targets.map((target) => `"${target}"`).join(' / ')],
+      })
+    }
   }
-  for (const [target, names] of byTarget) {
+  for (const [route, { names, labels }] of byRoute) {
     if (names.length < 2) continue
     findings.push({
       severity: 'hint',
       code: 'alias-fan-in',
       alias: names.join(', '),
-      message: `aliases ${names.map((name) => `"${name}"`).join(', ')} all point at model "${target}"`,
+      message: `aliases ${names.map((name) => `"${name}"`).join(', ')} all point at route "${route}" (via ${labels.join('; ')})`,
     })
   }
+
+  findings.push(...inspectPools(snapshot.aliases, entriesByName))
 
   for (const agent of agents) {
     for (const name of agent.modelOrder ?? []) {
@@ -282,4 +320,109 @@ export function inspectAliasRegistry(
   }
 
   return findings
+}
+
+/** The ledger's route key: one `provider`+`model` line (R2 §6.2). */
+function routeKeyOf(entry: ModelDefinition): string {
+  return `${entry.provider}/${entry.model}`
+}
+
+/** The declared targets of one pool that the registry actually has. */
+function poolEntries(
+  entry: AliasDefinition,
+  entriesByName: ReadonlyMap<string, ModelDefinition>,
+): readonly ModelDefinition[] {
+  const models: ModelDefinition[] = []
+  for (const target of entry.targets) {
+    const model = entriesByName.get(target)
+    if (model !== undefined) models.push(model)
+  }
+  return models
+}
+
+/**
+ * Judge each user alias as the pool it is (R1 §2.1, §7.4). Both findings are
+ * hints, never errors: the syntax is legal and resolution walks the pool as
+ * written, but the pool is expressing something the schema has a better place
+ * for, so the user gets told rather than blocked.
+ *
+ * The built-in pointer is skipped by construction — it is a pool of one that
+ * mirrors the host's default pair, so there is never a pool to judge.
+ */
+function inspectPools(
+  aliases: readonly AliasDefinition[],
+  entriesByName: ReadonlyMap<string, ModelDefinition>,
+): readonly AliasFinding[] {
+  const findings: AliasFinding[] = []
+  for (const entry of aliases) {
+    if (entry.source === 'built-in') continue
+    const models = poolEntries(entry, entriesByName)
+    if (models.length < 2) continue
+
+    const labels = (entries: readonly ModelDefinition[]): string => entries.map((model) => `"${model.modelName}"`).join(', ')
+    const [head, ...rest] = models
+    /* v8 ignore next -- length was checked above. */
+    if (head === undefined) continue
+
+    // Cross-model pool: a capability gradient (R1 §2.1). It is not redundancy —
+    // it silently changes the capability tier, the sysPrompt and the effort
+    // support as soon as a line is skipped, and the agent's modelOrder says
+    // "try the strong one, then the cheap one" without hiding it in a pool.
+    const otherModels = rest.filter((model) => model.model !== head.model)
+    if (otherModels.length > 0) {
+      findings.push({
+        severity: 'hint',
+        code: 'pool-mixed-models',
+        alias: entry.alias,
+        message: `alias "${entry.alias}" pools several models (${labels([head, ...otherModels])}); a capability gradient belongs in the agent's modelOrder, not in one pool`,
+      })
+    }
+
+    // Mixed groups: the redundancy is split across model-level switches, so
+    // switching the model off no longer covers every line of the pool.
+    const headGroup = modelGroupOf(head)
+    const otherGroups = rest.filter((model) => modelGroupOf(model) !== headGroup)
+    if (otherGroups.length > 0) {
+      findings.push({
+        severity: 'hint',
+        code: 'pool-mixed-groups',
+        alias: entry.alias,
+        message: `alias "${entry.alias}" pools entries of different modelGroups ("${headGroup}" and ${otherGroups.map((model) => `"${modelGroupOf(model)}"`).join(', ')}); the model-level switch covers one group per pool`,
+      })
+    }
+  }
+  return findings
+}
+
+/**
+ * Fold the model-level switch into the line switch every consumer already
+ * reads (R1 §2.2): one entry of a group declaring `available: false` makes the
+ * whole group read `false`.
+ *
+ * Resolution therefore stays an entry-by-entry judge with no second code path,
+ * and "switch the whole model off" is one flag in one group rather than the
+ * same `available: false` copied onto every line. Applied after the merge and
+ * the built-in pointer, so the fold sees the effective set: a workspace layer
+ * overriding a name changes both the group membership and the outcome.
+ *
+ * The fold never drops a group entry from the list: an entry overridden into
+ * another group is still read as written, and resetting it to false would
+ * silently widen the user's switch.
+ */
+function foldModelGroups(snapshot: AliasRegistrySnapshot): AliasRegistrySnapshot {
+  if (snapshot.models.length <= 1) return snapshot
+  const unavailable = new Set<string>()
+  for (const entry of snapshot.models) {
+    if (!entry.available) unavailable.add(modelGroupOf(entry))
+  }
+  if (unavailable.size === 0) return snapshot
+  let changed = false
+  const models = snapshot.models.map((entry) => {
+    if (entry.available && unavailable.has(modelGroupOf(entry))) {
+      changed = true
+      return { ...entry, available: false }
+    }
+    return entry
+  })
+  return changed ? { ...snapshot, models } : snapshot
 }

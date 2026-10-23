@@ -119,12 +119,79 @@ describe('registry.yaml layer reader', () => {
     expect(failuresOf('models:\n  ds-chat:\n    provider: p\n    model: m\n    available: yes\n').join(' ')).toContain('available')
   })
 
-  it('rejects an alias whose targets are not a single-target array', () => {
-    // v1 aliases are single-target arrays (D18): a scalar, an empty array and a
-    // pool all fail here, and the pool form becomes R1/R2 work.
-    expect(failuresOf('aliases:\n  smart: ds-reasoner\n').join(' ')).toContain('smart')
-    expect(failuresOf('aliases:\n  smart: []\n').join(' ')).toContain('smart')
-    expect(failuresOf('aliases:\n  smart: [ds-reasoner, ds-chat]\n').join(' ')).toContain('single')
+  it('accepts a pool in both spellings, and keeps its order', () => {
+    // R1 §2.1 (#35): an alias is an ordered, non-empty pool of model entry
+    // names; v1's single-target array is the pool of length one.
+    const flow = readRegistryLayer('aliases:\n  smart: [ds-reasoner, ds-chat]\n')
+    expect(flow).toEqual({ ok: true, data: { models: [], aliases: [{ alias: 'smart', targets: ['ds-reasoner', 'ds-chat'] }] } })
+
+    const block = readRegistryLayer('aliases:\n  smart:\n    - ds-reasoner\n    - ds-chat\n')
+    expect(block).toEqual(flow)
+
+    // The single-target form is untouched: the same layer v1 wrote stays valid.
+    expect(readRegistryLayer('aliases:\n  smart: [ds-reasoner]\n')).toEqual({
+      ok: true,
+      data: { models: [], aliases: [{ alias: 'smart', targets: ['ds-reasoner'] }] },
+    })
+  })
+
+  it('rejects an empty pool, a repeated target and a value that is no list at all', () => {
+    expect(failuresOf('aliases:\n  smart: ds-reasoner\n').join(' ')).toContain('must be a list of model entry names')
+    expect(failuresOf('aliases:\n  smart: []\n').join(' ')).toContain('at least one model entry')
+    // A repeat would count one line twice in the failure ledger, so it is a
+    // schema error rather than a silent no-op.
+    expect(failuresOf('aliases:\n  smart: [ds-reasoner, ds-chat, ds-reasoner]\n').join(' ')).toContain(
+      'alias "smart" names model "ds-reasoner" more than once',
+    )
+  })
+
+  it('reads the optional modelGroup and effort columns', () => {
+    const read = readRegistryLayer(
+      [
+        'models:',
+        '  reasoner-official: { provider: deepseek-official, model: deepseek-reasoner, available: true, modelGroup: reasoner, effort: high }',
+        '  reasoner-account:',
+        '    provider: deepseek-account',
+        '    model: deepseek-reasoner',
+        '    modelGroup: reasoner',
+        '    effort: medium',
+        '  plain: { provider: p, model: m }',
+        '',
+      ].join('\n'),
+    )
+
+    // Block and flow entries read the same two columns; both stay out of the
+    // scalar-only path every other field takes.
+    expect(read.ok && read.data.models.slice(0, 2)).toEqual([
+      {
+        modelName: 'reasoner-official',
+        provider: 'deepseek-official',
+        model: 'deepseek-reasoner',
+        available: true,
+        modelGroup: 'reasoner',
+        effort: 'high',
+      },
+      {
+        modelName: 'reasoner-account',
+        provider: 'deepseek-account',
+        model: 'deepseek-reasoner',
+        available: true,
+        modelGroup: 'reasoner',
+        effort: 'medium',
+      },
+    ])
+    // Absent means absent: the reader never fills in the modelGroup = modelName
+    // default, which is the consumer's reading of a missing column.
+    if (!read.ok) return
+    expect(read.data.models[2]).toEqual({ modelName: 'plain', provider: 'p', model: 'm', available: true })
+    expect(read.data.models[2]).not.toHaveProperty('modelGroup')
+    expect(read.data.models[2]).not.toHaveProperty('effort')
+  })
+
+  it('rejects a modelGroup or effort that is not a scalar, like every other field', () => {
+    expect(codesOf('models:\n  ds-chat:\n    provider: p\n    model: m\n    modelGroup:\n      nested: x\n')).toEqual([
+      'unparseable-registry',
+    ])
   })
 
   it('reserves the dsh-default name in both the alias and the model map', () => {

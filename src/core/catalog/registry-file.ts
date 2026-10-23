@@ -4,9 +4,11 @@
  * scope item 5; schema in spec §5.2).
  *
  * Two maps are read, and only two: `models:` holds the real model entries the
- * tuning layer hangs on (D6 — per-model system prompt and the `available`
- * switch), and `aliases:` holds pure pointers to them (D18 — v1 is a
- * single-target array, so the pool form is R1/R2 work, not a schema change).
+ * tuning layer hangs on (D6 — per-model system prompt, the line `available`
+ * switch, and the model-level `modelGroup` / `effort` columns R1 added), and
+ * `aliases:` holds pure pointers to them (D18 — an ordered, non-empty pool of
+ * model entry names; v1's single-target array is the pool of length one, so the
+ * pool form needed no new YAML shape, only one loosened check).
  *
  * This is a *second* minimal reader next to `./frontmatter.ts`, not a reuse of
  * it: registry.yaml needs booleans, a two-level block mapping and multi-field
@@ -93,7 +95,7 @@ type ItemsResult =
   | { readonly kind: 'syntax'; readonly problems: readonly string[] }
 
 const LAYER_KEYS: ReadonlySet<string> = new Set(['models', 'aliases'])
-const MODEL_FIELDS: ReadonlySet<string> = new Set(['provider', 'model', 'sysPrompt', 'available'])
+const MODEL_FIELDS: ReadonlySet<string> = new Set(['provider', 'model', 'sysPrompt', 'available', 'modelGroup', 'effort'])
 const KEY_RE = /^([A-Za-z0-9_.-]+):(?:\s*(.*))?$/
 const BLOCK_ITEM_RE = /^-\s*(.*)$/
 
@@ -155,7 +157,7 @@ function readModels(entries: readonly BlockEntry[], models: ModelEntry[], schema
       continue
     }
     if (read.kind === 'shape') {
-      schema.push(`model "${entry.key}" must be a mapping of provider/model/sysPrompt/available (line ${entry.line})`)
+      schema.push(`model "${entry.key}" must be a mapping of provider/model/sysPrompt/available/modelGroup/effort (line ${entry.line})`)
       continue
     }
     const model = mapModelEntry(entry.key, read.fields, schema)
@@ -172,21 +174,29 @@ function mapModelEntry(modelName: string, fields: Map<string, Scalar>, schema: s
   const provider = readText(fields.get('provider'))
   const model = readText(fields.get('model'))
   const sysPrompt = readText(fields.get('sysPrompt'))
+  // R1's two optional columns never get a default here: absent means "its own
+  // group" / "no declared effort", which is the consumer's reading, not ours.
+  const modelGroup = readText(fields.get('modelGroup'))
+  const effort = readText(fields.get('effort'))
   if (!isFilled(provider)) problems.push(`model "${modelName}" requires a non-empty provider`)
   if (!isFilled(model)) problems.push(`model "${modelName}" requires a non-empty model`)
   const available = readAvailable(fields.get('available'), modelName, problems)
-  // The `isFilled` pair is repeated here because the early return is what narrows
-  // the two values to `string`; a bare `problems.length` check does not.
+  // The `isFilled` pair is repeated because the early return below is what
+  // narrows those two values to `string` for the consumer.
   if (!isFilled(provider) || !isFilled(model) || problems.length > 0) {
     schema.push(...problems)
     return undefined
   }
+  // Absent optional columns stay absent, so a consumer's own reading of a
+  // missing `modelGroup`/`effort` is never overwritten by an invented value.
   return {
     modelName,
     provider,
     model,
-    ...(sysPrompt === undefined || sysPrompt === '' ? {} : { sysPrompt }),
+    ...(isFilled(sysPrompt) ? { sysPrompt } : {}),
     available,
+    ...(isFilled(modelGroup) ? { modelGroup } : {}),
+    ...(isFilled(effort) ? { effort } : {}),
   }
 }
 
@@ -195,7 +205,17 @@ function isFilled(text: string | undefined): text is string {
   return text !== undefined && text !== ''
 }
 
-/** Read every `aliases:` entry; v1 allows exactly one target each (D18). */
+/** The first name that appears twice, in file order; `undefined` when all are distinct. */
+function firstDuplicate(names: readonly string[]): string | undefined {
+  const seen = new Set<string>()
+  for (const name of names) {
+    if (seen.has(name)) return name
+    seen.add(name)
+  }
+  return undefined
+}
+
+/** Read every `aliases:` entry; each is an ordered, non-empty pool (R1 §2.1). */
 function readAliases(entries: readonly BlockEntry[], aliases: AliasEntry[], schema: string[], syntax: string[]): void {
   const seen = new Set<string>()
   for (const entry of entries) {
@@ -213,16 +233,25 @@ function readAliases(entries: readonly BlockEntry[], aliases: AliasEntry[], sche
       syntax.push(...read.problems)
       continue
     }
-    const shapeProblem = `alias "${entry.key}" must be an inline single-target array, e.g. ${entry.key}: [ds-chat] (line ${entry.line})`
+    const shapeProblem = `alias "${entry.key}" must be a list of model entry names, e.g. ${entry.key}: [ds-chat] (line ${entry.line})`
     if (read.kind === 'shape') {
       schema.push(shapeProblem)
       continue
     }
-    if (read.items.length !== 1 || (read.items[0] ?? '') === '') {
-      schema.push(`alias "${entry.key}" must be a single-target array; got ${read.items.length} target(s)`)
+    // The pool rule (R1 §3.1): at least one name, no blanks, no repeats. A
+    // repeat is a schema error rather than a no-op, because the failure
+    // ledger keys on the entry and two copies of a target would count twice.
+    const targets = read.items.filter((item) => item !== '')
+    if (targets.length === 0) {
+      schema.push(`alias "${entry.key}" must name at least one model entry, e.g. ${entry.key}: [ds-chat]`)
       continue
     }
-    aliases.push({ alias: entry.key, targets: [read.items[0] ?? ''] })
+    const duplicate = firstDuplicate(targets)
+    if (duplicate === undefined) {
+      aliases.push({ alias: entry.key, targets })
+      continue
+    }
+    schema.push(`alias "${entry.key}" names model "${duplicate}" more than once`)
   }
 }
 

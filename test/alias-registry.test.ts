@@ -145,6 +145,81 @@ describe('alias registry layers', () => {
   })
 })
 
+/** Two provider lines of one model id, one of them switched off at model level. */
+const POOLED_LAYER = [
+  'models:',
+  '  reasoner-official: { provider: deepseek-official, model: deepseek-reasoner, available: true, modelGroup: reasoner, effort: high }',
+  '  reasoner-account:',
+  '    provider: deepseek-account',
+  '    model: deepseek-reasoner',
+  '    available: false',
+  '    modelGroup: reasoner',
+  '    effort: medium',
+  '  chat-official: { provider: deepseek-official, model: deepseek-chat }',
+  'aliases:',
+  '  smart: [reasoner-official, reasoner-account]',
+  '  fast: [chat-official]',
+].join('\n')
+
+describe('the model-level switch (modelGroup)', () => {
+  it('folds a false entry into every sibling of its group at load time', async () => {
+    const registry = service(homeDir(POOLED_LAYER))
+
+    const snapshot = await registry.snapshot()
+
+    // One flag in one group switches the whole model off: the sibling reads
+    // false although the file says nothing about it, and the line switch is
+    // not duplicated in every entry (R1 §2.2).
+    expect(snapshot.models.map((entry) => [entry.modelName, entry.available, entry.modelGroup, entry.effort])).toEqual([
+      ['reasoner-official', false, 'reasoner', 'high'],
+      ['reasoner-account', false, 'reasoner', 'medium'],
+      ['chat-official', true, undefined, undefined],
+    ])
+    expect(snapshot.aliases.find((entry) => entry.alias === 'smart')?.targets).toEqual(['reasoner-official', 'reasoner-account'])
+  })
+
+  it('leaves a group alone while every entry of it is available', async () => {
+    const layer = 'models:\n  a: { provider: p1, model: m, modelGroup: g }\n  b: { provider: p2, model: m, modelGroup: g }\n'
+    const snapshot = await service(homeDir(layer)).snapshot()
+
+    expect(snapshot.models.map((entry) => entry.available)).toEqual([true, true])
+  })
+
+  it('treats an entry without a group as a group of its own', async () => {
+    // No modelGroup means the entry is its own group (R1 §2.2), so switching
+    // one entry off never reaches an ungrouped sibling.
+    const layer = 'models:\n  a: { provider: p1, model: m, available: false }\n  b: { provider: p2, model: m }\n'
+    const snapshot = await service(homeDir(layer)).snapshot()
+
+    expect(snapshot.models.map((entry) => [entry.modelName, entry.available])).toEqual([
+      ['a', false],
+      ['b', true],
+    ])
+  })
+
+  it('judges the merged set, so a workspace override decides both membership and outcome', async () => {
+    // The global layer switches a group off. The workspace redefines one
+    // member into another group, so only the entry that stayed behind is
+    // still covered by the off group — the override is judged as the
+    // definition that won, not as the one it replaced.
+    const home = homeDir('models:\n  reasoner-official: { provider: p, model: m, available: false, modelGroup: reasoner }\n')
+    const workspace = workspaceDir('models:\n  reasoner-official: { provider: p, model: m, available: true, modelGroup: other }\n  reasoner-account: { provider: q, model: m, modelGroup: reasoner }\n')
+
+    const snapshot = await service(home).snapshot({ cwd: workspace })
+
+    expect(snapshot.models.map((entry) => [entry.modelName, entry.modelGroup, entry.available])).toEqual([
+      ['reasoner-official', 'other', true],
+      ['reasoner-account', 'reasoner', true],
+    ])
+  })
+
+  it('keeps the modelGroup and effort columns the reader found on the merged entries', async () => {
+    const registry = service(homeDir(POOLED_LAYER))
+
+    expect(await registry.getModel('reasoner-account')).toMatchObject({ modelGroup: 'reasoner', effort: 'medium' })
+  })
+})
+
 describe('the built-in dsh-default alias', () => {
   it('points at the declared entry whose provider and model match the default pair', async () => {
     const registry = service(homeDir(USER_LAYER), { readDefaultPair: () => ({ provider: 'deepseek', model: 'deepseek-chat' }) })
@@ -308,6 +383,115 @@ describe('cross-layer inspection (pure, ticket 03 consumes it)', () => {
       aliases: [alias('fast', ['ds-chat']), alias(DEFAULT_ALIAS_NAME, ['ds-chat'], { source: 'built-in' })],
     })
     expect(withBuiltIn).toEqual([])
+  })
+
+  it('judges fan-in per route, so two lines of one model are not a shared capability', () => {
+    // R1 D-8: an alias pool of one model behind two providers is redundancy,
+    // not two aliases fighting over the same capability.
+    const snapshot: AliasRegistrySnapshot = {
+      models: [
+        model('reasoner-official', { provider: 'deepseek-official', model: 'deepseek-reasoner', modelGroup: 'reasoner' }),
+        model('reasoner-account', { provider: 'deepseek-account', model: 'deepseek-reasoner', modelGroup: 'reasoner' }),
+      ],
+      aliases: [alias('smart', ['reasoner-official', 'reasoner-account'])],
+    }
+
+    // Same model, same group, other lines: nothing to report at all.
+    expect(inspectAliasRegistry(snapshot)).toEqual([])
+
+    // Two aliases spending the same line is the intent overlap fan-in is for,
+    // and the message names the route rather than one entry name. (Two lines
+    // of one model are distinct routes, so they do not fan in at all.)
+    const shared = inspectAliasRegistry({
+      models: snapshot.models,
+      aliases: [alias('smart', ['reasoner-official']), alias('deep', ['reasoner-official'])],
+    })
+    expect(shared).toHaveLength(1)
+    expect(shared[0]).toMatchObject({ severity: 'hint', code: 'alias-fan-in', alias: 'smart, deep' })
+    expect(shared[0]?.message).toContain('deepseek-official/deepseek-reasoner')
+
+    // The equivalent-line case (R1-F) is not a second finding: one alias, one
+    // pool, however many entry names it spends on that route.
+    const redundant = inspectAliasRegistry({
+      models: [
+        model('line-a', { provider: 'deepseek', model: 'deepseek-chat', modelGroup: 'chat' }),
+        model('line-b', { provider: 'deepseek', model: 'deepseek-chat', modelGroup: 'chat' }),
+      ],
+      aliases: [alias('chat', ['line-a', 'line-b'])],
+    })
+    // Nothing at all — not even the group hint, since both lines share a group.
+    expect(redundant).toEqual([])
+  })
+
+  it('hints when a pool mixes models, pointing the gradient at modelOrder', () => {
+    // R1 §7.4: legal syntax, but the gradient silently changes capability tier,
+    // sysPrompt and effort support once a line is skipped.
+    const findings = inspectAliasRegistry({
+      models: [
+        model('ds-reasoner', { model: 'deepseek-reasoner', modelGroup: 'reasoner' }),
+        model('ds-chat', { model: 'deepseek-chat', modelGroup: 'reasoner' }),
+      ],
+      aliases: [alias('smart', ['ds-reasoner', 'ds-chat'])],
+    })
+
+    // One group, so this is purely the capability-gradient complaint.
+    expect(findings).toHaveLength(1)
+    expect(findings[0]).toMatchObject({ severity: 'hint', code: 'pool-mixed-models', alias: 'smart' })
+    expect(findings[0]?.message).toContain('modelOrder')
+    expect(findings[0]?.message).toContain('ds-chat')
+
+    // One model, two lines of one group: no hint. A pool of one cannot mix
+    // anything either.
+    expect(inspectAliasRegistry({
+      models: [
+        model('a', { provider: 'p1', model: 'm', modelGroup: 'm' }),
+        model('b', { provider: 'p2', model: 'm', modelGroup: 'm' }),
+      ],
+      aliases: [alias('pooled', ['a', 'b'])],
+    })).toEqual([])
+  })
+
+  it('hints when a pool mixes modelGroups, which the model-level switch cannot cover', () => {
+    // modelGroup is optional, so an entry without one is its own group (R1 §2.2).
+    const findings = inspectAliasRegistry({
+      models: [
+        model('line-a', { model: 'm', modelGroup: 'group-m' }),
+        model('line-b', { model: 'm' }),
+      ],
+      aliases: [alias('pooled', ['line-a', 'line-b'])],
+    })
+
+    expect(findings).toHaveLength(1)
+    expect(findings[0]).toMatchObject({ severity: 'hint', code: 'pool-mixed-groups', alias: 'pooled' })
+    expect(findings[0]?.message).toContain('group-m')
+    expect(findings[0]?.message).toContain('line-b')
+
+    // One group spelled explicitly or by default: nothing to report.
+    expect(inspectAliasRegistry({
+      models: [
+        model('line-a', { model: 'm', modelGroup: 'group-m' }),
+        model('line-b', { model: 'm', modelGroup: 'group-m' }),
+      ],
+      aliases: [alias('pooled', ['line-a', 'line-b'])],
+    })).toEqual([])
+  })
+
+  it('reports both pool hints for a pool that mixes models and groups at once', () => {
+    const findings = inspectAliasRegistry({
+      models: [model('a', { model: 'm-a' }), model('b', { model: 'm-b', modelGroup: 'b' })],
+      aliases: [alias('pooled', ['a', 'b'])],
+    })
+
+    expect(findings.map((finding) => finding.code)).toEqual(['pool-mixed-models', 'pool-mixed-groups'])
+  })
+
+  it('judges only the targets the registry has, leaving unknown ones to their error', () => {
+    const findings = inspectAliasRegistry({
+      models: [model('ds-reasoner')],
+      aliases: [alias('smart', ['ds-reasoner', 'ghost'])],
+    })
+
+    expect(findings.map((finding) => finding.code)).toEqual(['unknown-model-target'])
   })
 
   it('hints when an agent still uses the raw model escape hatch (D5)', () => {

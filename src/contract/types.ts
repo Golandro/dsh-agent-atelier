@@ -150,8 +150,27 @@ export interface ModelDeclaration {
   readonly model: string
   /** Per-model system prompt (D12 channel ①); absent means the entry adds none. */
   readonly sysPrompt?: string | undefined
-  /** v1 manual availability switch; a false entry is skipped during resolution (D6). */
+  /**
+   * Line-level availability switch; a false entry is skipped during resolution
+   * (D6). The loader also folds the model-level switch into it: any entry of a
+   * `modelGroup` declaring false makes the whole group read false here, so the
+   * engine stays an entry-by-entry judge (R1 §2.2).
+   */
   readonly available: boolean
+  /**
+   * Model-level switch and ledger aggregation key (R1 §2.2, ticket #35): the
+   * group an entry belongs to, absent meaning its own {@link modelName}. One
+   * entry of the group going `available: false` marks the whole group
+   * unavailable — the second of the two fault axes, next to the line switch.
+   */
+  readonly modelGroup?: string | undefined
+  /**
+   * Reasoning effort this exact `provider`+`model` line runs with (R1 §5.1,
+   * #31 ruling), absent meaning the entry names none. Not projected onto the
+   * chain by this contract: ticket 03 enhancement (W) copies it onto the chain
+   * item, and a caller's override still wins.
+   */
+  readonly effort?: string | undefined
 }
 
 /** One real model entry, as the alias registry hands it to consumers. */
@@ -166,7 +185,12 @@ export interface ModelDefinition extends ModelDeclaration {
 /** One alias pointer as a layer declares it (spec §5.2). */
 export interface AliasDeclaration {
   readonly alias: string
-  /** v1 holds exactly one model entry name; the pool form is R1/R2 work (D18). */
+  /**
+   * One or more model entry names, in priority order — a pool (R1 §2.1, #35).
+   * v1's single-target array is the pool of length one, so the type never
+   * changed. Order is user intent; resolution walks it and never rotates. The
+   * built-in pointer stays a pool of one.
+   */
   readonly targets: readonly string[]
 }
 
@@ -245,8 +269,19 @@ export type AliasFindingCode =
   | 'unknown-model-target'
   /** An agent still uses the legacy `model:` chain instead of an alias (D5 escape hatch). */
   | 'raw-model-escape'
-  /** Several aliases resolve to the same model entry (harmless, flagged as intent overlap). */
+  /** Several aliases resolve to the same route — one `provider`+`model` line (harmless, flagged as intent overlap). */
   | 'alias-fan-in'
+  /**
+   * One alias' pool spans several model ids (R1 §2.1/§7.4): a capability
+   * gradient dressed as redundancy, which the agent's `modelOrder` should say
+   * instead. Legal syntax, never an error.
+   */
+  | 'pool-mixed-models'
+  /**
+   * One alias' pool mixes `modelGroup`s (R1 §7.4): the redundancy is split
+   * across groups, so the model-level switch no longer covers the whole pool.
+   */
+  | 'pool-mixed-groups'
 
 /**
  * One finding from the pure cross-layer inspection.
