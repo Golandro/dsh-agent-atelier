@@ -13,4 +13,11 @@ prototype/settings-ui/dist/
 
 
 AGENTS.local.md
-.dsh/
+.dsh
+.codebuddy
+.qoder
+.claude
+.cursor
+.codex
+.trae
+.zcode
