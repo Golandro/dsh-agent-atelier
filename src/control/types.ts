@@ -16,6 +16,7 @@ import type {
   AliasDefinition,
   AliasDiagnostic,
   AliasFinding,
+  AssemblyPlan,
   ModelDefinition,
 } from '../contract/index.ts'
 
@@ -181,6 +182,12 @@ export interface ControlSnapshot {
   readonly agentDiagnostics: readonly AgentDiagnostic[]
   readonly aliasDiagnostics: readonly AliasDiagnostic[]
   readonly findings: readonly ControlFinding[]
+  /**
+   * Per-agent assembly plans keyed by agent name (ticket 04). An absent key
+   * means the chain cannot resolve, or no assembly provider is mounted; the
+   * advisor panel renders that row as unavailable instead of inventing a plan.
+   */
+  readonly assemblies: Readonly<Partial<Record<string, AssemblyPlan>>>
 }
 
 /** Query options of the agent list; the view's filter/sort config compiles into it. */

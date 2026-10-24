@@ -5,7 +5,7 @@
  * re-exported from the public layer entries; no implementation lives in this
  * file.
  */
-export { AGENT_CONTROL_SERVICE, AGENT_PROVIDERS_SERVICE, AGENT_REGISTRY_SERVICE, ALIAS_REGISTRY_SERVICE } from './contract/index.ts'
+export { AGENT_ASSEMBLY_SERVICE, AGENT_CONTROL_SERVICE, AGENT_PROVIDERS_SERVICE, AGENT_REGISTRY_SERVICE, ALIAS_REGISTRY_SERVICE } from './contract/index.ts'
 export { createAgentRegistry, createAgentRegistryService, createAliasRegistryService, inspectAliasRegistry } from './core/index.ts'
 export {
   createAgentDocPort,
@@ -16,6 +16,18 @@ export {
 } from './control/index.ts'
 export { BUNDLED_AGENTS_DIR, apply, optionalFileSystem } from './dsh/host/index.ts'
 export type { AgentDefinition, AgentRegistry, AliasRegistry } from './contract/index.ts'
+export type {
+  AgentAssembly,
+  AssemblyBreakpoint,
+  AssemblyConfig,
+  AssemblyLint,
+  AssemblyMountInput,
+  AssemblyPlan,
+  AssemblyRegistration,
+  AssemblyScope,
+  AssemblySection,
+  AssemblySession,
+} from './contract/index.ts'
 export type {
   AgentDocPort,
   AgentListQuery,

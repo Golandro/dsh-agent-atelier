@@ -9,7 +9,7 @@
  * parameters, and a failed chain leaves as {@link ChainExhaustedError} carrying
  * that same report, so the consumer never re-resolves to explain itself.
  */
-import type { AgentDefinition, ChainResolutionReport, ModelRoute, ModelSelectionPolicy } from '../contract/index.ts'
+import type { AgentDefinition, ChainResolutionReport, ModelDefinition, ModelRoute, ModelSelectionPolicy } from '../contract/index.ts'
 
 /**
  * The session-start parameters one agent resolved to: the route plus what the
@@ -43,6 +43,12 @@ export interface ComposedAgentSession {
   readonly parameters: SessionStartParameters
   /** The engine's report: both chain halves, every skip reason, the winner's provenance. */
   readonly report: ChainResolutionReport
+  /**
+   * The winning registry entry when an alias target won (ticket 04): its
+   * `sysPrompt` is the per-model system section. Absent when a raw `model:`
+   * pair won, so assembly never invents a registry entry.
+   */
+  readonly model?: ModelDefinition | undefined
 }
 
 /** Options of one session-start resolution; every field is per call, never cached. */

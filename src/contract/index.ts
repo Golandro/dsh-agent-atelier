@@ -7,3 +7,4 @@
 export * from './types.ts'
 export * from './service-keys.ts'
 export * from './providers.ts'
+export * from './assembly.ts'

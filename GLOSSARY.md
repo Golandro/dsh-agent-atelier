@@ -91,3 +91,53 @@ _Avoid_: 切片 / section（v1 不存在，归 14 票再议）
 **写入计划（WritePlan）**:
 `plan(doc, edits)` 的纯函数输出：逐文件 `{ file, content, blockIds, baseText }` ＋ 数据化拒绝（rejection，带 `editIndex`，永不 throw）。`commit` 逐条目原子落盘（temp ＋ rename、`0600`）、写后重读验证、覆盖冲突拒绝；所有失败都是 `WriteReport` 里的行，不是异常。
 _Avoid_: 伪造行数 / 占位文件名（原型的 bug 面，禁止回归）
+
+### 组装与通道
+
+**组合会话（ComposedAgentSession）**:
+控制核心 `composeSession` 的输出：一次会话启动的答案（route / reasoningEffort / persona / toolFilter / flavor）＋链解析报告＋选中的模型条目（其 per-model 系统提示词是组装的数据源）。组装规划的唯一输入面。
+_Avoid_: 解析结果（泛指；正式名是它携带的链解析报告）
+
+**节（Section）**:
+组装结果里的一个具名内容单元：名字、放置次序（order）、文本、变维度标注（variesWith）各一。系统侧的节进 system 消息。
+_Avoid_: 段（spec 旧词）、切片（另义，归 14 票再议）
+
+**通道（Channel）**:
+节的放置路由，五类：① system 节、② digest 门控 user 消息、③ pre-step、④ tools 字段、⑤ 首消息。通道选择即缓存策略：②内容变化才断、③⑤天然尾巴。
+_Avoid_: 消息（通道含字段级路由，不都是消息）
+
+**变维度（variesWith）**:
+节依赖的变化来源，四个可变维度：`model` / `agent` / `registry` / `tools`。频率不一：切 Agent 高频（召唤即切）、切模型罕见（回退才发生）。
+_Avoid_: 通道（通道是放置路由，不是变化来源）、顺序豁免（cacheIsolated 是 lint 豁免，不是变维度）
+
+**缓存断点（Cache Breakpoint）**:
+某变维度的断点 = 节序中第一个依赖该维度的节；该维度一变，前缀缓存自此处断开。纯建议性推演：Provider 层缓存不受本插件控制。
+_Avoid_: 断点（泛指程序断点）
+
+**组装规划（Assembly Plan）**:
+组装规划器的输出：按推荐缓存分层排序的五通道节列表（含通道锚点）＋ 每变维度缓存断点 ＋ 顺序 lint。派生值、零落盘、确定性（同输入同输出）；顾问面板与警告消费同一份。
+_Avoid_: 组装上下文（泛指会话上下文）
+
+**通道锚点（Channel Anchor）**:
+组装规划里代表一条非 system 通道的占位节（不可执行、文本为空），只用于缓存断点、顺序 lint 与面板呈现；通道内容由执行该通道的票决定。
+_Avoid_: 占位节（泛称；锚点是规划概念）
+
+**顺序豁免（cacheIsolated）**:
+顺序覆盖配置条目上的布尔标记：豁免「易变节排在稳定节之前」的 lint；不改变放置、文本或运行时缓存行为，不是变维度。
+_Avoid_: 缓存标记（会误读为可执行的缓存语义）
+
+**组装注册（Assembly Registration）**:
+把一份组装规划里标记为可执行的 system 节挂进某个 Agent 的 scoped 上下文（`agent.ctx`）的运行时面：同名节遮蔽部署级同名节，全量替换（先撤销旧注册再注册全部），返回 disposer；disposer 是服务端重载的析构点。
+_Avoid_: 挂载（泛指生命周期）、sink（连接器副作用面的总称）
+
+**兼容模式（Compat Mode）**:
+组装的默认产品形态：以基础包实现，scoped 节注册进原版提示词注册表，复用原生遮蔽与 order；兼容优先。
+_Avoid_: 基础模式（易混）、扩展模式（旧称）
+
+**替换模式（Replacement Mode）**:
+组装的额外包形态：经 `cordis.patch.yml` 停用兼容组装行并插入自己，替换原版实现，功能更多；接口是基础接口的宽子类型，本阶段不实现。
+_Avoid_: 上游补丁（维护者已裁决不可行）
+
+**宽子类型接口（Wide Subtype Interface）**:
+基础成员全保留、只增不改的接口扩张。替换模式可以返回更丰富的值或增加成员，但下游只按基础面编码，无能力探测。
+_Avoid_: 平行适配器（旧读法，已修正）、双接口（旧读法）

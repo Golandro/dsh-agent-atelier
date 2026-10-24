@@ -119,6 +119,10 @@ export function createControlCore(dependencies: ControlDependencies): ControlCor
         agentDiagnostics,
         aliasDiagnostics,
         findings,
+        // Ticket 04 wires the active assembly provider into this snapshot. Until
+        // then no agent has a plan, which the contract already reads as
+        // "assembly unavailable" rather than an invented plan.
+        assemblies: {},
       }
     },
 

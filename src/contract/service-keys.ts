@@ -27,3 +27,13 @@ export const ALIAS_REGISTRY_SERVICE = 'aliasRegistry'
  * only the wire client of ticket 12.
  */
 export const AGENT_CONTROL_SERVICE = 'agentControl'
+
+/**
+ * Service key of the prompt-assembly face (ticket 04).
+ *
+ * Both modes provide this one key: compat mode registers scoped sections into
+ * the native prompt registry; replacement mode is a wide subtype activated by
+ * `cordis.patch.yml`. Downstream consumers never probe which mode is mounted.
+ */
+export const AGENT_ASSEMBLY_SERVICE = 'agentAssembly'
+

@@ -51,3 +51,15 @@ Provider（host）：`Service.listService` / `Event.listEvents` / `Config.listCo
 - **票面事实先复核**：service key、`path:line`、根数这类断言，动工前在真机核一遍（`cordis_inspect_query` / grep），修正写回票面。`pnpm run check` 的 anchors 一项会兜住 `path:line` 漂移。
 - **委托失败先验场**：子代理失败或中断后，先 `git status` 逐个复核它留下的半成品再继续。真实案例：某次 stub 清单声明了不存在的 `typescript@^6`，照装会炸。
 - **deck 闸 defer 兜底**：`deck_*` 全部返回 `{"reason":"gate-defer"}` 时，按 `docs/agents/issue-tracker.md` 的 markdown 约定直接改 `Status:` / `## Comments`，并在 `map.md` 记下待补的 deck 上报。
+
+## 子代理派发与失败诊断
+
+- **错误**：未验证路由就并发派发多个重任务。**正确**：先派一个 PONG 级小任务烟测路由（兼探单槽占用）；**codebuddy ACP 路由并发 = 1**（实测：一次只能执行一个一次性子代理——实现缺陷，第二个并发调用会炸或排队）；该槽被占时，余下子代理按 `AGENTS.local.md` 备选路由（volcengine-plan）并行派发，不必等槽；烟测失败即切备选路由，不重试原路由。
+- **错误**：把 dsh-tauri-acp 的 idleTimeout/通道死亡当任务失败并立刻重派。**正确**：该通道约 10 分钟零输出即被 idleTimeout 掐断，但 ACP 服务器侧会继续执行并把产物（提交/研究文档）写进共享工作树；长任务的交付只能按产物验收，服务器侧完成不会再有任何通知，靠定时复核抓取；判死要按任务时长给足观察窗。
+- **错误**：派发后占回合继续执行或内联等待结果。**正确**：派发后主代理自觉停止执行（结束回合），收完成通知再继续；后台子代理跨回合存活，结束回合不会杀它们。
+- **错误**：把结算通知（"failed/stopped before it finished"）当死因。**正确**：读子会话日志 `~/.dsh/sessions/<cwd-slug>/<childId>/session.v4.jsonl.zstd`，其 `turn/end` 的 `reason` 才是真实错误。
+- **错误**：用 `zlib.createZstdDecompress` 解子会话日志。**正确**：日志是多帧 zstd，Node 流式只解第一帧；按 magic `28 B5 2F FD` 扫帧、逐帧 `zstdDecompressSync`（实现照抄 `dsh-session-persistence-jsonl/lib/index.js` 的 `scanZstdFrames`），或装 `zstd` CLI。
+- **错误**：并行子代理提交时 `git add -A` / `git add .`。**正确**：只暂存自己的明确路径；他方未提交改动不碰、不回退、不裹挟进提交。
+- **错误**：向连对话流都没有的死子代理（`session/new` 即挂或零输出被停）发消息复用会话。**正确**：重派一律用 `subagent()` 重新创建全新会话，死会话只读日志取死因、不续用。
+- **错误**：并行会话下用 `GIT_INDEX_FILE` 指向 /tmp 做隔离暂存，再 `git add` 相对路径。**正确**：空索引 + 相对路径会产出「删光全树」的提交；隔离提交用 pathspec：`git commit -m … -- <自己的明确路径>`（绕开索引）；出事立即 `git reset --soft <好提交>`，工作树不受影响。
+- **错误**：在 volcengine-plan 上并发多个重子代理当无上限。**正确**：volcengine 有账户级限流（429 AccountRateLimitExceeded），两个并发重任务可致其中途夭折；重任务尽量串行，429 死亡读子会话日志确认后重派。
