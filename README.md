@@ -31,6 +31,10 @@ pnpm test           # vitest run
 pnpm run check      # static guardrail + typecheck + tests (also the pre-commit hook)
 ```
 
+Commit messages are checked by `.githooks/commit-msg`: no AI-brand attribution
+trailers (`Co-Authored-By` / `Generated with`); AI models and tools are not
+responsible parties.
+
 The installed plugin loads `lib/`, so **re-run `pnpm run build` after any change
 under `src/`** — the profile links this directory, it does not rebuild it. Wire
 the hook once per clone: `git config core.hooksPath .githooks`.

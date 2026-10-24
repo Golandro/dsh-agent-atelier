@@ -1,0 +1,11 @@
+#!/bin/sh
+# 本仓提交信息只写项目惯例：AI 模型与工具不是责任者。
+# 拒绝常见 AI 品牌的署名页脚；人工 co-author 不受影响。
+set -u
+
+msg_file="${1:?commit-msg: missing commit message file}"
+
+if grep -Eiq '(^[[:space:]]*co-authored-by:|generated with).*(claude|anthropic|openai|chatgpt|gpt|gemini|bard|deepseek|copilot|codex|qwen|tongyi|ernie|wenxin|llama|mistral|grok|xai|perplexity|cursor|windsurf|trae|devin|replit|tabnine|amazon[ -]?q|cody)' "$msg_file"; then
+  echo "commit-msg: 拒绝 AI 品牌署名页脚；AI 模型与工具不是责任者。移除该署名后重试。" >&2
+  exit 1
+fi
