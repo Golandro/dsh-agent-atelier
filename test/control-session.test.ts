@@ -140,6 +140,20 @@ describe('composeSession: route resolution through the control core', () => {
     })
   })
 
+  it('carries the winning registry entry for an alias route and none for a raw pair', async () => {
+    const core = createCore()
+    const aliased = await core.composeSession('alias-agent', { cwd: PROJECT })
+    expect(aliased.model).toMatchObject({
+      modelName: 'ds-chat',
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+      effort: 'low',
+    })
+
+    const raw = await core.composeSession('raw-agent', { cwd: PROJECT })
+    expect(raw.model).toBeUndefined()
+  })
+
   it('composes the report the engine produced for the same inputs, field for field', async () => {
     const core = createCore()
     const answer = await core.composeSession('alias-agent', { cwd: PROJECT })

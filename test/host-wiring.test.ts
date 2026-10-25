@@ -2,6 +2,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 
 import { AGENT_CONTROL_SERVICE } from '../src/contract/index.ts'
+import { createAssemblyService } from '../src/agent-assembly/index.ts'
 import { createInMemoryControlCore } from '../src/control/memory.ts'
 import {
   CLIENT_MARKER_HEADER,
@@ -90,6 +91,35 @@ describe('wire dispatcher', () => {
     expect(body.cwd).toBe(PROJECT)
     expect(body.scanId).toBe(7)
     expect(body.snapshot.agents.map((agent) => agent.agentName)).toEqual(['alpha'])
+  })
+
+  it('GET /state carries the per-agent assembly projection', async () => {
+    const core = createInMemoryControlCore({
+      projectRoot: PROJECT,
+      dshHome: HOME,
+      files: {
+        [`${PROJECT}/.git`]: '',
+        [DOC]: '---\nname: Alpha\nmodelOrder: [smart]\n---\nAlpha body\n',
+        [REGISTRY]: 'models:\n  gpt5:\n    provider: openai\n    model: gpt-5\naliases:\n  smart: [gpt5]\n',
+      },
+      assembly: createAssemblyService(),
+    })
+    const result = await call(core, '/agent-atelier/state', {
+      search: new URLSearchParams({ cwd: PROJECT }),
+      headers: {},
+    })
+
+    expect(result.status).toBe(200)
+    const body = result.body as { snapshot: { assemblies: Record<string, { sections: { name: string }[] }> } }
+    // No sysPrompt on gpt5, so the plan has the persona row but no model row.
+    expect(body.snapshot.assemblies.alpha?.sections.map((section) => section.name)).toEqual([
+      'channel:tools',
+      'deployment:persona-prefix',
+      'atelier:skills',
+      'channel:digest',
+      'channel:first-message',
+      'channel:pre-step',
+    ])
   })
 
   it('POST /compose returns the domain document and 404s an unknown agent', async () => {

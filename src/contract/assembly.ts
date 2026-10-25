@@ -28,6 +28,8 @@ export type AssemblyChannel = 'system' | 'tools' | 'digest' | 'first-message' | 
  */
 export type AssemblyVariesWith = 'model' | 'agent' | 'registry' | 'tools'
 
+// TODO: enums above are hardcoded. We may switch to config-driven later.
+
 /** One row of an assembly plan. */
 export interface AssemblySection {
   readonly channel: AssemblyChannel

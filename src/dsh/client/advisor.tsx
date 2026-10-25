@@ -1,7 +1,8 @@
 /**
  * 顾问面板（票 05，Q2 裁决的最小口径，从 prototype AdvisorPanel/model/fixtures 移植）：
  * ① snapshot.findings 按家族分组呈现（分组映射写死，不做二次合并）
- * ② §6 通道表 + 断点推演（静态表驱动：切 Agent / 切模型高亮断点行）
+ * ② 通道表与断点推演改为渲染 `snapshot.assemblies` 的规划器输出（票 04）：
+ *    节序、变维度、断点与 lint 全部来自服务端规划，客户端不做第二次推导
  * ③ S5 别名重映射即时影响预览（纯客户端按快照推导；注册表写属票 14，此处不做任何写操作）
  * ④ fork 断点知识库 + 顺序反模式（静态条目）
  * ⑤ requiredTools/skills 声明清单（wire 契约没有已知工具/技能集，不自行核验）
@@ -56,36 +57,45 @@ function resolveEffectiveModel(name: string, models: readonly SnapshotModel[]): 
   return best
 }
 
-/* ── §6 通道表（静态数据，照搬原型 fixtures/model） ───────────────── */
+/* ── 组装规划视图（票 04：服务端计划是唯一来源） ───────────────── */
 
-type BreakOn = 'model' | 'agent' | 'registry' | 'tools' | 'never' | 'native'
+/** 快照携带的一个 Agent 规划（缺 key = 模型链不可解析或组装服务未挂载）。 */
+type SnapshotPlan = NonNullable<ControlSnapshot['assemblies'][string]>
+type SnapshotSection = SnapshotPlan['sections'][number]
+type SnapshotDimension = SnapshotPlan['breakpoints'][number]['dimension']
 
-interface ChannelRow {
-  readonly content: string
-  readonly channel: string
-  readonly mechanism: string
-  /** 什么变化会在此打断前缀缓存。 */
-  readonly breakOn: BreakOn
+/** 已知节的中文说明；规划新增的节回落到原始节名。 */
+const SECTION_LABEL: Readonly<Record<string, string>> = {
+  'atelier:model-sys': 'per-model 系统提示词',
+  'channel:tools': 'mode 工具集',
+  'deployment:persona-prefix': 'persona',
+  'atelier:skills': '预置技能（skills）',
+  'channel:digest': 'agent/别名目录',
+  'channel:first-message': 'brief',
+  'channel:pre-step': 'compaction / 提醒',
 }
 
-const CHANNEL_TABLE: readonly ChannelRow[] = [
-  { content: 'per-model 系统提示词', channel: '① system 节', mechanism: 'section order 低于 persona（在 persona 之前）', breakOn: 'model' },
-  { content: 'persona', channel: '① system 节', mechanism: 'deployment:persona-prefix（order 0）', breakOn: 'agent' },
-  { content: '预置技能（skills）', channel: '待定（04/07）', mechanism: '按名引用原生 skills 注册表', breakOn: 'agent' },
-  { content: 'mode 工具集', channel: '④ tools 字段', mechanism: 'toolFilter → ctx.tools.restrict', breakOn: 'tools' },
-  { content: 'agent/别名目录', channel: '② digest 门控 user 消息', mechanism: 'sha256 pre-step 门控（不变不发）', breakOn: 'registry' },
-  { content: 'AGENTS.md', channel: '②（DSH 原生）', mechanism: 'unfiltered，change 门控', breakOn: 'native' },
-  { content: 'brief', channel: '⑤ 首条消息', mechanism: 'SubagentStartRequest.prompt', breakOn: 'never' },
-  { content: 'compaction / 提醒', channel: '③ pre-step', mechanism: 'DSH 原生', breakOn: 'native' },
-]
-
-const BREAK_LABEL: Record<BreakOn, string> = {
+const DIMENSION_LABEL: Readonly<Record<SnapshotDimension, string>> = {
   model: '切模型在此断',
   agent: '切 Agent 在此断',
   registry: '注册表变 → digest 变 → 发新消息',
   tools: '工具集变化在此断',
-  never: '天然尾巴（不影响前缀）',
-  native: 'DSH 原生行为（不可控）',
+}
+
+/** 某节最初依赖的维度（规划里只有第一个依赖行算断点）；天然尾巴为空。 */
+function breakpointDimensions(plan: SnapshotPlan): ReadonlyMap<string, readonly SnapshotDimension[]> {
+  const bySection = new Map<string, SnapshotDimension[]>()
+  for (const breakpoint of plan.breakpoints) {
+    const found = bySection.get(breakpoint.section)
+    if (found === undefined) bySection.set(breakpoint.section, [breakpoint.dimension])
+    else found.push(breakpoint.dimension)
+  }
+  return bySection
+}
+
+/** 一行里展示的变维度；没有则说明它是天然尾巴。 */
+function sectionDependencies(section: SnapshotSection): string {
+  return section.variesWith.length === 0 ? '无（天然尾巴）' : section.variesWith.join(' / ')
 }
 
 export function AdvisorPanel(props: AdvisorPanelProps): ReactNode {
@@ -93,6 +103,9 @@ export function AdvisorPanel(props: AdvisorPanelProps): ReactNode {
   const [switchKind, setSwitchKind] = useState<'agent' | 'model'>('agent')
   const [aliasDraft, setAliasDraft] = useState('')
   const [targetDraft, setTargetDraft] = useState('')
+
+  /* ── ② 选中 Agent 的组装规划（缺 key 即不可用，不编造） ── */
+  const plan = props.selectedAgent === null ? undefined : snapshot.assemblies[props.selectedAgent]
 
   /* ── ① findings 按家族分组（映射写死） ── */
   const crossLayer = snapshot.findings.filter((f): f is CrossLayerItem => f.origin === 'cross-layer')
@@ -172,9 +185,9 @@ export function AdvisorPanel(props: AdvisorPanelProps): ReactNode {
         props.onSelectAgent,
       ))),
 
-    /* ② §6 通道表 + 断点推演（静态表驱动） */
+    /* ② 组装规划 + 断点推演（票 04：服务端计划是唯一来源） */
     h('section', { className: 'advisor-sec' },
-      h('h4', null, '缓存断点推演 ', h('span', { className: 'dim' }, '（spec §6 通道表，静态）')),
+      h('h4', null, '缓存断点推演 ', h('span', { className: 'dim' }, '（组装规划器输出）')),
       h('div', { className: 'bp-controls' },
         h('span', { className: 'dim' }, '当前'),
         h('select',
@@ -192,17 +205,9 @@ export function AdvisorPanel(props: AdvisorPanelProps): ReactNode {
         h('button',
           { type: 'button', className: `btn btn-sm${switchKind === 'model' ? ' btn-primary' : ''}`, onClick: () => setSwitchKind('model') },
           '切模型')),
-      h('table', { className: 'channel-table' },
-        h('thead', null, h('tr', null, h('th', null, '内容'), h('th', null, '通道'), h('th', null, '机制'), h('th', null, '断点'))),
-        h('tbody', null,
-          CHANNEL_TABLE.map((row, i) => {
-            const broken = row.breakOn === switchKind
-            return h('tr', { key: i, className: broken ? 'bp' : undefined },
-              h('td', null, row.content, broken && h('span', { className: 'bp-mark', title: BREAK_LABEL[row.breakOn] }, '⚡')),
-              h('td', { className: 'dim' }, row.channel),
-              h('td', { className: 'dim' }, row.mechanism),
-              h('td', { className: 'dim' }, BREAK_LABEL[row.breakOn]))
-          }))),
+      plan === undefined
+        ? h('div', { className: 'dim' }, '模型链无法解析，或组装服务未挂载；该 Agent 当前不可召唤，没有可渲染的规划。')
+        : renderAssemblyPlan(plan, switchKind),
       h('p', { className: 'dim advisor-note' }, '推荐别名顺序 = 最可能的断点最晚（D10）。例：smart→fast 把换档断点推到 persona 之后尽可能晚的位置。')),
 
     /* ③ S5 别名重映射 · 即时影响预览（纯预览，无写操作——注册表写属票 14） */
@@ -255,7 +260,12 @@ export function AdvisorPanel(props: AdvisorPanelProps): ReactNode {
       h('h4', null, '顺序反模式 ', h('span', { className: 'dim' }, '（D10）')),
       h('div', { className: 'card kb-card' },
         h('p', null, h('span', { className: 'tag tag-err' }, '反例'), ' 把最稳的别名放最前：每次换档都在最早位置断，长任务反复重建前缀。'),
-        h('p', null, h('span', { className: 'tag tag-ok' }, '推荐'), ' 按「最可能的断点最晚」排序；换档发生在 persona 之后，前面的公共前缀（model-sys 等）保住。'))),
+        h('p', null, h('span', { className: 'tag tag-ok' }, '推荐'), ' 按「最可能的断点最晚」排序；换档发生在 persona 之后，前面的公共前缀（model-sys 等）保住。'),
+        h('p', null, h('b', null, '插值边界：'), '模型条目的 ', h('code', null, 'sysPrompt'), ' 只代入 ', h('code', null, '{{provider}}'), ' / ', h('code', null, '{{model}}'), '；其他 ', h('code', null, '{{...}}'), ' 以 ', h('code', null, 'interpolate: false'), ' 保持字面。persona 保留宿主原生插值。')),
+
+      h('h4', null, 'DSH 原生行为 ', h('span', { className: 'dim' }, '（不在本插件规划内）')),
+      h('div', { className: 'card kb-card' },
+        h('p', null, 'AGENTS.md 作为 unfiltered 上下文按 change 门控；compaction / 提醒走 pre-step 通道。它们由宿主管理，规划器只建模锚点、不接管其行为。'))),
 
     /* ⑤ requiredTools/skills 声明清单（不核验——06 接入后核验） */
     h('section', { className: 'advisor-sec' },
@@ -271,6 +281,55 @@ export function AdvisorPanel(props: AdvisorPanelProps): ReactNode {
           agent.skills?.map((skill) => h('code', { key: skill, className: 'declare-item' }, skill))))),
       h('p', { className: 'dim advisor-note' }, 'wire 契约没有已知工具/技能集，这里只呈现声明、不自行核验；「06 接入后核验」——工具集交集（D9）与预置技能存在性（D20）由票 06 的警告通道提供。')),
   )
+}
+
+/**
+ * 规划表：节序、变维度、断点与 lint 全部来自服务端计划。
+ * 高亮由 `plan.breakpoints` 查得，客户端不另算「什么变化会断」。
+ */
+function renderAssemblyPlan(
+  plan: SnapshotPlan,
+  switchKind: 'agent' | 'model',
+): ReactNode {
+  const breakpointsBySection = breakpointDimensions(plan)
+  const switchBreakpoint = plan.breakpoints.find((breakpoint) => breakpoint.dimension === switchKind)
+  const switchLabel = switchKind === 'agent' ? '切 Agent' : '切模型'
+  return h('div', null,
+    h('table', { className: 'channel-table' },
+      h('thead', null, h('tr', null,
+        h('th', null, '内容'),
+        h('th', null, '通道'),
+        h('th', null, '放置'),
+        h('th', null, '变维度'),
+        h('th', null, '断点'))),
+      h('tbody', null,
+        plan.sections.map((section, index) => {
+          const broken = switchBreakpoint?.section === section.name && switchBreakpoint.channel === section.channel
+          const breakpoints = breakpointsBySection?.get(section.name) ?? []
+          return h('tr', { key: `${section.channel}-${section.name}-${index}`, className: broken ? 'bp' : undefined },
+            h('td', null,
+              SECTION_LABEL[section.name] ?? section.name,
+              h('span', { className: 'dim' }, ` ${section.name}`),
+              broken && h('span', { className: 'bp-mark', title: DIMENSION_LABEL[switchKind] }, '⚡')),
+            h('td', { className: 'dim' }, section.channel),
+            h('td', { className: 'dim' }, section.channel === 'system'
+              ? `${section.executable ? '注册' : '锚点'} · order ${section.order}`
+              : '计划数组'),
+            h('td', { className: 'dim' }, sectionDependencies(section)),
+            h('td', { className: 'dim' }, breakpoints.length === 0
+              ? '—'
+              : breakpoints.map((dimension) => DIMENSION_LABEL[dimension]).join(' / ')))
+        }))),
+    switchBreakpoint === undefined
+      && h('p', { className: 'dim advisor-note' }, `当前规划没有「${switchLabel}」断点。`),
+    h('h4', null, '顺序 lint ', h('span', { className: 'dim' }, `${plan.lints.length} 条`)),
+    plan.lints.length === 0
+      ? h('div', { className: 'dim' }, '无顺序反模式。')
+      : plan.lints.map((lint, index) => h('div', { key: `${lint.code}-${index}`, className: 'finding hint' },
+          h('span', { className: 'tag tag-warn' }, lint.code),
+          h('span', { className: 'finding-msg' }, lint.message))),
+    h('p', { className: 'dim advisor-note' },
+      '推荐顺序 = 缓存分层（D10）：model-sys → tools → persona → skills → digest → 首消息 → pre-step。'))
 }
 
 /**

@@ -15,6 +15,10 @@
       "types": "./lib/dsh/host/core.d.ts",
       "default": "./lib/dsh/host/core.js"
     },
+    "./assembly": {
+      "types": "./lib/dsh/host/assembly.d.ts",
+      "default": "./lib/dsh/host/assembly.js"
+    },
     "./providers/fs": {
       "types": "./lib/dsh/host/providers.d.ts",
       "default": "./lib/dsh/host/providers.js"

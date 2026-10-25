@@ -6,6 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  AGENT_ASSEMBLY_SERVICE,
   AGENT_CONTROL_SERVICE,
   AGENT_PROVIDERS_SERVICE,
   AGENT_REGISTRY_SERVICE,
@@ -14,8 +15,9 @@ import {
 } from '../src/index.ts'
 import { createAgentProviders } from '../src/core/providers-registry.ts'
 import { apply as providerRowApply, applyProviders } from '../src/dsh/host/providers.ts'
+import { applyAssembly } from '../src/dsh/host/assembly.ts'
 import { SERVICE_API_VERSION } from '../src/contract/index.ts'
-import type { AgentRegistry, AliasRegistry } from '../src/contract/types.ts'
+import type { AgentAssembly, AgentRegistry, AliasRegistry } from '../src/contract/index.ts'
 import type { AgentProviders } from '../src/contract/index.ts'
 
 async function mounted(): Promise<{
@@ -75,6 +77,20 @@ describe('agent-atelier plugin', () => {
     // The control core is the fourth host service, under its own key.
     expect(AGENT_CONTROL_SERVICE).toBe('agentControl')
     expect(AGENT_CONTROL_SERVICE).not.toBe(AGENT_REGISTRY_SERVICE)
+    // The assembly face has its own key, shared by both modes.
+    expect(AGENT_ASSEMBLY_SERVICE).toBe('agentAssembly')
+    expect(AGENT_ASSEMBLY_SERVICE).not.toBe(AGENT_CONTROL_SERVICE)
+  })
+
+  it('provides the base assembly face from its own loader row', async () => {
+    const ctx = new Context()
+    await ctx.plugin({ apply: applyAssembly }, {})
+
+    const assembly = ctx.get(AGENT_ASSEMBLY_SERVICE) as AgentAssembly | undefined
+    expect(assembly).toBeDefined()
+    expect(Object.keys(assembly ?? {}).sort()).toEqual(['plan', 'registerAssemblySections'])
+    // The all-in-one compatibility entry mounts the same row.
+    expect((await mounted()).ctx.get(AGENT_ASSEMBLY_SERVICE)).toBeDefined()
   })
 
   it('provides the six-member agentControl write face plus the session-start member', async () => {

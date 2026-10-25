@@ -10,7 +10,13 @@
  */
 import { routeNotAllowed } from './resolve.ts'
 
-import type { AgentDefinition, ChainResolution, ChainResolutionInput } from '../contract/index.ts'
+import type {
+  AgentDefinition,
+  AliasRegistrySnapshot,
+  ChainResolution,
+  ChainResolutionInput,
+  ModelDefinition,
+} from '../contract/index.ts'
 import type { ComposedAgentSession, SessionStartParameters } from './session.ts'
 
 /**
@@ -60,6 +66,7 @@ export function composeSessionOf(
   definition: AgentDefinition,
   cwd: string | undefined,
   resolution: Extract<ChainResolution, { readonly ok: true }>,
+  snapshot: AliasRegistrySnapshot,
 ): ComposedAgentSession {
   const parameters: SessionStartParameters = {
     route: { provider: resolution.provider, model: resolution.model },
@@ -69,13 +76,33 @@ export function composeSessionOf(
     flavor: resolution.flavor,
     effortSource: resolution.report.effortSource,
   }
+  const model = winningModelOf(snapshot, resolution)
   return {
     ok: true,
     agent: definition,
     ...cwd === undefined ? {} : { cwd },
     parameters,
     report: resolution.report,
+    ...model === undefined ? {} : { model },
   }
+}
+
+/**
+ * The winning registry entry, when an alias target won.
+ *
+ * The report already names it: the winner is the one candidate without a
+ * `skipped` reason, and its `modelName` is the snapshot's own key. A raw
+ * `model:` winner contributes no entry — assembly must not invent one.
+ */
+function winningModelOf(
+  snapshot: AliasRegistrySnapshot,
+  resolution: Extract<ChainResolution, { readonly ok: true }>,
+): ModelDefinition | undefined {
+  if (resolution.report.selectedBy !== 'alias') return undefined
+  const winner = resolution.report.candidates.find((candidate) => candidate.skipped === undefined)
+  const modelName = winner?.modelName
+  if (modelName === undefined) return undefined
+  return snapshot.models.find((entry) => entry.modelName === modelName)
 }
 
 /** Re-exported so `./core.ts` reads one module for the whole session half. */

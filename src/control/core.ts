@@ -18,7 +18,15 @@
  */
 import { inspectAliasRegistry, resolveModelChain } from '../core/index.ts'
 
-import type { AgentRegistry, AliasRegistry, ChainResolution, ModelSelectionPolicy } from '../contract/index.ts'
+import type {
+  AgentAssembly,
+  AgentDefinition,
+  AgentRegistry,
+  AliasRegistry,
+  AssemblyPlan,
+  ChainResolution,
+  ModelSelectionPolicy,
+} from '../contract/index.ts'
 import type { ControlFileSystem } from '../core/ports.ts'
 import { errorMessage, UnknownAgentError } from './client-errors.ts'
 import { composeAgentDocument } from './compose.ts'
@@ -58,6 +66,13 @@ export interface ControlDependencies {
    * exactly the engine's own default. A per-call `policy` wins over this.
    */
   readonly resolveSelectionPolicy?: (() => ModelSelectionPolicy | undefined) | undefined
+  /**
+   * The active assembly service (ticket 04), read at use time: the assembly row
+   * may mount after this row, and the panel must see whichever provider is
+   * actually serving. Absent — or the service not mounted — means an empty
+   * `assemblies` projection, never a second planning path.
+   */
+  readonly resolveAssembly?: (() => AgentAssembly | undefined) | undefined
 }
 
 /** The control face: six members, everything else is inside. */
@@ -119,10 +134,9 @@ export function createControlCore(dependencies: ControlDependencies): ControlCor
         agentDiagnostics,
         aliasDiagnostics,
         findings,
-        // Ticket 04 wires the active assembly provider into this snapshot. Until
-        // then no agent has a plan, which the contract already reads as
-        // "assembly unavailable" rather than an invented plan.
-        assemblies: {},
+        // The panel consumes this one projection; a missing key means the chain
+        // cannot resolve (or no provider is mounted), never an invented plan.
+        assemblies: await projectAssemblies(dependencies, agents, cwd),
       }
     },
 
@@ -159,36 +173,80 @@ export function createControlCore(dependencies: ControlDependencies): ControlCor
       dependencies.aliasRegistry.invalidate()
     },
 
-    async composeSession(agentName, options) {
-      const cwd = options?.cwd ?? resolveProjectRoot()
-      // One read each, in parallel: the registries memoise per root, so the
-      // document and the snapshot a caller resolves against are the ones this
-      // call was answered from — never a half-refreshed pair.
-      const [definition, snapshot] = await Promise.all([
-        dependencies.agentRegistry.get(agentName, { cwd }),
-        dependencies.aliasRegistry.snapshot({ cwd }),
-      ])
-      if (definition === undefined) throw new UnknownAgentError(agentName)
-      // The engine call: the document as it was read, the snapshot as it was
-      // read, and the session inputs composed from that same snapshot — the
-      // entry's own `effort` column is the base and a caller's explicit value
-      // only replaces the entries it names (D7).
-      const agent = chainInputOf(definition)
-      const resolution = resolveModelChain({
-        agent,
-        snapshot,
-        ...sessionChainContext({
-          agent,
-          snapshot,
-          policy: options?.policy ?? dependencies.resolveSelectionPolicy?.(),
-          flavor: options?.flavor,
-          itemEffort: options?.itemEffort,
-        }),
-      })
-      if (!resolution.ok) throw new ChainExhaustedError(resolution, refusalByPolicy(resolution))
-      return composeSessionOf(definition, cwd, resolution)
+    composeSession(agentName, options) {
+      return composeSessionFor(dependencies, agentName, resolveProjectRoot(), options)
     },
   }
+}
+
+/** One session-start resolution over the injected registries; both callers share it. */
+async function composeSessionFor(
+  dependencies: ControlDependencies,
+  agentName: string,
+  projectRoot: string | undefined,
+  options: ComposeSessionOptions | undefined,
+): Promise<ComposedAgentSession> {
+  const cwd = options?.cwd ?? projectRoot
+  // One read each, in parallel: the registries memoise per root, so the
+  // document and the snapshot a caller resolves against are the ones this
+  // call was answered from — never a half-refreshed pair.
+  const [definition, snapshot] = await Promise.all([
+    dependencies.agentRegistry.get(agentName, { cwd }),
+    dependencies.aliasRegistry.snapshot({ cwd }),
+  ])
+  if (definition === undefined) throw new UnknownAgentError(agentName)
+  // The engine call: the document as it was read, the snapshot as it was
+  // read, and the session inputs composed from that same snapshot — the
+  // entry's own `effort` column is the base and a caller's explicit value
+  // only replaces the entries it names (D7).
+  const agent = chainInputOf(definition)
+  const resolution = resolveModelChain({
+    agent,
+    snapshot,
+    ...sessionChainContext({
+      agent,
+      snapshot,
+      policy: options?.policy ?? dependencies.resolveSelectionPolicy?.(),
+      flavor: options?.flavor,
+      itemEffort: options?.itemEffort,
+    }),
+  })
+  if (!resolution.ok) throw new ChainExhaustedError(resolution, refusalByPolicy(resolution))
+  return composeSessionOf(definition, cwd, resolution, snapshot)
+}
+
+/**
+ * Project every listed agent through the active assembly service.
+ *
+ * Each agent is resolved once through the same session-start path
+ * {@link ControlCore.composeSession} uses, so the panel's plan and a summon's
+ * plan can never disagree. A chain that ran out contributes no key: that
+ * agent cannot be summoned, and a missing key is how the panel says so. No
+ * provider mounted means the whole projection is empty.
+ */
+async function projectAssemblies(
+  dependencies: ControlDependencies,
+  agents: readonly AgentDefinition[],
+  cwd: string | undefined,
+): Promise<Readonly<Partial<Record<string, AssemblyPlan>>>> {
+  const assembly = dependencies.resolveAssembly?.()
+  if (assembly === undefined) return {}
+  const entries = await Promise.all(agents.map(async (agent): Promise<readonly [string, AssemblyPlan] | undefined> => {
+    try {
+      const session = await composeSessionFor(dependencies, agent.agentName, cwd, { cwd })
+      return [agent.agentName, assembly.plan(session)] as const
+    } catch (error) {
+      // Chain exhaustion is the documented "cannot assemble" answer; anything
+      // else is a defect and must not be hidden behind a missing key.
+      if (error instanceof ChainExhaustedError) return undefined
+      throw error
+    }
+  }))
+  const assemblies: Partial<Record<string, AssemblyPlan>> = {}
+  for (const entry of entries) {
+    if (entry !== undefined) assemblies[entry[0]] = entry[1]
+  }
+  return assemblies
 }
 
 /** Whether any route in the failed chain was refused by the host's allowlist. */

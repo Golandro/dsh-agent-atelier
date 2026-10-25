@@ -9,13 +9,13 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 
-import { AGENT_CONTROL_SERVICE, AGENT_PROVIDERS_SERVICE, AGENT_REGISTRY_SERVICE, ALIAS_REGISTRY_SERVICE } from '../../contract/index.ts'
+import { AGENT_ASSEMBLY_SERVICE, AGENT_CONTROL_SERVICE, AGENT_PROVIDERS_SERVICE, AGENT_REGISTRY_SERVICE, ALIAS_REGISTRY_SERVICE } from '../../contract/index.ts'
 import { createAgentProviders, createAgentRegistryService, createAliasRegistryService, resolveDshHome } from '../../core/index.ts'
 import { createControlCore } from '../../control/index.ts'
 import { createNodeControlFileSystem, createNodeFileSystem } from '../../providers/fs/index.ts'
 import { optionalFileSystem } from './fs.ts'
 
-import type { AgentModelTarget, AgentProviders, ModelRoute, ModelSelectionPolicy } from '../../contract/index.ts'
+import type { AgentAssembly, AgentModelTarget, AgentProviders, ModelRoute, ModelSelectionPolicy } from '../../contract/index.ts'
 import type { ControlCore } from '../../control/index.ts'
 
 /**
@@ -68,6 +68,10 @@ export function applyCore(ctx: Context): { readonly providers: AgentProviders } 
     // a stale list. No service, or one that has never been given routes,
     // means no allowlist (every route allowed).
     resolveSelectionPolicy: () => optionalSelectionPolicy(ctx),
+    // Ticket 04: the assembly row may mount after this one, so the service is
+    // resolved per snapshot. Absent means an empty projection, never a second
+    // planning path.
+    resolveAssembly: () => optionalAssembly(ctx),
   })
   ctx.effect(() => ctx.provide(AGENT_CONTROL_SERVICE, control))
 
@@ -121,6 +125,21 @@ export function optionalSelectionPolicy(ctx: Context): ModelSelectionPolicy | un
     allowed.push({ provider, model })
   }
   return allowed.length === 0 ? undefined : { routes: allowed }
+}
+
+/**
+ * The mounted assembly service (ticket 04), read structurally at use time.
+ *
+ * Both compat and replacement modes provide the same key, so this helper only
+ * checks the base face's two members; it never branches on a mode.
+ */
+function optionalAssembly(ctx: Context): AgentAssembly | undefined {
+  const candidate: unknown = ctx.get(AGENT_ASSEMBLY_SERVICE)
+  if (typeof candidate !== 'object' || candidate === null) return undefined
+  const service = candidate as Partial<AgentAssembly>
+  return typeof service.plan === 'function' && typeof service.registerAssemblySections === 'function'
+    ? candidate as AgentAssembly
+    : undefined
 }
 
 /**
