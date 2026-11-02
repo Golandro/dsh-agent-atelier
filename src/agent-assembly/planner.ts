@@ -29,7 +29,7 @@ import type {
 export const MODEL_SYSTEM_SECTION = 'atelier:model-sys'
 
 /** Name of the host's deployment persona prefix, reused so a scoped row shadows it. */
-export const PERSONA_SECTION = 'deployment:persona-prefix'
+export const PERSONA_PREFIX_SECTION = 'deployment:persona-prefix'
 
 /** Name of the modeled preset-skills row (executed by ticket 07, not registered). */
 export const SKILLS_SECTION = 'atelier:skills'
@@ -99,6 +99,7 @@ function recommendedRows(session: AssemblySession): AssemblySection[] {
       order: MODEL_SYSTEM_ORDER,
       variesWith: ['model'],
       text: substituteRoute(sysPrompt, session.parameters.route),
+      interpolate: false,
       executable: true,
       cacheIsolated: false,
     })
@@ -106,7 +107,7 @@ function recommendedRows(session: AssemblySession): AssemblySection[] {
   rows.push(anchor('tools', TOOLS_CHANNEL_SECTION, ['tools']))
   rows.push({
     channel: 'system',
-    name: PERSONA_SECTION,
+    name: PERSONA_PREFIX_SECTION,
     order: PERSONA_ORDER,
     variesWith: ['agent'],
     // An empty body stays a row: the scoped registration is what shadows the
@@ -138,9 +139,8 @@ function anchor(channel: AssemblyChannel, name: string, variesWith: readonly Ass
 /**
  * Substitute the only two variables the model-system row owns.
  *
- * The row is registered with `interpolate: false`, so any other `{{...}}`
- * stays literal; the persona row is left verbatim for the host's own
- * interpolation.
+ * The row carries `interpolate: false`, so any other `{{...}}` stays literal;
+ * the persona row is left verbatim for the host's own interpolation.
  */
 function substituteRoute(text: string, route: ModelRoute): string {
   return text.replaceAll('{{provider}}', route.provider).replaceAll('{{model}}', route.model)

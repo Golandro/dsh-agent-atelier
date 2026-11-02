@@ -49,11 +49,17 @@ export interface AssemblySection {
   readonly variesWith: readonly AssemblyVariesWith[]
   /**
    * Text as registered. The model-system row already substituted `{{provider}}`
-   * and `{{model}}` from the resolved route (registered with
-   * `interpolate: false`); the persona row stays verbatim so the host's own
-   * variable interpolation still applies. Channel anchors carry `''`.
+   * and `{{model}}` from the resolved route and carries `interpolate: false`;
+   * the persona row stays verbatim so the host's own variable interpolation
+   * still applies. Channel anchors carry `''`.
    */
   readonly text: string
+  /**
+   * Host interpolation flag carried from planning to registration. `false` only
+   * for the model-system row, whose route variables the planner already
+   * substituted; omitted elsewhere so native interpolation still applies.
+   */
+  readonly interpolate?: boolean | undefined
   /**
    * `true` only for system rows this bundle registers. `false` marks a modeled
    * anchor whose channel is executed elsewhere.
@@ -141,32 +147,64 @@ export interface AssemblySessionParameters {
  * shadows the deployment-wide one instead of colliding with it.
  */
 export interface AssemblyScope {
-  readonly systemPrompt: AssemblySectionRegistrar
+  readonly systemPrompt: SystemPrompt
 }
 
-/** Structural slice of `ctx.systemPrompt`; not a re-implementation. */
-export interface AssemblySectionRegistrar {
+/**
+ * Native-named structural slice of the host `ctx.systemPrompt` service.
+ *
+ * Every member keeps the host's name, parameters, and return contract; a real
+ * scoped `agent.ctx` satisfies it as-is. This is an extension point, not a
+ * parallel abstraction: add a member only when a compat row call needs it.
+ */
+export interface SystemPrompt {
   /**
    * Register one section in the calling scope and return the host's disposer.
    * Same-name scoped sections shadow global ones; duplicates in one scope
    * throw.
    */
-  section(section: AssemblySectionRegistration): () => void
-  /** Native placement of the deployment persona prefix (order 0 today). */
-  getSectionOrder(name: 'DEPLOYMENT_PERSONA_PREFIX'): number
+  section(section: PromptSection): () => void
+  /**
+   * Native placement of the deployment persona prefix (order 0 today). Kept
+   * for native-shape parity; the planner already carries the effective order,
+   * so the compat sink does not call it.
+   */
+  getSectionOrder(name: PromptSectionOrderName): number
 }
 
-/** One section as handed to the host registry; text is already final. */
-export interface AssemblySectionRegistration {
+/** Native section placement this compat slice resolves. */
+export type PromptSectionOrderName = 'DEPLOYMENT_PERSONA_PREFIX'
+
+/** Per-assembly context handed to a native prompt text provider. */
+export interface AssembleContext {
+  /** Opaque scope whose providers and waterfall listeners participate. */
+  readonly scope?: object | undefined
+  /** Explicit control signal for the assembly that requested this text. */
+  readonly signal?: AbortSignal | undefined
+}
+
+/**
+ * One section as handed to the host registry. The shape extends the native
+ * `PromptSection` (same field names, same optionality); the planner emits
+ * static text, while the provider form stays available for rows that resolve
+ * text at assembly time.
+ */
+export interface PromptSection {
   readonly name: string
   readonly order: number
-  readonly text: string
+  readonly text: string | ((context: AssembleContext) => string)
   /**
    * `false` for the model-system row (the planner substituted its variables);
    * omitted for the persona row so native `{{variable}}` interpolation still
    * applies.
    */
   readonly interpolate?: boolean | undefined
+  /**
+   * Native complete-prompt marker. The compat sink does not set it yet; the
+   * field stays in the native shape so a later row can use it without forking
+   * the host type.
+   */
+  readonly complete?: boolean | undefined
 }
 
 /** One agent's mounted assembly; ticket 07 keeps this in its agent→plan ledger. */

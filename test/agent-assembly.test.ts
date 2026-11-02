@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   MODEL_SYSTEM_SECTION,
-  PERSONA_SECTION,
+  PERSONA_PREFIX_SECTION,
   createAssemblyService,
   planAssembly,
 } from '../src/agent-assembly/index.ts'
@@ -15,9 +15,9 @@ import {
 import type {
   AgentDefinition,
   AssemblyScope,
-  AssemblySectionRegistration,
   AssemblySession,
   ModelDefinition,
+  PromptSection,
 } from '../src/contract/index.ts'
 
 const ROUTE = { provider: 'deepseek', model: 'deepseek-chat' }
@@ -61,14 +61,14 @@ function session(overrides: Partial<AssemblySession> = {}): AssemblySession {
 /** A scoped registrar that records calls, shadows by name and can fail on demand. */
 interface FakeScope {
   readonly scope: AssemblyScope
-  readonly active: Map<string, AssemblySectionRegistration>
-  readonly calls: AssemblySectionRegistration[]
+  readonly active: Map<string, PromptSection>
+  readonly calls: PromptSection[]
   readonly disposed: string[]
 }
 
 function fakeScope(options: { readonly failOn?: string | undefined } = {}): FakeScope {
-  const active = new Map<string, AssemblySectionRegistration>()
-  const calls: AssemblySectionRegistration[] = []
+  const active = new Map<string, PromptSection>()
+  const calls: PromptSection[] = []
   const disposed: string[] = []
   const scope: AssemblyScope = {
     systemPrompt: {
@@ -127,7 +127,7 @@ describe('planAssembly: fixed row set and placement', () => {
 
   it('keeps the persona row even when its text is empty, for shadowing', () => {
     const plan = planAssembly(session({ parameters: { route: ROUTE, persona: '' } }))
-    const persona = plan.sections.find((section) => section.name === PERSONA_SECTION)
+    const persona = plan.sections.find((section) => section.name === PERSONA_PREFIX_SECTION)
 
     expect(persona).toMatchObject({ text: '', executable: true, order: 0 })
   })
@@ -145,7 +145,7 @@ describe('planAssembly: fixed row set and placement', () => {
     const modelRow = plan.sections.find((section) => section.name === MODEL_SYSTEM_SECTION)
 
     expect(modelRow?.text).toBe('Provider deepseek runs deepseek-chat; keep {{unknown}} literal.')
-    expect(plan.sections.find((section) => section.name === PERSONA_SECTION)?.text).toBe('You review code.')
+    expect(plan.sections.find((section) => section.name === PERSONA_PREFIX_SECTION)?.text).toBe('You review code.')
   })
 
   it('is deterministic: the same session and config give the same plan', () => {
@@ -160,7 +160,7 @@ describe('planAssembly: fixed row set and placement', () => {
 describe('planAssembly: sectionOrder overrides', () => {
   it('puts listed rows first, renumbers system rows by array index and lints the volatile-first order', () => {
     const plan = planAssembly(session(), {
-      sectionOrder: [PERSONA_SECTION, MODEL_SYSTEM_SECTION],
+      sectionOrder: [PERSONA_PREFIX_SECTION, MODEL_SYSTEM_SECTION],
     })
 
     expect(plan.sections.map((section) => section.name)).toEqual([
@@ -176,7 +176,7 @@ describe('planAssembly: sectionOrder overrides', () => {
       .filter((section) => section.channel === 'system')
       .map((section) => [section.name, section.order])
     expect(systemOrders).toEqual([
-      [PERSONA_SECTION, 0],
+      [PERSONA_PREFIX_SECTION, 0],
       [MODEL_SYSTEM_SECTION, 1],
       ['atelier:skills', 3],
     ])
@@ -187,20 +187,20 @@ describe('planAssembly: sectionOrder overrides', () => {
       code: 'volatile-before-stable',
       severity: 'warning',
       channel: 'system',
-      section: PERSONA_SECTION,
+      section: PERSONA_PREFIX_SECTION,
     })
     expect(plan.lints[0]?.message).toContain(MODEL_SYSTEM_SECTION)
   })
 
   it('waives the lint when the offending entry is marked cacheIsolated', () => {
     const plan = planAssembly(session(), {
-      sectionOrder: [{ name: PERSONA_SECTION, cacheIsolated: true }, MODEL_SYSTEM_SECTION],
+      sectionOrder: [{ name: PERSONA_PREFIX_SECTION, cacheIsolated: true }, MODEL_SYSTEM_SECTION],
     })
 
     expect(plan.lints).toEqual([])
-    expect(plan.sections.find((section) => section.name === PERSONA_SECTION)?.cacheIsolated).toBe(true)
+    expect(plan.sections.find((section) => section.name === PERSONA_PREFIX_SECTION)?.cacheIsolated).toBe(true)
     // The exemption is advisory only: the placement itself is untouched.
-    expect(plan.sections.map((section) => section.name).slice(0, 2)).toEqual([PERSONA_SECTION, MODEL_SYSTEM_SECTION])
+    expect(plan.sections.map((section) => section.name).slice(0, 2)).toEqual([PERSONA_PREFIX_SECTION, MODEL_SYSTEM_SECTION])
   })
 
   it('ignores unknown, duplicate and malformed entries', () => {
@@ -240,18 +240,18 @@ describe('planAssembly: breakpoints', () => {
 
     expect(plan.breakpoints).toEqual([
       { dimension: 'model', channel: 'system', section: MODEL_SYSTEM_SECTION },
-      { dimension: 'agent', channel: 'system', section: PERSONA_SECTION },
+      { dimension: 'agent', channel: 'system', section: PERSONA_PREFIX_SECTION },
       { dimension: 'registry', channel: 'digest', section: 'channel:digest' },
       { dimension: 'tools', channel: 'tools', section: 'channel:tools' },
     ])
   })
 
   it('scans the overridden array order when computing breakpoints', () => {
-    const plan = planAssembly(session(), { sectionOrder: [PERSONA_SECTION, MODEL_SYSTEM_SECTION] })
+    const plan = planAssembly(session(), { sectionOrder: [PERSONA_PREFIX_SECTION, MODEL_SYSTEM_SECTION] })
 
     expect(plan.breakpoints.map((breakpoint) => [breakpoint.dimension, breakpoint.section])).toEqual([
       ['model', MODEL_SYSTEM_SECTION],
-      ['agent', PERSONA_SECTION],
+      ['agent', PERSONA_PREFIX_SECTION],
       ['registry', 'channel:digest'],
       ['tools', 'channel:tools'],
     ])
@@ -265,10 +265,10 @@ describe('createAssemblyService: compat registration', () => {
 
     const registration = await assembly.registerAssemblySections({ scope: fake.scope, session: session() })
 
-    expect(fake.calls.map((call) => call.name)).toEqual([MODEL_SYSTEM_SECTION, PERSONA_SECTION])
+    expect(fake.calls.map((call) => call.name)).toEqual([MODEL_SYSTEM_SECTION, PERSONA_PREFIX_SECTION])
     expect(fake.calls[0]).toMatchObject({ name: MODEL_SYSTEM_SECTION, order: -500, interpolate: false })
     expect('interpolate' in (fake.calls[1] ?? {})).toBe(false)
-    expect(fake.calls[1]).toMatchObject({ name: PERSONA_SECTION, order: 0, text: 'You review code.' })
+    expect(fake.calls[1]).toMatchObject({ name: PERSONA_PREFIX_SECTION, order: 0, text: 'You review code.' })
     expect(registration.agentName).toBe('atlas')
     expect(registration.plan).toEqual(assembly.plan(session()))
   })
@@ -283,8 +283,8 @@ describe('createAssemblyService: compat registration', () => {
     })
 
     expect(fake.calls).toHaveLength(1)
-    expect(fake.calls[0]).toMatchObject({ name: PERSONA_SECTION, text: '' })
-    expect(fake.active.has(PERSONA_SECTION)).toBe(true)
+    expect(fake.calls[0]).toMatchObject({ name: PERSONA_PREFIX_SECTION, text: '' })
+    expect(fake.active.has(PERSONA_PREFIX_SECTION)).toBe(true)
   })
 
   it('registers no model row when the entry has no sysPrompt', async () => {
@@ -296,7 +296,7 @@ describe('createAssemblyService: compat registration', () => {
       session: session({ model: modelDefinition({ sysPrompt: undefined }) }),
     })
 
-    expect(fake.calls.map((call) => call.name)).toEqual([PERSONA_SECTION])
+    expect(fake.calls.map((call) => call.name)).toEqual([PERSONA_PREFIX_SECTION])
   })
 
   it('replaces the previous mount whole: old rows are disposed before the new ones', async () => {
@@ -311,14 +311,14 @@ describe('createAssemblyService: compat registration', () => {
     })
 
     expect(disposedBeforeReplacement).toEqual([])
-    expect(fake.disposed).toEqual([MODEL_SYSTEM_SECTION, PERSONA_SECTION])
-    expect(fake.active.get(PERSONA_SECTION)?.text).toBe('Second persona.')
+    expect(fake.disposed).toEqual([MODEL_SYSTEM_SECTION, PERSONA_PREFIX_SECTION])
+    expect(fake.active.get(PERSONA_PREFIX_SECTION)?.text).toBe('Second persona.')
     expect(fake.active.size).toBe(2)
 
     // A replaced registration is already disposed; disposing it again is a no-op.
     await first.dispose()
     expect(fake.disposed).toHaveLength(2)
-    expect(fake.active.get(PERSONA_SECTION)?.text).toBe('Second persona.')
+    expect(fake.active.get(PERSONA_PREFIX_SECTION)?.text).toBe('Second persona.')
 
     await second.dispose()
     expect(fake.active.size).toBe(0)
@@ -326,10 +326,10 @@ describe('createAssemblyService: compat registration', () => {
 
   it('rolls back every section it registered when one registration throws', async () => {
     const assembly = createAssemblyService()
-    const fake = fakeScope({ failOn: PERSONA_SECTION })
+    const fake = fakeScope({ failOn: PERSONA_PREFIX_SECTION })
 
     await expect(assembly.registerAssemblySections({ scope: fake.scope, session: session() }))
-      .rejects.toThrow(`cannot register ${PERSONA_SECTION}`)
+      .rejects.toThrow(`cannot register ${PERSONA_PREFIX_SECTION}`)
 
     expect(fake.active.size).toBe(0)
     expect(fake.disposed).toEqual([MODEL_SYSTEM_SECTION])
@@ -347,11 +347,11 @@ describe('createAssemblyService: compat registration', () => {
       }),
     ])
 
-    expect(fake.active.get(PERSONA_SECTION)?.text).toBe('Later persona.')
+    expect(fake.active.get(PERSONA_PREFIX_SECTION)?.text).toBe('Later persona.')
     await first.dispose()
-    expect(fake.active.get(PERSONA_SECTION)?.text).toBe('Later persona.')
+    expect(fake.active.get(PERSONA_PREFIX_SECTION)?.text).toBe('Later persona.')
     await second.dispose()
-    expect(fake.disposed).toEqual([MODEL_SYSTEM_SECTION, PERSONA_SECTION, MODEL_SYSTEM_SECTION, PERSONA_SECTION])
+    expect(fake.disposed).toEqual([MODEL_SYSTEM_SECTION, PERSONA_PREFIX_SECTION, MODEL_SYSTEM_SECTION, PERSONA_PREFIX_SECTION])
   })
 
   it('hands the plugin context one disposer per successful mount', async () => {
@@ -367,14 +367,14 @@ describe('createAssemblyService: compat registration', () => {
   })
 
   it('uses the override config for both planning and registration', async () => {
-    const assembly = createAssemblyService({ config: { sectionOrder: [PERSONA_SECTION, MODEL_SYSTEM_SECTION] } })
+    const assembly = createAssemblyService({ config: { sectionOrder: [PERSONA_PREFIX_SECTION, MODEL_SYSTEM_SECTION] } })
     const fake = fakeScope()
 
     const registration = await assembly.registerAssemblySections({ scope: fake.scope, session: session() })
 
     expect(registration.plan.lints).toHaveLength(1)
     // Registration order follows the plan array; the host sorts by `order`.
-    expect(fake.calls.map((call) => call.name)).toEqual([PERSONA_SECTION, MODEL_SYSTEM_SECTION])
+    expect(fake.calls.map((call) => call.name)).toEqual([PERSONA_PREFIX_SECTION, MODEL_SYSTEM_SECTION])
     expect(fake.calls.map((call) => call.order)).toEqual([0, 1])
   })
 
@@ -387,21 +387,21 @@ describe('createAssemblyService: compat registration', () => {
 
     expect(fake.calls.map((call) => [call.name, call.order])).toEqual([
       [MODEL_SYSTEM_SECTION, planOrders.get(MODEL_SYSTEM_SECTION)],
-      [PERSONA_SECTION, planOrders.get(PERSONA_SECTION)],
+      [PERSONA_PREFIX_SECTION, planOrders.get(PERSONA_PREFIX_SECTION)],
     ])
     // Recommended model-before-persona relative order survives the renumbering.
-    expect(planOrders.get(MODEL_SYSTEM_SECTION)).toBeLessThan(planOrders.get(PERSONA_SECTION) ?? -Infinity)
+    expect(planOrders.get(MODEL_SYSTEM_SECTION)).toBeLessThan(planOrders.get(PERSONA_PREFIX_SECTION) ?? -Infinity)
   })
 
   it('rejects a same-name section another plugin already registered, and rolls back', async () => {
     const assembly = createAssemblyService()
     const fake = fakeScope()
-    fake.scope.systemPrompt.section({ name: PERSONA_SECTION, order: 0, text: 'deployment persona' })
+    fake.scope.systemPrompt.section({ name: PERSONA_PREFIX_SECTION, order: 0, text: 'deployment persona' })
 
     await expect(assembly.registerAssemblySections({ scope: fake.scope, session: session() }))
-      .rejects.toThrow(`duplicate section in one scope: ${PERSONA_SECTION}`)
+      .rejects.toThrow(`duplicate section in one scope: ${PERSONA_PREFIX_SECTION}`)
 
     expect(fake.disposed).toEqual([MODEL_SYSTEM_SECTION])
-    expect(fake.active.get(PERSONA_SECTION)?.text).toBe('deployment persona')
+    expect(fake.active.get(PERSONA_PREFIX_SECTION)?.text).toBe('deployment persona')
   })
 })

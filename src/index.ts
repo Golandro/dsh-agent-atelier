@@ -18,6 +18,7 @@ export { BUNDLED_AGENTS_DIR, apply, optionalFileSystem } from './dsh/host/index.
 export type { AgentDefinition, AgentRegistry, AliasRegistry } from './contract/index.ts'
 export type {
   AgentAssembly,
+  AssembleContext,
   AssemblyBreakpoint,
   AssemblyConfig,
   AssemblyLint,
@@ -27,6 +28,9 @@ export type {
   AssemblyScope,
   AssemblySection,
   AssemblySession,
+  PromptSection,
+  PromptSectionOrderName,
+  SystemPrompt,
 } from './contract/index.ts'
 export type {
   AgentDocPort,

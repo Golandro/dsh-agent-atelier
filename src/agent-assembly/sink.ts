@@ -10,7 +10,7 @@
  * The replacement package implements the same key with a wide subtype; nothing
  * here grows a mode flag or a capability probe.
  */
-import { planAssembly, MODEL_SYSTEM_SECTION } from './planner.ts'
+import { planAssembly } from './planner.ts'
 
 import type {
   AgentAssembly,
@@ -19,8 +19,8 @@ import type {
   AssemblyRegistration,
   AssemblyScope,
   AssemblySection,
-  AssemblySectionRegistration,
   AssemblySession,
+  PromptSection,
 } from '../contract/index.ts'
 
 /** Construction options of the compat sink. */
@@ -117,18 +117,17 @@ function createRegistration(
 /**
  * One plan row as the host registry takes it.
  *
- * The plan's `order` is authoritative: it already carries the host placement —
- * the recommended one, or the `sectionOrder` renumbering — so an override and
- * the registration cannot disagree. The persona row keeps the native section
- * name (that is what shadows the deployment-wide prefix) and its verbatim text
- * (native interpolation still applies); the model row was substituted by the
- * planner and is registered with `interpolate: false`.
+ * The plan's `order` and `interpolate` are authoritative: the planner already
+ * carries the host placement and the substitution consequence, so an override
+ * and the registration cannot disagree. The persona row keeps the native
+ * section name (that is what shadows the deployment-wide prefix) and its
+ * verbatim text (native interpolation still applies).
  */
-function hostSectionOf(section: AssemblySection): AssemblySectionRegistration {
+function hostSectionOf(section: AssemblySection): PromptSection {
   return {
     name: section.name,
     order: section.order,
     text: section.text,
-    ...section.name === MODEL_SYSTEM_SECTION ? { interpolate: false } : {},
+    ...section.interpolate === undefined ? {} : { interpolate: section.interpolate },
   }
 }

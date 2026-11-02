@@ -99,7 +99,7 @@ _Avoid_: 伪造行数 / 占位文件名（原型的 bug 面，禁止回归）
 _Avoid_: 解析结果（泛指；正式名是它携带的链解析报告）
 
 **节（Section）**:
-组装结果里的一个具名内容单元：名字、放置次序（order）、文本、变维度标注（variesWith）各一。系统侧的节进 system 消息。
+组装结果里的一个具名内容单元：名字、放置次序（order）、文本、变维度标注（variesWith）各一。系统侧的节进 system 消息。规划里的节是 `AssemblySection`；交给宿主的单节是原生 `PromptSection`。
 _Avoid_: 段（spec 旧词）、切片（另义，归 14 票再议）
 
 **通道（Channel）**:
@@ -127,8 +127,12 @@ _Avoid_: 占位节（泛称；锚点是规划概念）
 _Avoid_: 缓存标记（会误读为可执行的缓存语义）
 
 **组装注册（Assembly Registration）**:
-把一份组装规划里标记为可执行的 system 节挂进某个 Agent 的 scoped 上下文（`agent.ctx`）的运行时面：同名节遮蔽部署级同名节，全量替换（先撤销旧注册再注册全部），返回 disposer；disposer 是服务端重载的析构点。
+把一份组装规划里标记为可执行的 system 节以原生 `PromptSection` 挂进某个 Agent 的 scoped 上下文（`agent.ctx`）的运行时面：同名节遮蔽部署级同名节，全量替换（先撤销旧注册再注册全部），返回 disposer；disposer 是服务端重载的析构点。
 _Avoid_: 挂载（泛指生命周期）、sink（连接器副作用面的总称）
+
+**宿主提示词面（SystemPrompt）**:
+兼容模式直接 extend 的 DSH 原生注册面：方法名、参数、返回与 `ctx.systemPrompt` 一致（当前为 `section()` 与 `getSectionOrder()`；06/07 按通道加 `context()` 等）。直接与宿主交互的数据用原生名（`PromptSection` 等），规划数据仍用 `Assembly*` 领域名。
+_Avoid_: 提示词适配层（v1 不做解耦）、平行 PromptSection（原生名就是它）
 
 **兼容模式（Compat Mode）**:
 组装的默认产品形态：以基础包实现，scoped 节注册进原版提示词注册表，复用原生遮蔽与 order；兼容优先。

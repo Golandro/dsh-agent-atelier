@@ -11,6 +11,7 @@ lib/
 # prototype build output
 prototype/settings-ui/dist/
 
+lessons
 
 AGENTS.local.md
 .dsh
