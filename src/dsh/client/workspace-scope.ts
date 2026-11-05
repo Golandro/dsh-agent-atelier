@@ -175,39 +175,58 @@ export function recentWorkspaceId(
 export interface DerivedChoice {
   readonly choice: WorkspaceChoice
   readonly reason: ScopeReason
+  /**
+   * 记住的 workspaceId 已经不在列表里（用户上次选的工作区被删了）。
+   * 界面据此说明「这次是被迫重选」，而不是静默换一个范围。
+   */
+  readonly staleRemembered?: string | undefined
+}
+
+function derivedChoice(choice: WorkspaceChoice, reason: ScopeReason, staleRemembered?: string): DerivedChoice {
+  return staleRemembered === undefined ? { choice, reason } : { choice, reason, staleRemembered }
 }
 
 /**
  * 推导默认范围。`remembered` 是上次显式选择（workspaceId 或 `REMEMBERED_USER`）；
- * 记住的行已经不存在时重新推导，不留下悬空选择。
+ * 记住的行已经不存在时重新推导，不留下悬空选择，并带上 `staleRemembered` 让界面
+ * 说明这次是被迫重选。
+ *
+ * `listsReady: false` 表示工作区列表还没就绪（`items` 可能只是空占位）——
+ * 此时「找不到记住的行」不构成失效，不设 `staleRemembered`。
  */
 export function deriveChoice(input: {
   readonly items: readonly WorkspaceRow[]
   readonly sessions: SessionListLike | undefined
   readonly remembered?: string | undefined
+  readonly listsReady?: boolean | undefined
 }): DerivedChoice {
   const remembered = input.remembered
-  if (remembered === REMEMBERED_USER) return { choice: USER_CHOICE, reason: 'remembered' }
+  if (remembered === REMEMBERED_USER) return derivedChoice(USER_CHOICE, 'remembered')
   if (remembered !== undefined) {
     const rememberedRow = input.items.find((row) => row.workspaceId === remembered)
-    if (rememberedRow !== undefined) return { choice: workspaceChoiceOf(rememberedRow), reason: 'remembered' }
+    if (rememberedRow !== undefined) return derivedChoice(workspaceChoiceOf(rememberedRow), 'remembered')
   }
+  // 记住的工作区不在列表里、列表已就绪、且列表非空：这才算真正失效。
+  // 空列表更可能是服务刚起（或用户把工作区都删了），不据此报「已不存在」。
+  const stale = remembered !== undefined && input.listsReady !== false && input.items.length > 0
+    ? remembered
+    : undefined
 
   const sessionCwd = currentSessionCwd(input.sessions)
   if (sessionCwd !== undefined) {
     const row = matchWorkspaceByPath(input.items, sessionCwd)
     // 当前看着的目录没注册成工作区：诚实落用户全局，不跳到别的工作区。
     return row === undefined
-      ? { choice: USER_CHOICE, reason: 'fallback' }
-      : { choice: workspaceChoiceOf(row), reason: 'current-session' }
+      ? derivedChoice(USER_CHOICE, 'fallback', stale)
+      : derivedChoice(workspaceChoiceOf(row), 'current-session', stale)
   }
 
   const recentId = recentWorkspaceId(input.items, input.sessions)
   if (recentId !== undefined) {
     const recentRow = input.items.find((row) => row.workspaceId === recentId)
-    if (recentRow !== undefined) return { choice: workspaceChoiceOf(recentRow), reason: 'recent' }
+    if (recentRow !== undefined) return derivedChoice(workspaceChoiceOf(recentRow), 'recent', stale)
   }
-  return { choice: USER_CHOICE, reason: 'fallback' }
+  return derivedChoice(USER_CHOICE, 'fallback', stale)
 }
 
 /** 读回上次显式选择；存储缺失或抛错就是没有记住。 */
@@ -277,16 +296,23 @@ export interface ScopeNotice {
 /**
  * 把「列表不可用 / 服务端已回退 / 项目根与所选目录不同」折算成一条提示。
  * 主动选「用户全局」不产生提示——那是用户的决定，不是异常。
+ *
+ * `scopeSettled: false` 表示手里这份快照还是切换前那次读的（用户刚改了选择、
+ * 新快照未到）。此时 `scope` 描述的是上一个范围，拿它判断「已回退」会报出与
+ * 事实相反的警告，所以整段跳过——列表不可用的提示与快照无关，照常给出。
  */
 export function scopeNoticeOf(input: {
   readonly choice: WorkspaceChoice
   readonly listStatus: ScopeListStatus
   readonly scope: { readonly cwd: string | null; readonly projectRoot: string | null } | undefined
+  /** 默认 `true`：快照就是当前选择读出来的那份。 */
+  readonly scopeSettled?: boolean | undefined
 }): ScopeNotice | undefined {
   if (input.listStatus === 'unavailable') {
     return { severity: 'warn', text: '工作区列表不可用' }
   }
   if (input.choice.kind !== 'workspace') return undefined
+  if (input.scopeSettled === false) return undefined
   if (input.scope === undefined) return undefined
   if (input.scope.projectRoot === null) {
     return { severity: 'warn', text: '该工作空间不可用，已回退到用户全局' }

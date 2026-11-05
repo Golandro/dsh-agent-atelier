@@ -33,14 +33,23 @@ import { AgentsWorkspace } from './page.tsx'
 import { observableOf } from './observable.ts'
 import * as pageStyles from './styles.css'
 import {
+  cwdOf,
   deriveChoice,
+  listStatusOf,
   readRemembered,
   snapshotScope,
+  writeRemembered,
 } from './workspace-scope.ts'
-import { cwdOf } from './workspace-scope.ts'
 
 import type { ControlSnapshot } from '../../control/index.ts'
-import type { SessionListLike, ScopeSource, WorkspaceChoice, WorkspaceListLike, WriteOnceStorage } from './workspace-scope.ts'
+import type {
+  DerivedChoice,
+  ScopeNotice,
+  ScopeSource,
+  SessionListLike,
+  WorkspaceListLike,
+  WriteOnceStorage,
+} from './workspace-scope.ts'
 import type { ReactNode } from 'react'
 
 /** 侧栏行 id 与对应 `main` 面板键：同一字符串，两个座。 */
@@ -58,7 +67,10 @@ interface PanelIconOwnerProps {
   readonly active: boolean
 }
 
-/** 本入口占的两个座的注册选项。 */type RegistrationOptions =
+/**
+ * 本入口占的两个座的注册选项。
+ */
+type RegistrationOptions =
   | {
       readonly name: 'sidebar.panellist'
       readonly id: string
@@ -136,7 +148,8 @@ export function AgentControlPage({ scope }: AgentControlPageProps): ReactNode {
   // useState 惰性初始化：整个面板生命周期共用一个 HTTP 客户端实例。
   const [client] = useState(createHttpControlClient)
   // 首帧就要知道范围：先在壳里推导一次，首次快照直接带 cwd，避免先闪一次用户全局。
-  const [initialChoice] = useState<WorkspaceChoice>(() => bootstrapChoice(scope))
+  const [boot] = useState<DerivedChoice>(() => bootstrapChoice(scope))
+  const initialChoice = boot.choice
   const [state, setState] = useState<PageState>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
 
@@ -166,6 +179,7 @@ export function AgentControlPage({ scope }: AgentControlPageProps): ReactNode {
         client,
         initialSnapshot: state.snapshot,
         initialChoice,
+        initialNotice: boot.staleRemembered === undefined ? undefined : STALE_SCOPE_NOTICE,
         scope,
       }))
   }
@@ -198,10 +212,25 @@ function sessionStorageOf(): WriteOnceStorage | undefined {
   }
 }
 
+/** 记住的工作空间已不存在：本次范围是被迫重选的，头部说明一次。 */
+const STALE_SCOPE_NOTICE: ScopeNotice = Object.freeze({
+  severity: 'info',
+  text: '上次的工作空间已不存在，已重新选择',
+})
+
 /** 首帧的范围推导：记忆的选择 → 当前会话 → 最近活跃 → 用户全局。 */
-function bootstrapChoice(scope: ScopeSource): WorkspaceChoice {
-  const { items, sessions } = snapshotScope(scope)
-  return deriveChoice({ items, sessions, remembered: readRemembered(scope.storage) }).choice
+function bootstrapChoice(scope: ScopeSource): DerivedChoice {
+  const snapshot = snapshotScope(scope)
+  const derived = deriveChoice({
+    items: snapshot.items,
+    sessions: snapshot.sessions,
+    remembered: readRemembered(scope.storage),
+    // 列表还没就绪时 items 只是空占位，不能据此把记住的工作区判成失效。
+    listsReady: listStatusOf(snapshot.list) === 'ready',
+  })
+  // 记住的工作区已经没了：把这次被迫重选的结果记下来，别每次打开都提示一遍。
+  if (derived.staleRemembered !== undefined) writeRemembered(scope.storage, derived.choice)
+  return derived
 }
 
 type PageState =

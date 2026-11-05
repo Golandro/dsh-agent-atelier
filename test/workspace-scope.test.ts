@@ -17,6 +17,7 @@ import {
   readRemembered,
   recentWorkspaceId,
   workspaceChoiceOf,
+  scopeNoticeOf,
   writeRemembered,
 } from '../src/dsh/client/workspace-scope.ts'
 
@@ -98,6 +99,25 @@ describe('工作空间范围：推导顺序', () => {
     expect(derived.choice).toMatchObject({ workspaceId: 'beta' })
   })
 
+  it('记住的工作区已不存在时带失效标记（界面要说明是被迫重选）', () => {
+    const derived = deriveChoice({
+      items: LIST.items,
+      sessions: sessions({ s1: { cwd: '/work/beta', updatedAt: 5, retainedBy: { mainView: 1 } } }),
+      remembered: 'gone',
+    })
+    expect(derived.staleRemembered).toBe('gone')
+  })
+
+  it('记忆命中、没记住、列表未就绪都不算失效', () => {
+    expect(deriveChoice({ items: LIST.items, sessions: undefined, remembered: 'alpha' }).staleRemembered).toBeUndefined()
+    expect(deriveChoice({ items: LIST.items, sessions: undefined }).staleRemembered).toBeUndefined()
+    expect(deriveChoice({ items: LIST.items, sessions: undefined, remembered: REMEMBERED_USER }).staleRemembered).toBeUndefined()
+    // 列表服务还没就绪：items 只是空占位，不能据此判定记忆失效。
+    const pending = deriveChoice({ items: [], sessions: undefined, remembered: 'alpha', listsReady: false })
+    expect(pending.staleRemembered).toBeUndefined()
+    expect(pending).toEqual({ choice: USER_CHOICE, reason: 'fallback' })
+  })
+
   it('当前会话的 cwd 命中工作区即选中（尾斜杠不影响）', () => {
     const derived = deriveChoice({
       items: LIST.items,
@@ -163,6 +183,55 @@ describe('工作空间范围：会话与最近活跃口径', () => {
     ]
     expect(recentWorkspaceId(items, sessions({ x: { updatedAt: 5 }, y: { updatedAt: 5 } }))).toBe('first')
     expect(recentWorkspaceId([], undefined)).toBeUndefined()
+  })
+})
+
+describe('工作空间范围：头部提示', () => {
+  const alpha = workspaceChoiceOf(LIST.items[0]!)
+
+  it('服务端回退到用户全局时给警告', () => {
+    expect(scopeNoticeOf({
+      choice: alpha,
+      listStatus: 'ready',
+      scope: { cwd: '/work/alpha', projectRoot: null },
+    })).toEqual({ severity: 'warn', text: '该工作空间不可用，已回退到用户全局' })
+  })
+
+  it('项目根与所选目录不同时给信息提示', () => {
+    expect(scopeNoticeOf({
+      choice: alpha,
+      listStatus: 'ready',
+      scope: { cwd: '/work/alpha', projectRoot: '/work' },
+    })).toEqual({ severity: 'info', text: '项目根：/work' })
+  })
+
+  it('用户全局与正常解析都不提示', () => {
+    expect(scopeNoticeOf({ choice: USER_CHOICE, listStatus: 'ready', scope: { cwd: null, projectRoot: null } })).toBeUndefined()
+    expect(scopeNoticeOf({
+      choice: alpha,
+      listStatus: 'ready',
+      scope: { cwd: '/work/alpha', projectRoot: '/work/alpha' },
+    })).toBeUndefined()
+  })
+
+  it('切换途中快照还属于上一个范围：不拿它判「已回退」', () => {
+    // 用户刚选了 alpha，snapshot 还是用户全局那份（cwd/projectRoot 都是 null）。
+    // 这一瞬间汇报「已回退到用户全局」与事实相反。
+    expect(scopeNoticeOf({
+      choice: alpha,
+      listStatus: 'ready',
+      scope: { cwd: null, projectRoot: null },
+      scopeSettled: false,
+    })).toBeUndefined()
+  })
+
+  it('列表不可用与快照无关，切换途中照样提示', () => {
+    expect(scopeNoticeOf({
+      choice: alpha,
+      listStatus: 'unavailable',
+      scope: undefined,
+      scopeSettled: false,
+    })).toEqual({ severity: 'warn', text: '工作区列表不可用' })
   })
 })
 

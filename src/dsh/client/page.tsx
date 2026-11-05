@@ -19,7 +19,9 @@
  * 范围（票 37 / ADR-0007）：`choice` 决定每次调用的 cwd；用户全局 = 不传 cwd。
  *   切换 = invalidate → snapshot(新 cwd) → 重新 compose（与刷新目录同一条管线），
  *   选中与草稿按工作空间分开保存，切回还原。服务端回退（`snapshot.scope`）由头部
- *   提示与选择器警示态呈现。
+ *   提示与选择器警示态呈现，但只在快照与当前选择同代时判断——切换途中手里还是
+ *   上一个范围的快照，拿它判「已回退」会报出与事实相反的警告。切换失败则退回原
+ *   选择：选择器显示的范围必须与屏幕上实际读到的范围一致。
  *
  * 保存流程（票面验收：写操作必须经 /plan 预览 + /commit）：
  *   drafts → DocumentEdit[]（kind: 'setBlockText'）→ plan(agentName, edits, {cwd})
@@ -53,7 +55,7 @@ import type { ControlClient, ComposedAgentDocument, ControlSnapshot, DocumentEdi
 import type { AgentListViewProps } from './chunk-contracts.ts'
 import type { HistoryEntry } from './operation-history.tsx'
 import type { PanelTab, ReloadState } from './panel-types.ts'
-import type { ScopeSource, WorkspaceChoice } from './workspace-scope.ts'
+import type { ScopeNotice, ScopeSource, WorkspaceChoice } from './workspace-scope.ts'
 import type { CSSProperties, ReactNode } from 'react'
 
 export interface AgentsWorkspaceProps {
@@ -63,6 +65,8 @@ export interface AgentsWorkspaceProps {
   readonly initialSnapshot: ControlSnapshot
   /** 壳推导的初始范围（票 37）：决定首次快照用的 cwd。 */
   readonly initialChoice: WorkspaceChoice
+  /** 首帧推导时发现「记住的工作空间已不存在」：头部说明这次是被迫重选。 */
+  readonly initialNotice?: ScopeNotice | undefined
   /** 宿主工作区 / 会话列表的订阅面；缺失即「列表不可用」，面板照常工作。 */
   readonly scope: ScopeSource
 }
@@ -101,7 +105,16 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
 
   /* ── 快照（壳的初始快照作种子；刷新目录 / 切换范围后本地替换） ── */
   const [snapshot, setSnapshot] = useState(props.initialSnapshot)
-  const scopeNotice = scopeNoticeOf({ choice, listStatus: list.status, scope: snapshot.scope })
+  // 产生当前快照的 cwd：切换后新快照到达前，旧 scope 不能拿来判断「已回退」。
+  const [snapshotCwd, setSnapshotCwd] = useState<string | undefined>(() => cwdOf(props.initialChoice))
+  // 「上次记住的工作空间已不存在」只在用户自己重选之前挂着。
+  const [bootNotice, setBootNotice] = useState<ScopeNotice | undefined>(props.initialNotice)
+  const scopeNotice = scopeNoticeOf({
+    choice,
+    listStatus: list.status,
+    scope: snapshot.scope,
+    scopeSettled: snapshotCwd === cwd,
+  }) ?? bootNotice
 
   /* ── 选中与文档（按工作空间分桶） ── */
   const [localStates, setLocalStates] = useState<Record<string, ScopeLocalState>>({})
@@ -303,7 +316,7 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
 
   /* ── 刷新目录 / 切换范围：同一条 invalidate → snapshot → recompose 管线 ── */
 
-  const runReload = (nextCwd: string | undefined): void => {
+  const runReload = (nextCwd: string | undefined, onFailure?: () => void): void => {
     reloadAbortRef.current?.abort()
     const controller = new AbortController()
     reloadAbortRef.current = controller
@@ -314,12 +327,14 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
       .then((next) => {
         if (controller.signal.aborted) return
         setSnapshot(next)
+        setSnapshotCwd(nextCwd)
         setReload({ status: 'idle' })
         setComposeAttempt((a) => a + 1)
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted || isAbortError(error)) return
         setReload({ status: 'failed', message: errorMessage(error) })
+        onFailure?.()
       })
   }
 
@@ -327,10 +342,16 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
 
   const handleSelectWorkspace = (next: WorkspaceChoice): void => {
     if (choiceKey(next) === scopeKey) return
+    const previous = choice
     setChoice(next)
     writeRemembered(props.scope.storage, next)
+    setBootNotice(undefined)
     setSave({ status: 'idle' })
-    runReload(cwdOf(next))
+    // 切换失败就把选择器退回原处：选择器显示的范围必须和屏幕上实际读到的范围一致。
+    runReload(cwdOf(next), () => {
+      setChoice(previous)
+      writeRemembered(props.scope.storage, previous)
+    })
   }
 
   /* ── 渲染 ── */

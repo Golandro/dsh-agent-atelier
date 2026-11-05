@@ -97,7 +97,10 @@ export interface WorkspaceSelectKeyState {
 
 /** 键盘状态机的输出（纯函数，键盘契约可单独测）。 */
 export interface WorkspaceSelectKeyResult {
+  /** 状态机认领了这个键（要更新展开 / 高亮）。 */
   readonly handled: boolean
+  /** 要 `preventDefault()`：Tab 是唯一认领但不拦截的键（焦点得自然离开）。 */
+  readonly preventDefault: boolean
   readonly open: boolean
   readonly active: number
   /** 该键要选中当前项。 */
@@ -118,12 +121,20 @@ export function workspaceSelectKey(
   key: string,
 ): WorkspaceSelectKeyResult {
   const count = Math.max(1, state.count)
-  const unhandled: WorkspaceSelectKeyResult = { handled: false, open: state.open, active: state.active, select: false, refocus: false }
+  const unhandled: WorkspaceSelectKeyResult = {
+    handled: false,
+    preventDefault: false,
+    open: state.open,
+    active: state.active,
+    select: false,
+    refocus: false,
+  }
 
   if (!state.open) {
     if (!OPEN_KEYS.has(key)) return unhandled
     return {
       handled: true,
+      preventDefault: true,
       open: true,
       active: key === 'ArrowUp' ? count - 1 : Math.min(Math.max(0, state.active), count - 1),
       select: false,
@@ -133,20 +144,21 @@ export function workspaceSelectKey(
 
   switch (key) {
     case 'ArrowDown':
-      return { handled: true, open: true, active: (state.active + 1) % count, select: false, refocus: false }
+      return { handled: true, preventDefault: true, open: true, active: (state.active + 1) % count, select: false, refocus: false }
     case 'ArrowUp':
-      return { handled: true, open: true, active: (state.active - 1 + count) % count, select: false, refocus: false }
+      return { handled: true, preventDefault: true, open: true, active: (state.active - 1 + count) % count, select: false, refocus: false }
     case 'Home':
-      return { handled: true, open: true, active: 0, select: false, refocus: false }
+      return { handled: true, preventDefault: true, open: true, active: 0, select: false, refocus: false }
     case 'End':
-      return { handled: true, open: true, active: count - 1, select: false, refocus: false }
+      return { handled: true, preventDefault: true, open: true, active: count - 1, select: false, refocus: false }
     case 'Enter':
     case ' ':
-      return { handled: true, open: true, active: state.active, select: true, refocus: false }
+      return { handled: true, preventDefault: true, open: true, active: state.active, select: true, refocus: false }
     case 'Escape':
-      return { handled: true, open: false, active: state.active, select: false, refocus: true }
+      return { handled: true, preventDefault: true, open: false, active: state.active, select: false, refocus: true }
     case 'Tab':
-      return { handled: true, open: false, active: state.active, select: false, refocus: false }
+      // 关弹层，但放行默认的焦点移动——注释与实现都按「自然离开」来。
+      return { handled: true, preventDefault: false, open: false, active: state.active, select: false, refocus: false }
     default:
       return unhandled
   }
@@ -198,7 +210,8 @@ export function WorkspaceSelect(props: WorkspaceSelectProps): ReactNode {
   const onKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
     const next = workspaceSelectKey({ open, active, count: choices.length }, event.key)
     if (!next.handled) return
-    event.preventDefault()
+    // Tab 认领了状态（关弹层）但要放行默认焦点移动，其余键拦下浏览器行为。
+    if (next.preventDefault) event.preventDefault()
     if (next.open !== open) setOpen(next.open)
     if (next.active !== active) setActive(next.active)
     if (next.refocus) {
@@ -221,7 +234,8 @@ export function WorkspaceSelect(props: WorkspaceSelectProps): ReactNode {
         className: `panel-workspace${props.warn ? ' warn' : ''}${open ? ' open' : ''}`,
         'aria-haspopup': 'listbox',
         'aria-expanded': open,
-        'aria-controls': WORKSPACE_LIST_ID,
+        // 弹层只在展开时挂载；闭合态给出 id 就是悬空引用（指向不存在的元素）。
+        'aria-controls': open ? WORKSPACE_LIST_ID : undefined,
         'aria-activedescendant': open ? workspaceOptionId(active) : undefined,
         'aria-label': `工作空间：${label}`,
         title: props.choice.kind === 'workspace' ? `工作空间：${props.choice.path}` : '只扫用户级与随包根',

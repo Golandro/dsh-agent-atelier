@@ -206,11 +206,11 @@ export interface ControlSnapshot {
    */
   readonly assemblies: Readonly<Partial<Record<string, AssemblyPlan>>>
   /**
-   * The scope this snapshot was read in (ticket 37). The control core always
-   * fills it; hand-built snapshots in tests may omit it, and the panel treats
-   * absence as "scope unknown" rather than inventing one.
+   * The scope this snapshot was read in (ticket 37). Always filled: `scope` is
+   * the answer to "which directories did you actually scan", so a snapshot
+   * without it would force every consumer to invent a fallback.
    */
-  readonly scope?: ControlScope | undefined
+  readonly scope: ControlScope
 }
 
 /** Query options of the agent list; the view's filter/sort config compiles into it. */

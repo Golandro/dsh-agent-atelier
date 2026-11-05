@@ -54,6 +54,7 @@ function snapshot(assemblies: ControlSnapshot['assemblies']): ControlSnapshot {
     aliasDiagnostics: [],
     findings: [],
     assemblies,
+    scope: { cwd: null, projectRoot: null },
   }
 }
 

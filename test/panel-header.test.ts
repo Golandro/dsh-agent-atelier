@@ -51,12 +51,14 @@ describe('插件面板头部', () => {
     expect(html.indexOf('panel-header-tabs-row')).toBeLessThan(html.indexOf('panel-tabs'))
   })
 
-  it('选择器是 listbox combobox 形态：aria 关系齐全', () => {
+  it('选择器是 listbox combobox 形态：闭合时不指向不存在的弹层', () => {
     const html = renderHeader('agents', defaultScope({ choice: ALPHA, choices: [USER_CHOICE, ALPHA] }))
     expect(html).toContain('role="combobox"')
     expect(html).toContain('aria-haspopup="listbox"')
     expect(html).toContain('aria-expanded="false"')
-    expect(html).toContain(`aria-controls="${WORKSPACE_LIST_ID}"`)
+    // 弹层只在展开时挂载：闭合态的 aria-controls 会指向不存在的 id（悬空引用）。
+    expect(html).not.toContain(`aria-controls="${WORKSPACE_LIST_ID}"`)
+    expect(html).not.toContain('aria-activedescendant')
     expect(html).toContain('Alpha 工作区')
   })
 
@@ -134,6 +136,20 @@ describe('工作空间选择器选项', () => {
     expect(workspaceSelectKey({ open: true, active: 1, count: 3 }, 'Tab')).toMatchObject({ open: false, refocus: false })
     // 空列表也要能开、能关（选择器会兜底成「用户全局」一项）。
     expect(workspaceSelectKey({ open: false, active: 0, count: 0 }, 'Enter')).toMatchObject({ open: true, active: 0 })
+  })
+
+  it('Tab 只关弹层，不吃浏览器的默认焦点移动', () => {
+    // 注释承诺「Tab 关闭并让焦点自然离开」：关弹层但必须放行默认行为，
+    // 否则焦点停在触发件上，用户得按两次 Tab。
+    expect(workspaceSelectKey({ open: true, active: 1, count: 3 }, 'Tab'))
+      .toMatchObject({ handled: true, preventDefault: false, open: false })
+  })
+
+  it('其余被认领的键仍然吃掉默认行为', () => {
+    expect(workspaceSelectKey({ open: true, active: 1, count: 3 }, 'ArrowDown')).toMatchObject({ preventDefault: true })
+    expect(workspaceSelectKey({ open: true, active: 1, count: 3 }, 'Escape')).toMatchObject({ preventDefault: true })
+    expect(workspaceSelectKey({ open: false, active: 0, count: 3 }, 'Enter')).toMatchObject({ preventDefault: true })
+    expect(workspaceSelectKey({ open: false, active: 0, count: 3 }, 'a')).toMatchObject({ handled: false, preventDefault: false })
   })
 })
 
