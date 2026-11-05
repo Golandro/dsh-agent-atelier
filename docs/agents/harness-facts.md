@@ -46,6 +46,13 @@ Provider（host）：`Service.listService` / `Event.listEvents` / `Config.listCo
 - **变更路由 marker**（本仓 wire，2026-10-19 实测）：仅非 state 请求强制 `x-dsh-agent-atelier: 1`（缺 → 403）与 `content-type: application/json`（缺 → 415）；GET state 免 marker（CSRF 纵深：跨站表单伪造不了自定义头）。服务 key 自占（下游勿复用）：`agentRegistry`、`aliasRegistry`、`agentProviders`、`agentControl`。
 - **左侧栏全局面板注册面**（2026-10-19 实测）：`sidebar.panellist`（root 作用域 list，"Global panel icons"；选项 `{id, order?, label?}`，行组件收 `{size, active}`）＋ **同 id 寻址 root 作用域 `main` keyed slot**（"Central panel selected by sidebar entry id"）。现役面板：`plugins`=order 0（插件页）、`schedules`=10；本仓「智能体工坊」= `agent-atelier`/5。先例 = `@deepseek-ai/dsh-client-ui-schedule`（TaskManagerIcon / TaskManagerPage，`ctx.slots.inject('main', …)` 双注册）。活体 slot 拓扑走 client inspect，**provider id 是大写 `Slots`**（小写 `slots` 报 not registered）；无参 `listSubTree` 可用（`input` 参数仍是本会话已知缺陷）。
 
+## 客户端工作区与作用域事实（2026-11-05，已装 0.2.2-rc.1 核对）
+
+- 浏览器侧 `ctx.workspaces`（`@deepseek-ai/dsh-api-workspace-controller/client`，Service key `workspaces`）：`list.getSnapshot()` → `{ items, archivedSessionIds, pinnedSessionIds, state, phase, error }`，行 = `{ workspaceId, path, title, sessionIds, createdAt, updatedAt }`；`create` / `initializeDefault` / `rename` / `delete` / `insertBefore` 与归档、pin 会话同在这一个服务面。
+- 会话侧 `ctx.sessions.list.getSnapshot()` → `{ ids, byId, phase, projectionsBySession }`；`byId[id]` 行有 `cwd?`、`updatedAt`、`retainedBy`（`mainView` 等来源计数；来源标签由各 client 包 declaration merge 注册）。
+- 「最近活跃工作空间」原生规则：workspace 内 session 最新 `updatedAt`（无 session 用 `createdAt`）最大者（`client/ui-workspace/src/client/navigation.ts` 的 `recentWorkspace`）；「当前会话」判法 = `retainedBy.mainView > 0`（ui-session / ui-workspace 同款）。两者都可结构化照抄；客户端包不能 import（ADR-0001）。
+- 宿主侧另有 `ctx.workspaceRegistry`（`@deepseek-ai/dsh-workspace`，`list(): Workspace[]`）与 `ctx.workspaceController`（Remote owner）；面板走浏览器侧服务，不碰宿主侧。
+
 ## 实施期约定（本仓特化）
 
 - **票面事实先复核**：service key、`path:line`、根数这类断言，动工前在真机核一遍（`cordis_inspect_query` / grep），修正写回票面。`pnpm run check` 的 anchors 一项会兜住 `path:line` 漂移。
