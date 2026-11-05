@@ -55,6 +55,14 @@ export interface ControlDependencies {
   readonly fileSystem: ControlFileSystem
   /** Resolves the workspace root at use time; `undefined` means user-level only. */
   readonly resolveProjectRoot?: (() => string | undefined) | undefined
+  /**
+   * Resolves the project root an explicit workspace cwd would be scanned
+   * under — the same walk the registries perform. The snapshot reports it so
+   * the panel can say which project layer an answer actually came from.
+   * Absent means the host cannot walk; the requested cwd is reported as the
+   * project root. Called only for an explicit cwd, never the host default.
+   */
+  readonly resolveProjectRootFor?: ((cwd: string) => Promise<string | undefined>) | undefined
   readonly resolveDshHome: () => string
   /** Diagnostic sink; `undefined` discards the log line. */
   readonly warn?: ((message: string) => void) | undefined
@@ -77,16 +85,26 @@ export interface ControlDependencies {
 
 /** The control face: six members, everything else is inside. */
 export interface ControlCore {
-  /** One read that returns everything a settings view renders. */
-  snapshot(options?: { readonly cwd?: string | undefined }): Promise<ControlSnapshot>
+  /**
+   * One read that returns everything a settings view renders.
+   *
+   * `cwd` is a scan starting point, never an identity (ticket 37): `null`
+   * means user-global (no project layer), a string is walked up to its project
+   * root, and `undefined` falls back to the host default.
+   */
+  snapshot(options?: { readonly cwd?: string | null | undefined }): Promise<ControlSnapshot>
   /** One agent document as the editor reads it; throws when the agent (or its file) is gone. */
-  compose(agentName: string, options?: { readonly cwd?: string | undefined }): Promise<ComposedAgentDocument>
+  compose(agentName: string, options?: { readonly cwd?: string | null | undefined }): Promise<ComposedAgentDocument>
   /** Pure: edits → per-file write plan plus rejections. No I/O. */
   plan(doc: ComposedAgentDocument, edits: readonly DocumentEdit[]): WritePlan
   /** Atomic commit of a plan; never throws, one result row per file. */
   commit(plan: WritePlan): Promise<WriteReport>
-  /** One registry tuning edit, landed in exactly one layer file. */
-  applyRegistryEdit(edit: RegistryEdit): Promise<WriteReport>
+  /**
+   * One registry tuning edit, landed in exactly one layer file. `cwd` picks the
+   * workspace whose `project-dsh` layer is meant (ticket 37); `null` means
+   * user-global, so a project-layer edit is refused as unavailable.
+   */
+  applyRegistryEdit(edit: RegistryEdit, options?: { readonly cwd?: string | null | undefined }): Promise<WriteReport>
   /** Drop the memoised reads; the next query rescans. */
   invalidate(): void
   /**
@@ -108,13 +126,45 @@ export interface ControlCore {
   composeSession(agentName: string, options?: ComposeSessionOptions): Promise<ComposedAgentSession>
 }
 
+/** One resolved call scope: what to scan, what was asked for, where it came from. */
+interface ResolvedScope {
+  readonly scanCwd: string | undefined
+  readonly requestedCwd: string | null
+  readonly projectRoot: string | null
+}
+
+/**
+ * Resolve one call's workspace scope (ticket 37).
+ *
+ * `null` asks for user-global explicitly; `undefined` means "no explicit
+ * scope" and falls back to the host default. The host default itself may be
+ * absent, which is user-global too. An explicit cwd is walked by the injected
+ * resolver so the reported project root is exactly the one the registries
+ * scan (they share the walk), and a directory that is gone reports no project
+ * root instead of a phantom one.
+ */
+async function resolveScope(
+  dependencies: ControlDependencies,
+  options: { readonly cwd?: string | null | undefined } | undefined,
+): Promise<ResolvedScope> {
+  const requested = options?.cwd === null
+    ? null
+    : (options?.cwd ?? dependencies.resolveProjectRoot?.() ?? null)
+  if (requested === null) return { scanCwd: undefined, requestedCwd: null, projectRoot: null }
+  const projectRoot = dependencies.resolveProjectRootFor === undefined
+    ? requested
+    : (await dependencies.resolveProjectRootFor(requested)) ?? null
+  return { scanCwd: requested, requestedCwd: requested, projectRoot }
+}
+
 /** Create the control core over the two registries and the write port. */
 export function createControlCore(dependencies: ControlDependencies): ControlCore {
   const resolveProjectRoot = (): string | undefined => dependencies.resolveProjectRoot?.()
 
   return {
     async snapshot(options) {
-      const cwd = options?.cwd ?? resolveProjectRoot()
+      const scope = await resolveScope(dependencies, options)
+      const cwd = scope.scanCwd
       const [agents, aliasSnapshot, agentDiagnostics, aliasDiagnostics] = await Promise.all([
         dependencies.agentRegistry.list({ cwd }),
         dependencies.aliasRegistry.snapshot({ cwd }),
@@ -137,12 +187,15 @@ export function createControlCore(dependencies: ControlDependencies): ControlCor
         // The panel consumes this one projection; a missing key means the chain
         // cannot resolve (or no provider is mounted), never an invented plan.
         assemblies: await projectAssemblies(dependencies, agents, cwd),
+        // What the answer was read against: the UI needs it to say "fell back to
+        // user-global" and "this directory's project root is X" honestly.
+        scope: { cwd: scope.requestedCwd, projectRoot: scope.projectRoot },
       }
     },
 
     async compose(agentName, options) {
-      const cwd = options?.cwd ?? resolveProjectRoot()
-      const definition = await dependencies.agentRegistry.get(agentName, { cwd })
+      const { scanCwd } = await resolveScope(dependencies, options)
+      const definition = await dependencies.agentRegistry.get(agentName, { cwd: scanCwd })
       if (definition === undefined) throw new UnknownAgentError(agentName)
       const baseText = await dependencies.fileSystem.readTextFile(definition.path)
       if (baseText === undefined) throw new Error(`agent document is unreadable: ${definition.path}`)
@@ -157,11 +210,15 @@ export function createControlCore(dependencies: ControlDependencies): ControlCor
       return commitPlan(plan, dependencies.fileSystem)
     },
 
-    applyRegistryEdit(edit) {
+    async applyRegistryEdit(edit, options) {
+      // The layer an edit lands in follows the *same* scope as the reads
+      // (ticket 37): without this the panel would write the host process's
+      // project layer no matter which workspace is selected.
+      const scope = await resolveScope(dependencies, options)
       const context: RegistryEditContext = {
         aliasRegistry: dependencies.aliasRegistry,
         fileSystem: dependencies.fileSystem,
-        resolveProjectRoot,
+        resolveProjectRoot: () => scope.scanCwd,
         dshHome: dependencies.resolveDshHome(),
         warn: dependencies.warn,
       }
@@ -266,7 +323,7 @@ function refusalByPolicy(resolution: Extract<ChainResolution, { readonly ok: fal
 export async function planDirtyEdits(
   core: ControlCore,
   dirty: readonly DocumentEdit[],
-  options: { readonly cwd?: string | undefined } = {},
+  options: { readonly cwd?: string | null | undefined } = {},
 ): Promise<WritePlan> {
   const groups = new Map<string, { readonly edits: DocumentEdit[]; readonly firstIndex: number }>()
   for (let index = 0; index < dirty.length; index += 1) {

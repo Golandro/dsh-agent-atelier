@@ -7,10 +7,12 @@
  * default provider registers here; that is the provider row's job
  * (`src/dsh/host/providers.ts`).
  */
+import { resolve } from 'node:path'
+
 import type { Context } from '@deepseek-ai/cordis'
 
 import { AGENT_ASSEMBLY_SERVICE, AGENT_CONTROL_SERVICE, AGENT_PROVIDERS_SERVICE, AGENT_REGISTRY_SERVICE, ALIAS_REGISTRY_SERVICE } from '../../contract/index.ts'
-import { createAgentProviders, createAgentRegistryService, createAliasRegistryService, resolveDshHome } from '../../core/index.ts'
+import { createAgentProviders, createAgentRegistryService, createAliasRegistryService, findProjectRoot, resolveDshHome } from '../../core/index.ts'
 import { createControlCore } from '../../control/index.ts'
 import { createNodeControlFileSystem, createNodeFileSystem } from '../../providers/fs/index.ts'
 import { optionalFileSystem } from './fs.ts'
@@ -61,6 +63,15 @@ export function applyCore(ctx: Context): { readonly providers: AgentProviders } 
     aliasRegistry,
     fileSystem: createNodeControlFileSystem(),
     resolveProjectRoot: () => process.cwd(),
+    // Ticket 37: report the project root a selected workspace actually maps to,
+    // using the registries' own walk (same fs port, same marker). A directory
+    // that is gone reports no project root, which is how the panel tells
+    // "fell back to user-global" from "this workspace has no project layer".
+    resolveProjectRootFor: async (cwd) => {
+      const fileSystem = optionalFileSystem(ctx) ?? nodeFileSystem
+      if (!(await fileSystem.pathExists(cwd))) return undefined
+      return await findProjectRoot(resolve(cwd), fileSystem)
+    },
     resolveDshHome: () => resolveDshHome(),
     warn: (message) => ctx.logger.warn(message),
     // Ticket 19: the host setting's allowlist, read per call — the user can

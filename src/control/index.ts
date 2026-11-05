@@ -18,7 +18,7 @@ export type {
 } from './resolve.ts'
 export type { ComposeSessionOptions, ComposedAgentSession, SessionStartParameters } from './session.ts'
 export { createMemoryControlClient } from './client.ts'
-export type { ControlClient, ControlClientOptions } from './client.ts'
+export type { ControlClient, ControlClientOptions, MemoryControlClientOptions } from './client.ts'
 export { createHttpControlClient } from './http-client.ts'
 export type { HttpControlClientOptions } from './http-client.ts'
 export {
@@ -41,6 +41,7 @@ export type {
   ComposedAgentDocument,
   ComposedBlock,
   ControlFinding,
+  ControlScope,
   ControlSnapshot,
   DocumentEdit,
   DocumentFraming,

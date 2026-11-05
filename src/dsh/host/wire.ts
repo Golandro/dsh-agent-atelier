@@ -12,6 +12,14 @@
  *   POST /agent-atelier/registry {edit}    → { cwd, report }
  *   POST /agent-atelier/invalidate         → { ok: true, scanId }
  *
+ * Workspace scope is a soft boundary (ticket 37 / ADR-0007): `cwd` is a scan
+ * starting point, not an identity. A missing, malformed (non-absolute, empty,
+ * NUL-bearing, over-long) cwd is not a request error — it means user-global,
+ * so the routes scan the user-level and bundled roots only, and the echoed
+ * `cwd` is `null`. A non-string cwd is still a 400 (protocol misuse). The
+ * echo carries no `process.cwd()` fallback any more: the host never picks a
+ * workspace on the caller's behalf.
+ *
  * Every mutation requires `content-type: application/json` and the
  * `x-dsh-agent-atelier: 1` marker header; the transport also applies the
  * host connection's origin/host fence before dispatch.
@@ -156,13 +164,12 @@ export async function dispatchControlRequest(input: ControlDispatchInput): Promi
   }
 }
 
-/** `GET /state`: snapshot the workspace, echo cwd and scan token. */
+/** `GET /state`: snapshot the scope, echo the requested cwd and scan token. */
 async function handleState(input: ControlDispatchInput): Promise<ControlDispatchResult> {
   const cwd = readCwdFromSearch(input.search)
   if (!cwd.ok) return fail(400, 'invalid-request', cwd.message)
-  const resolved = cwd.value ?? process.cwd()
-  const snapshot = await input.control.snapshot({ cwd: resolved })
-  return { status: 200, body: { cwd: resolved, scanId: input.scanId, snapshot } }
+  const snapshot = await input.control.snapshot({ cwd: cwd.value })
+  return { status: 200, body: { cwd: cwd.value, scanId: input.scanId, snapshot } }
 }
 
 /** `POST /compose`: one agent document; unknown agent is 404. */
@@ -173,10 +180,9 @@ async function handleCompose(input: ControlDispatchInput): Promise<ControlDispat
   if (!agentName.ok) return fail(400, 'invalid-request', agentName.message)
   const cwd = readCwdValue(parsed.value.cwd)
   if (!cwd.ok) return fail(400, 'invalid-request', cwd.message)
-  const resolved = cwd.value ?? process.cwd()
   try {
-    const document = await input.control.compose(agentName.value, { cwd: resolved })
-    return { status: 200, body: { cwd: resolved, document } }
+    const document = await input.control.compose(agentName.value, { cwd: cwd.value })
+    return { status: 200, body: { cwd: cwd.value, document } }
   } catch (error) {
     if (isUnknownAgent(error)) return fail(404, 'not-found', errorMessage(error))
     throw error
@@ -191,9 +197,8 @@ async function handlePlan(input: ControlDispatchInput): Promise<ControlDispatchR
   if (!edits.ok) return fail(400, 'invalid-request', edits.message)
   const cwd = readCwdValue(parsed.value.cwd)
   if (!cwd.ok) return fail(400, 'invalid-request', cwd.message)
-  const resolved = cwd.value ?? process.cwd()
-  const plan = await planDirtyEdits(input.control, edits.value, { cwd: resolved })
-  return { status: 200, body: { cwd: resolved, plan } }
+  const plan = await planDirtyEdits(input.control, edits.value, { cwd: cwd.value })
+  return { status: 200, body: { cwd: cwd.value, plan } }
 }
 
 /** `POST /commit`: a plan that refuses any edit is a 400 and writes nothing. */
@@ -204,17 +209,16 @@ async function handleCommit(input: ControlDispatchInput): Promise<ControlDispatc
   if (!edits.ok) return fail(400, 'invalid-request', edits.message)
   const cwd = readCwdValue(parsed.value.cwd)
   if (!cwd.ok) return fail(400, 'invalid-request', cwd.message)
-  const resolved = cwd.value ?? process.cwd()
-  const plan = await planDirtyEdits(input.control, edits.value, { cwd: resolved })
+  const plan = await planDirtyEdits(input.control, edits.value, { cwd: cwd.value })
   if (plan.rejections.length > 0) {
     const first = plan.rejections[0]
     return {
       status: 400,
-      body: { cwd: resolved, error: { code: 'edit-rejected', message: first?.message ?? 'edit rejected' }, rejections: plan.rejections },
+      body: { cwd: cwd.value, error: { code: 'edit-rejected', message: first?.message ?? 'edit rejected' }, rejections: plan.rejections },
     }
   }
   const report = await input.control.commit(plan)
-  return reportResult(resolved, report)
+  return reportResult(cwd.value, report)
 }
 
 /** `POST /registry`: one registry edit; each kind lands in one layer file. */
@@ -225,13 +229,12 @@ async function handleRegistry(input: ControlDispatchInput): Promise<ControlDispa
   if (!edit.ok) return fail(400, 'invalid-request', edit.message)
   const cwd = readCwdValue(parsed.value.cwd)
   if (!cwd.ok) return fail(400, 'invalid-request', cwd.message)
-  const resolved = cwd.value ?? process.cwd()
-  const report = await input.control.applyRegistryEdit(edit.value)
-  return reportResult(resolved, report)
+  const report = await input.control.applyRegistryEdit(edit.value, { cwd: cwd.value })
+  return reportResult(cwd.value, report)
 }
 
 /** Map a write report onto the frozen status set, keeping the report in the body. */
-function reportResult(cwd: string, report: WriteReport): ControlDispatchResult {
+function reportResult(cwd: string | null, report: WriteReport): ControlDispatchResult {
   const status = statusForWriteReport(report)
   if (status === 200) return { status, body: { cwd, report } }
   const failure = report.results.find((result) => !result.ok)
@@ -292,19 +295,25 @@ function readAgentName(value: unknown): ReadResult<string> {
   return read
 }
 
-function readCwdFromSearch(search: URLSearchParams): ReadResult<string | undefined> {
+function readCwdFromSearch(search: URLSearchParams): ReadResult<string | null> {
   const values = search.getAll('cwd')
   if (values.length > 1) return { ok: false, message: 'cwd must be given at most once' }
   return readCwdValue(values[0])
 }
 
-function readCwdValue(value: unknown): ReadResult<string | undefined> {
-  if (value === undefined || value === null) return { ok: true, value: undefined }
+/**
+ * Read one requested cwd. Only a non-string value is a protocol error; every
+ * unusable spelling degrades to `null` = user-global (ADR-0007) instead of
+ * failing the request, because the panel must keep working when a workspace
+ * directory disappears between clicks.
+ */
+function readCwdValue(value: unknown): ReadResult<string | null> {
+  if (value === undefined || value === null) return { ok: true, value: null }
   if (typeof value !== 'string') return { ok: false, message: 'cwd must be a string' }
-  if (value.length === 0) return { ok: false, message: 'cwd must not be empty' }
-  if (value.length > MAX_CWD_LENGTH) return { ok: false, message: `cwd exceeds ${MAX_CWD_LENGTH} characters` }
-  if (value.includes('\0')) return { ok: false, message: 'cwd must not contain NUL' }
-  if (!isAbsolute(value)) return { ok: false, message: 'cwd must be an absolute path' }
+  if (value.length === 0) return { ok: true, value: null }
+  if (value.length > MAX_CWD_LENGTH) return { ok: true, value: null }
+  if (value.includes('\0')) return { ok: true, value: null }
+  if (!isAbsolute(value)) return { ok: true, value: null }
   return { ok: true, value }
 }
 

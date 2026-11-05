@@ -175,6 +175,23 @@ export type ControlFinding =
   | { readonly origin: 'cross-layer'; readonly finding: AliasFinding }
 
 /** Everything a settings view's first render needs, in one read. */
+/**
+ * Which workspace scope a snapshot was read in (ticket 37): what the caller
+ * asked for and the project root the registries actually resolved.
+ *
+ * The two differ when the requested directory is not itself a project root —
+ * the registries walk up to the nearest `.git` marker. `cwd: null` means the
+ * caller asked for user-global (no project layer at all); `projectRoot: null`
+ * means no project layer was scanned (user-global, or the requested directory
+ * is gone).
+ */
+export interface ControlScope {
+  /** Requested workspace directory after the host default; `null` = user-global. */
+  readonly cwd: string | null
+  /** Project root the registries resolved; `null` when no project layer was scanned. */
+  readonly projectRoot: string | null
+}
+
 export interface ControlSnapshot {
   readonly agents: readonly AgentDefinition[]
   readonly models: readonly ModelDefinition[]
@@ -188,6 +205,12 @@ export interface ControlSnapshot {
    * advisor panel renders that row as unavailable instead of inventing a plan.
    */
   readonly assemblies: Readonly<Partial<Record<string, AssemblyPlan>>>
+  /**
+   * The scope this snapshot was read in (ticket 37). The control core always
+   * fills it; hand-built snapshots in tests may omit it, and the panel treats
+   * absence as "scope unknown" rather than inventing one.
+   */
+  readonly scope?: ControlScope | undefined
 }
 
 /** Query options of the agent list; the view's filter/sort config compiles into it. */

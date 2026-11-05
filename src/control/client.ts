@@ -42,18 +42,31 @@ export interface ControlClient {
   invalidate(options?: ControlClientOptions): Promise<void>
 }
 
+/**
+ * Construction options of the in-memory adapter; mirrors the HTTP adapter's
+ * `cwd` default so the adapter contract suite can configure both the same way.
+ */
+export interface MemoryControlClientOptions {
+  /** Workspace root used when a call names none; absent means user-global. */
+  readonly cwd?: string | undefined
+}
+
 /** The in-memory adapter: the control core behind the client port. */
-export function createMemoryControlClient(core: ControlCore): ControlClient {
+export function createMemoryControlClient(core: ControlCore, options: MemoryControlClientOptions = {}): ControlClient {
+  // The port's absent `cwd` means user-global (ticket 37) — the same thing the
+  // HTTP adapter gets by omitting the field, so both adapters agree.
+  const scopeOf = (call: ControlClientOptions | undefined) => ({ cwd: call?.cwd ?? options.cwd ?? null })
+
   return {
     async snapshot(options) {
       throwIfAborted(options?.signal)
-      return await core.snapshot({ cwd: options?.cwd })
+      return await core.snapshot(scopeOf(options))
     },
 
     async compose(agentName, options) {
       throwIfAborted(options?.signal)
       try {
-        return await core.compose(agentName, { cwd: options?.cwd })
+        return await core.compose(agentName, scopeOf(options))
       } catch (error) {
         throw composeError(error)
       }
@@ -63,7 +76,7 @@ export function createMemoryControlClient(core: ControlCore): ControlClient {
       throwIfAborted(options?.signal)
       let doc: ComposedAgentDocument
       try {
-        doc = await core.compose(agentName, { cwd: options?.cwd })
+        doc = await core.compose(agentName, scopeOf(options))
       } catch (error) {
         throw composeError(error)
       }
@@ -73,7 +86,7 @@ export function createMemoryControlClient(core: ControlCore): ControlClient {
 
     async commit(edits, options) {
       throwIfAborted(options?.signal)
-      const plan = await planDirtyEdits(core, edits, { cwd: options?.cwd })
+      const plan = await planDirtyEdits(core, edits, scopeOf(options))
       throwIfAborted(options?.signal)
       if (plan.rejections.length > 0) {
         const first = plan.rejections[0]
@@ -84,7 +97,7 @@ export function createMemoryControlClient(core: ControlCore): ControlClient {
 
     async applyRegistryEdit(edit, options) {
       throwIfAborted(options?.signal)
-      return reportOrThrow(await core.applyRegistryEdit(edit))
+      return reportOrThrow(await core.applyRegistryEdit(edit, scopeOf(options)))
     },
 
     async invalidate(options) {

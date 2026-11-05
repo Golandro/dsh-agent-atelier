@@ -77,7 +77,7 @@ function adapters(): AdapterPair {
   const httpCore = createCore()
   return {
     name: 'memory/http',
-    memory: createMemoryControlClient(memoryCore),
+    memory: createMemoryControlClient(memoryCore, { cwd: PROJECT }),
     http: createHttpControlClient({ baseUrl: 'http://host/agent-atelier', fetchImpl: bridge(httpCore), cwd: PROJECT }),
     memoryCore,
     httpCore,
@@ -165,7 +165,7 @@ describe('control client adapters', () => {
 
   it('maps a read-only refusal to the same 409 code through both adapters', async () => {
     const readOnly: ControlCore['commit'] = async () => ({ results: [{ ok: false, file: DOC, code: 'read-only', message: 'file is read-only' }] })
-    const memory = createMemoryControlClient({ ...createCore(), commit: readOnly })
+    const memory = createMemoryControlClient({ ...createCore(), commit: readOnly }, { cwd: PROJECT })
     const http = createHttpControlClient({
       baseUrl: 'http://host/agent-atelier',
       fetchImpl: bridge({ ...createCore(), commit: readOnly }),

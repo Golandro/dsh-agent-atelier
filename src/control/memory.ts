@@ -34,6 +34,11 @@ export interface InMemoryControlOptions {
   readonly selectionPolicy?: ModelSelectionPolicy | undefined
   /** The assembly service a mounted row would provide (ticket 04); absent means no plan projection. */
   readonly assembly?: AgentAssembly | undefined
+  /**
+   * The project-root walk the host row injects (ticket 37); absent reports the
+   * requested cwd itself as the project root, like a host without a filesystem.
+   */
+  readonly resolveProjectRootFor?: ((cwd: string) => Promise<string | undefined>) | undefined
 }
 
 /** The in-memory core, plus direct access to its files for test assertions. */
@@ -130,6 +135,7 @@ export function createInMemoryControlCore(options: InMemoryControlOptions = {}):
     aliasRegistry: createAliasRegistryService({ nodeFileSystem: memoryFileSystem, readDefaultPair: options.readDefaultPair }, { dshHome }),
     fileSystem: memoryFileSystem,
     resolveProjectRoot: () => projectRoot,
+    resolveProjectRootFor: options.resolveProjectRootFor,
     resolveDshHome: () => dshHome,
     resolveSelectionPolicy: () => options.selectionPolicy,
     resolveAssembly: () => options.assembly,

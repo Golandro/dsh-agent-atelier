@@ -347,6 +347,72 @@ describe('host row wiring', () => {
   })
 })
 
+describe('wire scope fallback (ticket 37 / ADR-0007)', () => {
+  it('missing cwd scans user-global and echoes null', async () => {
+    const result = await call(createCore(), '/agent-atelier/state', { headers: {} })
+
+    expect(result.status).toBe(200)
+    const body = result.body as {
+      cwd: string | null
+      snapshot: { agents: unknown[]; scope?: { cwd: string | null; projectRoot: string | null } }
+    }
+    expect(body.cwd).toBeNull()
+    expect(body.snapshot.agents).toEqual([])
+    expect(body.snapshot.scope).toMatchObject({ cwd: null, projectRoot: null })
+  })
+
+  it('unusable cwd spellings degrade to user-global instead of failing', async () => {
+    const core = createCore()
+    for (const cwd of ['', 'relative/path', 'a\0b', `/${'x'.repeat(5000)}`]) {
+      const result = await call(core, '/agent-atelier/state', {
+        search: new URLSearchParams({ cwd }),
+        headers: {},
+      })
+      expect(result.status, `cwd=${JSON.stringify(cwd.slice(0, 20))}`).toBe(200)
+      expect((result.body as { cwd: string | null }).cwd).toBeNull()
+    }
+  })
+
+  it('a non-string cwd is still a protocol error', async () => {
+    const result = await call(createCore(), '/agent-atelier/compose', { body: { agentName: 'alpha', cwd: 7 } })
+
+    expect(result.status).toBe(400)
+    expect((result.body as { error: { code: string } }).error.code).toBe('invalid-request')
+  })
+
+  it('state echoes the resolved project root, not just the requested directory', async () => {
+    const core = createInMemoryControlCore({
+      projectRoot: PROJECT,
+      dshHome: HOME,
+      files: { [`${PROJECT}/.git`]: '', [DOC]: DOC_TEXT },
+      resolveProjectRootFor: async (cwd) => (cwd === PROJECT ? PROJECT : undefined),
+    })
+    const result = await call(core, '/agent-atelier/state', {
+      search: new URLSearchParams({ cwd: PROJECT }),
+      headers: {},
+    })
+
+    expect(result.status).toBe(200)
+    const body = result.body as { snapshot: { scope?: { cwd: string | null; projectRoot: string | null } } }
+    expect(body.snapshot.scope).toEqual({ cwd: PROJECT, projectRoot: PROJECT })
+  })
+
+  it('registry edits land in the requested workspace, not the host default', async () => {
+    const core = createCore()
+    const workspace = `${PROJECT}-other`
+    const registry = `${workspace}/.dsh/agents/registry.yaml`
+    const result = await call(core, '/agent-atelier/registry', {
+      body: { edit: { kind: 'setAvailable', modelName: 'gpt5', available: false }, cwd: workspace },
+    })
+
+    // The requested workspace was never registered on disk, so its project layer
+    // is unavailable: the refusal is honest instead of writing the host default.
+    expect(result.status).toBe(404)
+    expect(core.files.get(REGISTRY)).toBe(REGISTRY_TEXT)
+    expect(core.files.get(registry)).toBeUndefined()
+  })
+})
+
 /** Minimal ServerResponse double: captures status and body, no socket. */
 function fakeResponse(): { response: ServerResponse; status: () => number; body: () => unknown } {
   let status = 0
