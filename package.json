@@ -37,6 +37,7 @@
     "build": "tsc -p tsconfig.build.json && node scripts/build-client.mjs && node scripts/build-chunks.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "test:hook": "vitest run --reporter=minimal",
     "check:static": "node scripts/check.mjs",
     "check": "node scripts/check.mjs && pnpm run typecheck && pnpm test",
     "proto": "vite --config prototype/settings-ui/vite.config.ts --host 127.0.0.1 --port 4188",

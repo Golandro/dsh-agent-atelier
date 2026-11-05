@@ -28,6 +28,7 @@ first message) and deliberately delegates runtime orchestration to native DSH.
 ```bash
 pnpm run build      # tsc + client bundles -> lib/ (must exist before install)
 pnpm test           # vitest run
+pnpm run test:hook  # vitest run --reporter=minimal (what the pre-commit hook runs)
 pnpm run check      # static guardrail + typecheck + tests (also the pre-commit hook)
 ```
 
@@ -37,7 +38,8 @@ responsible parties.
 
 The installed plugin loads `lib/`, so **re-run `pnpm run build` after any change
 under `src/`** — the profile links this directory, it does not rebuild it. Wire
-the hook once per clone: `git config core.hooksPath .githooks`.
+the hook once per clone: `git config core.hooksPath .githooks`. The test stage
+buffers vitest: one line on success, the full log on failure.
 
 ## Installing into the profile
 

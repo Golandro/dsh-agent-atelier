@@ -23,9 +23,31 @@ if ! pnpm run --silent typecheck; then
 fi
 
 echo "pre-commit: 单测（vitest run）"
-if ! pnpm run --silent test; then
-  echo "pre-commit: 单测未通过，提交已中止（复现：pnpm test）。" >&2
-  exit 1
+# 成功只留一行摘要；失败把完整日志交给终端，提交日志/IDE 里不再逐文件刷屏。
+if ! log=$(mktemp "${TMPDIR:-/tmp}/atelier-precommit.XXXXXX" 2>/dev/null); then
+  echo "pre-commit: 无法创建临时日志，改为直接输出单测结果。" >&2
+  if ! pnpm run --silent test:hook; then
+    echo "pre-commit: 单测未通过，提交已中止（复现：pnpm run test:hook）。" >&2
+    exit 1
+  fi
+  echo "pre-commit: 单测通过。"
+else
+  trap 'rm -f "$log"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  if ! pnpm run --silent test:hook >"$log" 2>&1; then
+    echo "pre-commit: 单测未通过，提交已中止（复现：pnpm run test:hook）。" >&2
+    cat "$log" >&2
+    exit 1
+  fi
+  summary=$(grep -E '^[[:space:]]+(Test Files|Tests)[[:space:]]' "$log" |
+    sed -e 's/^[[:space:]]*//' -e 's/[[:space:]][[:space:]]*/ /g' |
+    tr '\n' ' ' | sed 's/ $//')
+  if [ -n "$summary" ]; then
+    echo "pre-commit: 单测通过（$summary）"
+  else
+    echo "pre-commit: 单测通过。"
+  fi
 fi
 
 echo "pre-commit: 全部通过。"
