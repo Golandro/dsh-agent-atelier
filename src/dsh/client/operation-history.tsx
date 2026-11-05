@@ -16,14 +16,21 @@ import type { ReactNode } from 'react'
 export interface OperationHistoryProps {
   /** 待写入预览（plan 成功后出现）；null 表示当前没有待确认的写入。 */
   readonly plan: WritePlan | null
-  /** 历史 WriteReport，最新在前。 */
-  readonly reports: readonly WriteReport[]
+  /** 历史报告，最新在前；每条带写入时的工作空间名（票 37，视图侧包装，不改 WriteReport）。 */
+  readonly reports: readonly HistoryEntry[]
   /** 页签未选中时保持挂载（不丢滚动位置），由 hidden 属性隐藏。 */
   readonly hidden?: boolean
 }
 
+/** 一条操作历史：报告 + 产生它时的范围标签。 */
+export interface HistoryEntry {
+  readonly report: WriteReport
+  /** 写入时的范围名：工作区标题或「用户全局」。 */
+  readonly workspace: string
+}
+
 export function OperationHistory(props: OperationHistoryProps): ReactNode {
-  const fileCount = props.reports.reduce((n, report) => n + report.results.length, 0)
+  const fileCount = props.reports.reduce((n, entry) => n + entry.report.results.length, 0)
   const empty = props.reports.length === 0 && props.plan === null
 
   return h('section',
@@ -54,10 +61,12 @@ function renderPendingPlan(plan: WritePlan): ReactNode {
 }
 
 /** 一次 commit 的 WriteReport：逐文件 ok / 失败（code + message）。 */
-function renderReport(report: WriteReport, index: number): ReactNode {
+function renderReport(entry: HistoryEntry, index: number): ReactNode {
   return h('section', { key: index, className: 'history-sec' },
-    h('h5', null, `第 ${index + 1} 笔`),
-    report.results.map((result, i) => {
+    h('h5', null,
+      `第 ${index + 1} 笔 `,
+      h('span', { className: 'tag tag-scope' }, entry.workspace)),
+    entry.report.results.map((result, i) => {
       const file = result.ok ? result.file : (result.file ?? '（未知文件）')
       return h('div', { key: i, className: 'write-row' },
         h('span', { className: `tag ${result.ok ? 'tag-ok' : 'tag-err'}` }, result.ok ? '已写入' : '失败'),

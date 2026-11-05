@@ -1,5 +1,5 @@
 /**
- * 智能体工作区（票 05；Q2 裁决：只做 agents 选项卡，无顶栏、无 sections/models）。
+ * 智能体工作区（票 05；票 37 接入工作空间范围）。
  *
  * 布局：usePaneLayout + PaneSplitter 双栏——
  *   左 = 懒加载 ListChunk.AgentListView（同样的 loading / 失败 / 重试处理）
@@ -7,24 +7,27 @@
  *        全部回退 / plan 预览 chips / 保存状态）+ EditorMount；未选中时占位提示。
  *   容器宽度放不下两侧最小宽度时（styles.css 的 `@container pane`）切单栏：
  *        列表隐藏、编辑器独占主视图；JS 不再参与该决策。
- *   头部 = 题头行（标题 + 工作空间占位）+ 页签行（智能体 / 操作历史 / 配置
- *        + 刷新目录）；三个视图都保持挂载（hidden 切换），选中 agent、草稿与
+ *   头部 = 题头行（标题 + 工作空间选择器）+ 页签行（智能体 / 操作历史 / 配置
+ *        + 状态 / 刷新目录）；三个视图都保持挂载（hidden 切换），选中 agent、草稿与
  *        滚动位置不丢。
  *
  * 数据流：页面持有本组件作用域内的一个 createHttpControlClient() 实例（由壳传入）；
- *   onSelect → compose(agentName) → ComposedAgentDocument；
- *   drafts 按 agent 分桶（Record<agentName, Record<blockId, string>>），草稿文本与
- *   块原文一致时清除（不打扰编辑器，仅记账）。
+ *   onSelect → compose(agentName, {cwd}) → ComposedAgentDocument；
+ *   drafts 按「工作空间 + agent」分桶（Record<scopeKey, Record<agentName, Record<blockId, string>>>），
+ *   草稿文本与块原文一致时清除（不打扰编辑器，仅记账）。
+ *
+ * 范围（票 37 / ADR-0007）：`choice` 决定每次调用的 cwd；用户全局 = 不传 cwd。
+ *   切换 = invalidate → snapshot(新 cwd) → 重新 compose（与刷新目录同一条管线），
+ *   选中与草稿按工作空间分开保存，切回还原。服务端回退（`snapshot.scope`）由头部
+ *   提示与选择器警示态呈现。
  *
  * 保存流程（票面验收：写操作必须经 /plan 预览 + /commit）：
- *   drafts → DocumentEdit[]（kind: 'setBlockText'）→ plan(agentName, edits)
+ *   drafts → DocumentEdit[]（kind: 'setBlockText'）→ plan(agentName, edits, {cwd})
  *   → 有 rejections：展示且不 commit；有 entries：chips 预览 → 「确认写入」
- *   → commit(edits) → WriteReport 进操作历史 → 成功后重新 compose 并清掉已提交块草稿。
+ *   → commit(edits, {cwd}) → WriteReport 进操作历史 → 成功后重新 compose 并清掉已提交块草稿。
  *   块级保存 / 回退走同一条管线（仅该块 edit / 仅清该块草稿）。
- * 刷新目录：client.invalidate() → 重新 snapshot + recompose（页面内独立实现，
- *   保留选中与草稿；AbortController 清理语义与壳一致）。
  */
-import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { ControlClientError } from '../../control/client-errors.ts'
 import { nsClass } from './class-names.ts'
 import { loadListChunk } from './chunk-loader.ts'
@@ -34,11 +37,23 @@ import { EditorMount } from './editor-mount.tsx'
 import { AdvisorPanel } from './advisor.tsx'
 import { OperationHistory } from './operation-history.tsx'
 import { PanelHeader } from './panel-header.tsx'
-import { PANE_CONTENT_MIN_REM, PANE_LIST_MIN_REM, PaneSplitter, usePaneLayout } from './pane.tsx'
+import { PaneSplitter, PANE_CONTENT_MIN_REM, PANE_LIST_MIN_REM, usePaneLayout } from './pane.tsx'
+import { useWorkspaceList } from './use-workspace-list.ts'
+import { workspaceChoiceLabel } from './workspace-select.tsx'
+import {
+  USER_CHOICE,
+  choiceKey,
+  cwdOf,
+  scopeNoticeOf,
+  workspaceChoiceOf,
+  writeRemembered,
+} from './workspace-scope.ts'
 
 import type { ControlClient, ComposedAgentDocument, ControlSnapshot, DocumentEdit, WritePlan, WriteReport } from '../../control/index.ts'
 import type { AgentListViewProps } from './chunk-contracts.ts'
+import type { HistoryEntry } from './operation-history.tsx'
 import type { PanelTab, ReloadState } from './panel-types.ts'
+import type { ScopeSource, WorkspaceChoice } from './workspace-scope.ts'
 import type { CSSProperties, ReactNode } from 'react'
 
 export interface AgentsWorkspaceProps {
@@ -46,6 +61,10 @@ export interface AgentsWorkspaceProps {
   readonly client: ControlClient
   /** 壳快照状态机就绪后的初始快照；刷新目录后会本地替换。 */
   readonly initialSnapshot: ControlSnapshot
+  /** 壳推导的初始范围（票 37）：决定首次快照用的 cwd。 */
+  readonly initialChoice: WorkspaceChoice
+  /** 宿主工作区 / 会话列表的订阅面；缺失即「列表不可用」，面板照常工作。 */
+  readonly scope: ScopeSource
 }
 
 type DocState = 'idle' | 'loading' | 'ready' | 'error'
@@ -57,30 +76,58 @@ type SaveState =
   | { readonly status: 'committing'; readonly plan: WritePlan; readonly edits: readonly DocumentEdit[] }
   | { readonly status: 'failed'; readonly message: string }
 
+/** 一个工作空间内部的状态：选中项与草稿（切回时原样还原）。 */
+interface ScopeLocalState {
+  readonly selected: string | null
+  readonly drafts: Record<string, Record<string, string>>
+}
+
 const EMPTY_DRAFTS: Readonly<Record<string, string>> = Object.freeze({})
+const EMPTY_LOCAL_STATE: ScopeLocalState = Object.freeze({ selected: null, drafts: {} })
 
 export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
   const { client } = props
   const containerRef = useRef<HTMLDivElement | null>(null)
 
-  /* ── 快照（壳的初始快照作种子；刷新目录后本地替换） ── */
-  const [snapshot, setSnapshot] = useState(props.initialSnapshot)
+  /* ── 范围（票 37）：选择器当前值 + 宿主列表 ── */
+  const [choice, setChoice] = useState<WorkspaceChoice>(props.initialChoice)
+  const list = useWorkspaceList(props.scope)
+  const choices = useMemo<readonly WorkspaceChoice[]>(
+    () => [USER_CHOICE, ...list.rows.map(workspaceChoiceOf)],
+    [list.rows],
+  )
+  const scopeKey = choiceKey(choice)
+  const cwd = cwdOf(choice)
 
-  /* ── 选中与文档 ── */
-  const [selected, setSelected] = useState<string | null>(null)
+  /* ── 快照（壳的初始快照作种子；刷新目录 / 切换范围后本地替换） ── */
+  const [snapshot, setSnapshot] = useState(props.initialSnapshot)
+  const scopeNotice = scopeNoticeOf({ choice, listStatus: list.status, scope: snapshot.scope })
+
+  /* ── 选中与文档（按工作空间分桶） ── */
+  const [localStates, setLocalStates] = useState<Record<string, ScopeLocalState>>({})
+  const local = localStates[scopeKey] ?? EMPTY_LOCAL_STATE
+  const selected = local.selected
+  const drafts = local.drafts
   const [doc, setDoc] = useState<ComposedAgentDocument | null>(null)
   const [docState, setDocState] = useState<DocState>('idle')
   const [docError, setDocError] = useState('')
   const [composeAttempt, setComposeAttempt] = useState(0)
 
-  /* ── 草稿（按 agent 分桶）与保存流程 ── */
-  const [drafts, setDrafts] = useState<Record<string, Record<string, string>>>({})
+  /* ── 保存流程 ── */
   const [save, setSave] = useState<SaveState>({ status: 'idle' })
-  const [reports, setReports] = useState<WriteReport[]>([])
+  const [reports, setReports] = useState<HistoryEntry[]>([])
   const [reload, setReload] = useState<ReloadState>({ status: 'idle' })
   const [advisorOpen, setAdvisorOpen] = useState(false)
   /* 面板页签：智能体（列表 + 编辑器）/ 操作历史 / 配置占位。三个视图都保持挂载。 */
   const [tab, setTab] = useState<PanelTab>('agents')
+
+  const updateLocal = (updater: (state: ScopeLocalState) => ScopeLocalState): void => {
+    setLocalStates((prev) => {
+      const current = prev[scopeKey] ?? EMPTY_LOCAL_STATE
+      const next = updater(current)
+      return next === current ? prev : { ...prev, [scopeKey]: next }
+    })
+  }
 
   // 写路径 / 刷新目录是事件驱动的异步操作：卸载时中止在途请求。
   const writeAbortRef = useRef<AbortController | null>(null)
@@ -90,7 +137,7 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
     reloadAbortRef.current?.abort()
   }, [])
 
-  // compose：随选中变化；重跑（换 agent / 重试 / 刷新后 recompose）即中止上一次。
+  // compose：随选中 / 范围变化；重跑（换 agent / 重试 / 刷新后 recompose）即中止上一次。
   useEffect(() => {
     if (selected === null) {
       setDoc(null)
@@ -99,7 +146,7 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
     }
     const controller = new AbortController()
     setDocState('loading')
-    client.compose(selected, { signal: controller.signal })
+    client.compose(selected, { signal: controller.signal, cwd })
       .then((next) => {
         if (controller.signal.aborted) return
         setDoc(next)
@@ -111,7 +158,7 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
         setDocError(errorMessage(error))
       })
     return () => controller.abort()
-  }, [client, selected, composeAttempt])
+  }, [client, selected, composeAttempt, cwd])
 
   const pane = usePaneLayout(containerRef)
 
@@ -124,21 +171,21 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
 
   const handleSelect = (name: string | null): void => {
     if (name === '' || name === selected) return
-    // 换 agent：草稿按名分桶保留，未确认的 plan 作废。
-    setSelected(name)
+    // 换 agent：草稿按 workspace + agent 分桶保留，未确认的 plan 作废。
+    updateLocal((state) => ({ ...state, selected: name }))
     setSave({ status: 'idle' })
   }
 
   const handleDraftText = (blockId: string, text: string): void => {
     if (selected === null) return
-    setDrafts((prev) => {
-      const agentDrafts = prev[selected] ?? {}
-      const sourceBlock = doc?.blocks.find((block) => block.id === blockId)
+    const sourceBlock = doc?.blocks.find((block) => block.id === blockId)
+    updateLocal((state) => {
+      const agentDrafts = state.drafts[selected] ?? {}
       const next = { ...agentDrafts }
       // 与块原文一致即清草稿（不算未保存改动）。
       if (sourceBlock !== undefined && text === sourceBlock.text) delete next[blockId]
       else next[blockId] = text
-      return { ...prev, [selected]: next }
+      return { ...state, drafts: { ...state.drafts, [selected]: next } }
     })
     // 草稿变化使未确认的 plan 失效（提交中的不折腾，成功路径会自行收尾）。
     setSave((prev) => (prev.status === 'planned' ? { status: 'idle' } : prev))
@@ -152,7 +199,7 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
     const controller = new AbortController()
     writeAbortRef.current = controller
     setSave({ status: 'planning' })
-    client.plan(selected, edits, { signal: controller.signal })
+    client.plan(selected, edits, { signal: controller.signal, cwd })
       .then((plan) => {
         if (!controller.signal.aborted) setSave({ status: 'planned', plan, edits })
       })
@@ -187,22 +234,23 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
   // 块级回退：只清该块草稿，编辑器经 sync 对账回已保存文本。
   const handleRevertBlock = (blockId: string): void => {
     if (selected === null) return
-    setDrafts((prev) => {
-      const current = prev[selected]
-      if (current === undefined || !(blockId in current)) return prev
+    updateLocal((state) => {
+      const current = state.drafts[selected]
+      if (current === undefined || !(blockId in current)) return state
       const next = { ...current }
       delete next[blockId]
-      return { ...prev, [selected]: next }
+      return { ...state, drafts: { ...state.drafts, [selected]: next } }
     })
     setSave((prev) => (prev.status === 'planned' ? { status: 'idle' } : prev))
   }
 
   const handleRevertAll = (): void => {
     if (selected === null) return
-    setDrafts((prev) => {
-      const next = { ...prev }
-      delete next[selected]
-      return next
+    updateLocal((state) => {
+      if (state.drafts[selected] === undefined) return state
+      const draftsNext = { ...state.drafts }
+      delete draftsNext[selected]
+      return { ...state, drafts: draftsNext }
     })
     setSave((prev) => (prev.status === 'planned' ? { status: 'idle' } : prev))
   }
@@ -214,7 +262,7 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
     const controller = new AbortController()
     writeAbortRef.current = controller
     setSave({ status: 'committing', plan, edits })
-    client.commit(edits, { signal: controller.signal })
+    client.commit(edits, { signal: controller.signal, cwd })
       .then((report) => {
         if (controller.signal.aborted) return
         recordReport(report)
@@ -233,19 +281,19 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
   }
 
   const recordReport = (report: WriteReport): void => {
-    setReports((prev) => [report, ...prev])
+    setReports((prev) => [{ report, workspace: workspaceChoiceLabel(choice) }, ...prev])
   }
 
   const clearCommittedDrafts = (edits: readonly DocumentEdit[]): void => {
-    setDrafts((prev) => {
-      if (selected === null) return prev
-      const current = prev[selected]
-      if (current === undefined) return prev
+    if (selected === null) return
+    updateLocal((state) => {
+      const current = state.drafts[selected]
+      if (current === undefined) return state
       const next = { ...current }
       for (const edit of edits) {
         if (edit.kind === 'setBlockText') delete next[edit.blockId]
       }
-      return { ...prev, [selected]: next }
+      return { ...state, drafts: { ...state.drafts, [selected]: next } }
     })
   }
 
@@ -253,14 +301,14 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
     setSave((prev) => (prev.status === 'planned' ? { status: 'idle' } : prev))
   }
 
-  /* ── 刷新目录：invalidate → 重新 snapshot + recompose（保留选中与草稿） ── */
+  /* ── 刷新目录 / 切换范围：同一条 invalidate → snapshot → recompose 管线 ── */
 
-  const handleInvalidate = (): void => {
+  const runReload = (nextCwd: string | undefined): void => {
     reloadAbortRef.current?.abort()
     const controller = new AbortController()
     reloadAbortRef.current = controller
     setReload({ status: 'reloading' })
-    const options = { signal: controller.signal }
+    const options = { signal: controller.signal, cwd: nextCwd }
     client.invalidate(options)
       .then(() => client.snapshot(options))
       .then((next) => {
@@ -275,13 +323,31 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
       })
   }
 
+  const handleInvalidate = (): void => runReload(cwd)
+
+  const handleSelectWorkspace = (next: WorkspaceChoice): void => {
+    if (choiceKey(next) === scopeKey) return
+    setChoice(next)
+    writeRemembered(props.scope.storage, next)
+    setSave({ status: 'idle' })
+    runReload(cwdOf(next))
+  }
+
   /* ── 渲染 ── */
 
   // 单栏/双栏由 styles.css 的 `@container pane` 决定；这里只标记「有没有打开编辑器」。
   const pageClass = `${nsClass('agents-page')}${selected !== null ? '' : ' editor-closed'}`
+  const workspaceTitle = workspaceChoiceLabel(choice)
 
   return h(Fragment, null,
-    h(PanelHeader, { tab, onTab: setTab, reload, onRefresh: handleInvalidate }),
+    h(PanelHeader, {
+      tab,
+      onTab: setTab,
+      reload,
+      onRefresh: handleInvalidate,
+      scope: { choice, choices, status: list.status, notice: scopeNotice },
+      onSelectWorkspace: handleSelectWorkspace,
+    }),
 
     // 测量锚点放在始终可见的 wrapper：切到操作历史时 .agents-page 虽然 hidden，
     // 列表宽度仍按面板真实宽度夹取，切回来不会掉回最小值。
@@ -392,7 +458,7 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
           })),
 
         advisorOpen && h('div', { className: nsClass('advisor-panel') },
-          h(AdvisorPanel, { snapshot, selectedAgent: selected, onSelectAgent: handleSelect }))),
+          h(AdvisorPanel, { snapshot, selectedAgent: selected, workspaceTitle, onSelectAgent: handleSelect }))),
 
       selected === null && h('div', { className: nsClass('pane-placeholder') },
         h('p', null, '从左侧选择一个智能体开始编辑。'),
@@ -401,7 +467,7 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
           { type: 'button', className: 'btn btn-sm', 'aria-pressed': advisorOpen, onClick: () => setAdvisorOpen(!advisorOpen) },
           advisorOpen ? '收起顾问面板' : '顾问面板'),
         advisorOpen && h('div', { className: nsClass('advisor-panel') },
-          h(AdvisorPanel, { snapshot, selectedAgent: selected, onSelectAgent: handleSelect })))),
+          h(AdvisorPanel, { snapshot, selectedAgent: selected, workspaceTitle, onSelectAgent: handleSelect })))),
 
       h(OperationHistory, {
         plan: save.status === 'planned' || save.status === 'committing' ? save.plan : null,

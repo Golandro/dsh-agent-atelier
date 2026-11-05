@@ -27,6 +27,8 @@ export interface AdvisorPanelProps {
   readonly snapshot: ControlSnapshot
   /** 当前选中的 agent（通道表的选择器与发现的「打开」跳转用）；可为 null。 */
   readonly selectedAgent: string | null
+  /** 快照所属的工作空间名（票 37）；缺省时头部不显示范围行。 */
+  readonly workspaceTitle?: string | undefined
   /** 跳转选中某个 agent。 */
   onSelectAgent(agentName: string): void
 }
@@ -144,6 +146,7 @@ export function AdvisorPanel(props: AdvisorPanelProps): ReactNode {
 
   return h('div', { className: 'advisor' },
     h('h3', { className: 'advisor-title' }, '顾问面板 ', h('span', { className: 'dim' }, '（诊断非阻挡 · 建议不是门禁）')),
+    props.workspaceTitle !== undefined && h('div', { className: 'advisor-scope dim' }, `工作空间：${props.workspaceTitle}`),
 
     /* ① 校验发现：三个家族各自成组，分组映射写死 */
     h('section', { className: 'advisor-sec' },

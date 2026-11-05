@@ -30,9 +30,17 @@ import { createElement as h, useEffect, useState } from 'react'
 import { createHttpControlClient } from '../../control/http-client.ts'
 import { PAGE_ROOT_CLASS } from './class-names.ts'
 import { AgentsWorkspace } from './page.tsx'
+import { observableOf } from './observable.ts'
 import * as pageStyles from './styles.css'
+import {
+  deriveChoice,
+  readRemembered,
+  snapshotScope,
+} from './workspace-scope.ts'
+import { cwdOf } from './workspace-scope.ts'
 
 import type { ControlSnapshot } from '../../control/index.ts'
+import type { SessionListLike, ScopeSource, WorkspaceChoice, WorkspaceListLike, WriteOnceStorage } from './workspace-scope.ts'
 import type { ReactNode } from 'react'
 
 /** 侧栏行 id 与对应 `main` 面板键：同一字符串，两个座。 */
@@ -50,11 +58,7 @@ interface PanelIconOwnerProps {
   readonly active: boolean
 }
 
-/** `main` 面板占位者收到框架运行时份额；我们不用。 */
-type MainPanelOwnerProps = Record<never, never>
-
-/** 本入口占的两个座的注册选项。 */
-type RegistrationOptions =
+/** 本入口占的两个座的注册选项。 */type RegistrationOptions =
   | {
       readonly name: 'sidebar.panellist'
       readonly id: string
@@ -74,6 +78,8 @@ interface ClientSlots {
 /** 本插件 `apply` 收到的客户端上下文。 */
 export interface ClientContext {
   readonly slots: ClientSlots
+  /** 读取已挂载的客户端服务（惰性，因为挂载顺序不保证）。 */
+  get(name: string): unknown
 }
 
 /** 本入口等待的 cordis 客户端服务。 */
@@ -84,13 +90,16 @@ export const inject = ['slots'] as const
  * 面板。页面样式由 `./styles.css` 的模块加载时注入器负责（构建期静态内联）。
  */
 export function apply(ctx: ClientContext): void {
+  // 范围面在这里构造一次：读取函数惰性解服务，存储值缺失时自动退化成用户全局。
+  const scope = createScopeSource(ctx)
   ctx.slots.inject('sidebar.panellist', () =>
     ctx.slots.register(
       { name: 'sidebar.panellist', id: PANEL_ID, order: 5, label: '智能体工坊' },
       AgentControlIcon,
     ),
   )
-  ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL_ID }, AgentControlPage))
+  ctx.slots.inject('main', () =>
+    ctx.slots.register({ name: 'main', key: PANEL_ID }, () => h(AgentControlPage, { scope })))
 }
 
 /**
@@ -118,9 +127,16 @@ export function AgentControlIcon({ size }: PanelIconOwnerProps): ReactNode {
 }
 
 /** 页面壳：唯一 client 实例 + 快照状态机（loading / error / 重试），域规则全在页面组件。 */
-export function AgentControlPage(_props: MainPanelOwnerProps): ReactNode {
+export interface AgentControlPageProps {
+  /** 工作空间范围的宿主读面（票 37）。 */
+  readonly scope: ScopeSource
+}
+
+export function AgentControlPage({ scope }: AgentControlPageProps): ReactNode {
   // useState 惰性初始化：整个面板生命周期共用一个 HTTP 客户端实例。
   const [client] = useState(createHttpControlClient)
+  // 首帧就要知道范围：先在壳里推导一次，首次快照直接带 cwd，避免先闪一次用户全局。
+  const [initialChoice] = useState<WorkspaceChoice>(() => bootstrapChoice(scope))
   const [state, setState] = useState<PageState>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
 
@@ -131,7 +147,7 @@ export function AgentControlPage(_props: MainPanelOwnerProps): ReactNode {
     const controller = new AbortController()
     setState({ status: 'loading' })
     client
-      .snapshot({ signal: controller.signal })
+      .snapshot({ signal: controller.signal, cwd: cwdOf(initialChoice) })
       .then((snapshot) => {
         if (!controller.signal.aborted) setState({ status: 'ready', snapshot })
       })
@@ -141,12 +157,17 @@ export function AgentControlPage(_props: MainPanelOwnerProps): ReactNode {
       })
     // 卸载 / 重试即中止在途请求（清理语义与页面内写路径一致）。
     return () => controller.abort()
-  }, [client, attempt])
+  }, [client, attempt, initialChoice])
 
   // 就绪后整个舞台交给工作区：作用域根仍由壳持有（token / 前缀样式 / 拖拽 closest）。
   if (state.status === 'ready') {
     return h('div', { className: PAGE_ROOT_CLASS, 'data-testid': PAGE_TEST_ID },
-      h(AgentsWorkspace, { client, initialSnapshot: state.snapshot }))
+      h(AgentsWorkspace, {
+        client,
+        initialSnapshot: state.snapshot,
+        initialChoice,
+        scope,
+      }))
   }
   // 引导态复用 list-chunk-status 的居中样式（加载中 / 失败 + 重试）。
   if (state.status === 'error') {
@@ -157,6 +178,30 @@ export function AgentControlPage(_props: MainPanelOwnerProps): ReactNode {
   }
   return h('div', { className: PAGE_ROOT_CLASS, 'data-testid': PAGE_TEST_ID },
     h('div', { className: 'list-chunk-status' }, h('p', null, '正在加载智能体…')))
+}
+
+/** 范围面：读函数惰性解服务（挂载顺序不保证），存储不可用时不记住。 */
+function createScopeSource(ctx: ClientContext): ScopeSource {
+  return {
+    readWorkspaces: () => observableOf<WorkspaceListLike>(ctx.get('workspaces')),
+    readSessions: () => observableOf<SessionListLike>(ctx.get('sessions')),
+    storage: sessionStorageOf(),
+  }
+}
+
+/** `sessionStorage`，隐私模式下可能抛错：拿不到就不记住。 */
+function sessionStorageOf(): WriteOnceStorage | undefined {
+  try {
+    return typeof sessionStorage === 'undefined' ? undefined : sessionStorage
+  } catch {
+    return undefined
+  }
+}
+
+/** 首帧的范围推导：记忆的选择 → 当前会话 → 最近活跃 → 用户全局。 */
+function bootstrapChoice(scope: ScopeSource): WorkspaceChoice {
+  const { items, sessions } = snapshotScope(scope)
+  return deriveChoice({ items, sessions, remembered: readRemembered(scope.storage) }).choice
 }
 
 type PageState =

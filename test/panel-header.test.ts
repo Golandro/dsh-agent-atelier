@@ -1,9 +1,9 @@
 /**
- * 面板头部 / 操作历史的行为锚点（票 05）。
+ * 面板头部 / 选择器 / 操作历史的行为锚点（票 05；票 37 扩展）。
  *
  * 组件级 seam：用 react-dom/server 渲染静态标记，不依赖宿主 DOM。
- * 覆盖：题头行右侧的工作空间占位、第二行的主要页签（智能体 / 操作历史 / 配置）、
- * 页签选中态与刷新按钮，以及「配置」占位视图与「操作历史」报告呈现。
+ * 覆盖：题头行的页面标题与工作空间选择器（三态）、页签行（智能体 / 操作历史 /
+ * 配置）+ 状态区 + 刷新按钮、选择器选项列表的 ARIA 关系、配置占位与操作历史。
  */
 import { createElement as h } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -13,29 +13,60 @@ import { ConfigPlaceholder } from '../src/dsh/client/config-placeholder.tsx'
 import { OperationHistory } from '../src/dsh/client/operation-history.tsx'
 import { PanelHeader } from '../src/dsh/client/panel-header.tsx'
 import { panelViewId } from '../src/dsh/client/panel-types.ts'
+import { USER_CHOICE } from '../src/dsh/client/workspace-scope.ts'
+import { WORKSPACE_LIST_ID, WorkspaceListbox, workspaceChoiceLabel, workspaceOptionId, workspaceSelectKey } from '../src/dsh/client/workspace-select.tsx'
 
-import type { WritePlan, WriteReport } from '../src/control/index.ts'
+import type { WritePlan } from '../src/control/index.ts'
+import type { HistoryEntry } from '../src/dsh/client/operation-history.tsx'
+import type { PanelHeaderScope } from '../src/dsh/client/panel-header.tsx'
+import type { WorkspaceChoice } from '../src/dsh/client/workspace-scope.ts'
 
 const noop = (): void => {}
 
-function renderHeader(tab: 'agents' | 'history' | 'config'): string {
+const ALPHA: WorkspaceChoice = { kind: 'workspace', workspaceId: 'ws-alpha', title: 'Alpha 工作区', path: '/work/alpha' }
+
+function defaultScope(overrides: Partial<PanelHeaderScope> = {}): PanelHeaderScope {
+  return { choice: USER_CHOICE, choices: [USER_CHOICE], status: 'ready', ...overrides }
+}
+
+function renderHeader(tab: 'agents' | 'history' | 'config', scope: PanelHeaderScope = defaultScope()): string {
   return renderToStaticMarkup(h(PanelHeader, {
     tab,
     onTab: noop,
     reload: { status: 'idle' },
     onRefresh: noop,
+    scope,
+    onSelectWorkspace: noop,
   }))
 }
 
 describe('插件面板头部', () => {
-  it('题头行右侧是工作空间占位，主要页签在第二行', () => {
+  it('题头行右侧是工作空间选择器，主要页签在第二行', () => {
     const html = renderHeader('agents')
     expect(html).toContain('panel-header-top')
     expect(html).toContain('panel-header-tabs-row')
     expect(html).toContain('panel-workspace')
-    expect(html).toContain('工作空间选择器（尚未实现）')
+    expect(html).toContain('用户全局')
     expect(html.indexOf('panel-header-top')).toBeLessThan(html.indexOf('panel-header-tabs-row'))
     expect(html.indexOf('panel-header-tabs-row')).toBeLessThan(html.indexOf('panel-tabs'))
+  })
+
+  it('选择器是 listbox combobox 形态：aria 关系齐全', () => {
+    const html = renderHeader('agents', defaultScope({ choice: ALPHA, choices: [USER_CHOICE, ALPHA] }))
+    expect(html).toContain('role="combobox"')
+    expect(html).toContain('aria-haspopup="listbox"')
+    expect(html).toContain('aria-expanded="false"')
+    expect(html).toContain(`aria-controls="${WORKSPACE_LIST_ID}"`)
+    expect(html).toContain('Alpha 工作区')
+  })
+
+  it('列表不可用时触发件带警示态，并把原因写进状态区', () => {
+    const html = renderHeader('agents', defaultScope({
+      status: 'unavailable',
+      notice: { severity: 'warn', text: '工作区列表不可用' },
+    }))
+    expect(html).toContain('panel-workspace warn')
+    expect(html).toContain('工作区列表不可用')
   })
 
   it('页签顺序为 智能体 → 操作历史 → 配置，刷新按钮仍在操作区', () => {
@@ -63,6 +94,49 @@ describe('插件面板头部', () => {
   })
 })
 
+describe('工作空间选择器选项', () => {
+  it('选项列表带 role=option、勾选态与路径副行', () => {
+    const html = renderToStaticMarkup(h(WorkspaceListbox, {
+      choices: [USER_CHOICE, ALPHA],
+      selectedKey: ALPHA.workspaceId,
+      activeIndex: 1,
+      listId: WORKSPACE_LIST_ID,
+      onSelect: noop,
+      onHover: noop,
+    }))
+    expect(html).toContain('role="listbox"')
+    expect(html).toContain(`id="${WORKSPACE_LIST_ID}"`)
+    expect(html).toContain(`id="${workspaceOptionId(0)}"`)
+    expect(html).toContain('role="option"')
+    expect(html).toContain('aria-selected="true"')
+    expect(html).toContain('/work/alpha')
+    expect(html).toContain('只扫用户级与随包根')
+  })
+
+  it('标题为空时回退到路径末段', () => {
+    expect(workspaceChoiceLabel({ ...ALPHA, title: '  ' })).toBe('alpha')
+    expect(workspaceChoiceLabel(USER_CHOICE)).toBe('用户全局')
+  })
+
+  it('键盘契约：关闭时打开、打开时循环 / 首尾 / 选择 / 关闭回焦', () => {
+    const closed = workspaceSelectKey({ open: false, active: 0, count: 3 }, 'ArrowDown')
+    expect(closed).toMatchObject({ handled: true, open: true, active: 0 })
+    expect(workspaceSelectKey({ open: false, active: 0, count: 3 }, 'ArrowUp')).toMatchObject({ open: true, active: 2 })
+    expect(workspaceSelectKey({ open: false, active: 0, count: 3 }, 'a').handled).toBe(false)
+
+    expect(workspaceSelectKey({ open: true, active: 2, count: 3 }, 'ArrowDown')).toMatchObject({ active: 0 })
+    expect(workspaceSelectKey({ open: true, active: 0, count: 3 }, 'ArrowUp')).toMatchObject({ active: 2 })
+    expect(workspaceSelectKey({ open: true, active: 1, count: 3 }, 'Home')).toMatchObject({ active: 0 })
+    expect(workspaceSelectKey({ open: true, active: 1, count: 3 }, 'End')).toMatchObject({ active: 2 })
+    expect(workspaceSelectKey({ open: true, active: 1, count: 3 }, 'Enter')).toMatchObject({ select: true })
+    expect(workspaceSelectKey({ open: true, active: 1, count: 3 }, ' ')).toMatchObject({ select: true })
+    expect(workspaceSelectKey({ open: true, active: 1, count: 3 }, 'Escape')).toMatchObject({ open: false, refocus: true })
+    expect(workspaceSelectKey({ open: true, active: 1, count: 3 }, 'Tab')).toMatchObject({ open: false, refocus: false })
+    // 空列表也要能开、能关（选择器会兜底成「用户全局」一项）。
+    expect(workspaceSelectKey({ open: false, active: 0, count: 0 }, 'Enter')).toMatchObject({ open: true, active: 0 })
+  })
+})
+
 describe('配置占位视图', () => {
   it('明确标注尚未实现', () => {
     const html = renderToStaticMarkup(h(ConfigPlaceholder, { hidden: false }))
@@ -78,11 +152,12 @@ describe('操作历史视图', () => {
     expect(html).toContain('（尚无操作）')
   })
 
-  it('逐条呈现真实 commit 报告', () => {
-    const reports: WriteReport[] = [{ results: [{ ok: true, file: '/tmp/default.agent.md' }] }]
+  it('逐条呈现真实 commit 报告与产生它的工作空间', () => {
+    const reports: HistoryEntry[] = [{ report: { results: [{ ok: true, file: '/tmp/default.agent.md' }] }, workspace: 'Alpha 工作区' }]
     const html = renderToStaticMarkup(h(OperationHistory, { plan: null, reports }))
     expect(html).toContain('已写入')
     expect(html).toContain('/tmp/default.agent.md')
+    expect(html).toContain('Alpha 工作区')
   })
 
   it('待写入计划与提交报告同屏呈现', () => {
