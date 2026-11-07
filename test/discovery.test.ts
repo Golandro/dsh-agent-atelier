@@ -321,6 +321,23 @@ describe('agent document layout', () => {
     expect(definition?.path).toBe(join(test.project, '.dsh', 'agents', 'reviewer', 'reviewer.agent.md'))
     expect(await test.registry.diagnostics({ cwd: test.project })).toEqual([])
   })
+
+  it('registers an agent whose description is a literal block scalar', async () => {
+    const test = harness()
+    writeAgent(join(test.project, '.dsh', 'agents'), 'blocky', [
+      'description: |',
+      '  first line',
+      '  second line',
+      '',
+      '  after a blank line',
+      'modelOrder: [fast]',
+    ].join('\n'))
+
+    const definition = await test.registry.get('blocky', { cwd: test.project })
+
+    expect(definition?.description).toBe('first line\nsecond line\n\nafter a blank line')
+    expect(await test.registry.diagnostics({ cwd: test.project })).toEqual([])
+  })
 })
 
 describe('bundled root trust', () => {

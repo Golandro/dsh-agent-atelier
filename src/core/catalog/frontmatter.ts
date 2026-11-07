@@ -7,8 +7,9 @@
  * the settings-UI work (2026-10-17 dependency ruling), but no reader imports
  * them, so the bundle keeps exactly one hand-rolled YAML implementation. This
  * module hand-rolls exactly the subset the
- * agent schema needs — `---` fences, plain and quoted scalars, flow and block
- * string arrays, and `{provider, model}` flow mappings — and keeps every
+ * agent schema needs — `---` fences, plain and quoted scalars, literal (`|`)
+ * block scalars, flow and block string arrays, and `{provider, model}` flow
+ * mappings (the folded `>` form stays unsupported) — and keeps every
  * unrecognised key as raw text so a later editor can write it back unchanged
  * (D14).
  *
@@ -57,6 +58,8 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set<string>([...STRING_KEYS, ...STRI
 const KEY_RE = /^([A-Za-z0-9_.-]+):(.*)$/
 const BLOCK_ITEM_RE = /^\s*-\s*(.*)$/
 const INDENTED_RE = /^\s/
+/** The block-scalar header this subset reads: YAML's literal form, bare `|` (+ optional trailing comment). */
+const LITERAL_BLOCK_HEADER = '|'
 
 /** A frontmatter value before it is shaped for a specific key. */
 type RawValue =
@@ -170,8 +173,17 @@ function parseEntries(lines: readonly string[], problems: string[]): Map<string,
     const inline = (match[2] ?? '').trim()
     index += 1
     const blockLines: string[] = []
+    const literalBlock = isLiteralBlockHeader(inline)
     while (index < lines.length) {
       const next = lines[index] ?? ''
+      if (literalBlock) {
+        // A literal block scalar owns every following blank or indented line:
+        // blank lines and `#`-looking lines are content, not layout or comments.
+        if (!INDENTED_RE.test(next) && next.trim() !== '') break
+        blockLines.push(next)
+        index += 1
+        continue
+      }
       if (isIgnorable(next)) {
         index += 1
         continue
@@ -190,8 +202,20 @@ function parseEntries(lines: readonly string[], problems: string[]): Map<string,
   return entries
 }
 
+/** Whether an inline value is YAML's literal block-scalar header (`|`, plus an optional trailing comment). */
+function isLiteralBlockHeader(inline: string): boolean {
+  return stripComment(inline).trim() === LITERAL_BLOCK_HEADER
+}
+
 /** Classify one key's value: inline form, indented block form, or absent. */
 function classifyValue(key: string, inline: string, blockLines: readonly string[], problems: string[]): RawEntry {
+  // A bare `|` is YAML's literal block scalar header, not an inline value. The
+  // text it introduces (including blank lines) is the value, so this branch
+  // must run before the inline-plus-block conflict check below.
+  if (isLiteralBlockHeader(inline)) {
+    const text = dedentBlock(blockLines)
+    return { raw: text, value: { kind: 'scalar', text } }
+  }
   const raw = inline !== '' ? inline : dedentBlock(blockLines)
   if (inline !== '') {
     if (blockLines.length > 0) {
@@ -217,11 +241,12 @@ function classifyValue(key: string, inline: string, blockLines: readonly string[
 function dedentBlock(lines: readonly string[]): string {
   let common = Number.POSITIVE_INFINITY
   for (const line of lines) {
+    if (line.trim() === '') continue
     const indent = line.length - line.trimStart().length
     if (indent < common) common = indent
   }
   if (!Number.isFinite(common)) return ''
-  return lines.map((line) => line.slice(common)).join('\n').trimEnd()
+  return lines.map((line) => (line.trim() === '' ? '' : line.slice(common))).join('\n').trimEnd()
 }
 
 /** Classify one inline value; syntax the subset cannot read becomes a problem. */

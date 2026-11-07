@@ -8,6 +8,8 @@ lib/
 .dsh-mattskillsdeck-cache/
 *.tsbuildinfo
 
+worktrees
+
 # prototype build output
 prototype/settings-ui/dist/
 

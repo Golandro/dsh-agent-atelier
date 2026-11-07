@@ -39,6 +39,21 @@ describe('minimal frontmatter reader', () => {
     expect(parsed.body).toBe('你是审查者。')
   })
 
+  it('reads a literal block scalar, keeping its blank lines and header comment', () => {
+    const parsed = parseAgentDocument(document([
+      'description: | # one-line summary',
+      '  first line',
+      '  second line',
+      '',
+      '  after a blank line',
+      'modelOrder: [fast]',
+    ].join('\n')))
+
+    expect(parsed.frontmatter.problems).toEqual([])
+    expect(parsed.frontmatter.description).toBe('first line\nsecond line\n\nafter a blank line')
+    expect(parsed.frontmatter.modelOrder).toEqual(['fast'])
+  })
+
   it('reads block sequences and plain-form model mappings', () => {
     const parsed = parseAgentDocument(document([
       'modelOrder:',
@@ -99,7 +114,7 @@ describe('minimal frontmatter reader', () => {
     const cases: readonly string[] = [
       'modelOrder: { smart: 1 }',
       'requiredTools:\n  - [read, grep]',
-      'name: |\n  multi',
+      'name: >\n  multi',
       'spawn: parallel',
       'name: "unterminated',
       'modelOrder: [smart',
