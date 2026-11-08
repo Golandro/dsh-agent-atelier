@@ -113,7 +113,7 @@
 | `channel:tools` | `tools` | 0 | `tools` | 否 | 07 的工具过滤；本票只建模 |
 | `deployment:persona-prefix` | `system` | 0 | `agent` | 是 | 文档正文；空正文也注册，用于遮蔽部署级人设 |
 | `atelier:skills` | `system` | 100 | `agent` | 否 | 07 决定目录注入或内容预注入 |
-| `channel:digest` | `digest` | 0 | `registry` | 否 | 06 的目录摘要 |
+| `channel:digest` | `digest` | 0 | `registry` | 否 | 06 的目录摘要建模；实际投递由 core 行的 `agent/pre-step` 监听器执行 |
 | `channel:first-message` | `first-message` | 0 | 无 | 否 | 07 的首条消息 |
 | `channel:pre-step` | `pre-step` | 0 | 无 | 否 | DSH 原生 compaction / 提醒 |
 
@@ -124,13 +124,13 @@
 | 通道 | DSH 原生机制 | 本票状态 |
 |---|---|---|
 | `system` | `ctx.systemPrompt.section(PromptSection)` | 已执行（兼容 sink） |
-| `digest` | `ctx.systemPrompt.context(PromptContext)`（06） | 仅建模，未注册 |
+| `digest` | `ctx.systemPrompt.context(PromptContext)`（06 建模；实际投递经 `agent/pre-step`） | 06 已落地（pre-step），digest 仍只建模 |
 | `tools` | `ctx.tools.restrict()` 做过滤；`systemPrompt.tools()` 只追加 schema | 仅建模，未接线 |
 | `first-message` | Agent 启动 / 首条消息（07 决定） | 仅建模，未接线 |
-| `pre-step` | agent loop 的 `agent/pre-step`（DSH 原生） | 仅建模，未接线 |
+| `pre-step` | agent loop 的 `agent/pre-step`（DSH 原生） | 06 已接入目录投递；其余原生用途由 DSH |
 
 - 领域名（`AssemblyChannel`、`AssemblySection`、`AssemblyPlan`）只用于规划与面板；直接与 DSH 服务交互的数据一律用原生名。
-- 06/07 落地时只 extend 上表对应机制，不为通道另造平行接口。
+- 06 的目录投递直接 extend `agent/pre-step` 通道（core 行监听器），digest 通道保持规划锚点；07 落地时只 extend 上表对应机制，不为通道另造平行接口。
 
 ## 5. 顺序、断点与 lint
 
@@ -236,6 +236,6 @@
 - **模式切换**：停用旧组装行会 dispose 现有挂载；07 的关联簿需在新服务出现后重挂。
 - **宿主漂移**：persona order 0、节名、`section()` 返回 disposer 都可能随版本变化；v1 用原生名直接 extend，漂移风险更高，需真机集成测试与后续守卫兜住。
 - **complete 未接线**：`PromptSection.complete` 已是原生形状，但兼容 sink 不设置；真正使用 complete 的票必须先明确它与人设遮蔽的关系。
-- **digest / tools 未接线**：06 走 `systemPrompt.context(PromptContext)`，07 的工具过滤走 `ctx.tools.restrict()`；本票只建模通道，不提前造平行接口。
+- **digest 仍只建模 / pre-step 已接线**：06 的目录投递走 `agent/pre-step`（core 行监听器），不注册 `systemPrompt.context`；digest 行仍是规划锚点。07 的工具过滤走 `ctx.tools.restrict()`；本票只建模通道，不提前造平行接口。
 - **文档漂移**：`.scratch/agents-manager/spec.md` 已不存在；当前权威是票面、#5 评论、ADR、GLOSSARY 与本文。
 - **票面旧词**：`includes` 已废弃，现字段是 `skills` / 预置技能；注入方式归 07。

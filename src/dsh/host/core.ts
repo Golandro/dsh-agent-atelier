@@ -15,6 +15,7 @@ import { AGENT_ASSEMBLY_SERVICE, AGENT_CONTROL_SERVICE, AGENT_PROVIDERS_SERVICE,
 import { createAgentProviders, createAgentRegistryService, createAliasRegistryService, findProjectRoot, resolveDshHome } from '../../core/index.ts'
 import { createControlCore } from '../../control/index.ts'
 import { createNodeControlFileSystem, createNodeFileSystem } from '../../providers/fs/index.ts'
+import { installAgentCatalog } from './catalog.ts'
 import { optionalFileSystem } from './fs.ts'
 
 import type { AgentAssembly, AgentModelTarget, AgentProviders, ModelRoute, ModelSelectionPolicy } from '../../contract/index.ts'
@@ -54,6 +55,16 @@ export function applyCore(ctx: Context): { readonly providers: AgentProviders } 
     warn: (message) => ctx.logger.warn(message),
   })
   ctx.effect(() => ctx.provide(ALIAS_REGISTRY_SERVICE, aliasRegistry))
+
+  // Ticket 06: the agent catalog is published on the host's pre-step waterfall.
+  // The listener lives on this row (no new bundle row); it reads the two
+  // registries above and the host's effective surfaces structurally, and a
+  // failure is advisory only (one warning, untouched decision).
+  installAgentCatalog(ctx, {
+    agentRegistry: registry,
+    aliasRegistry,
+    warn: (message) => ctx.logger.warn(message),
+  })
 
   // Ticket 11's control core is the only compose/write face in the bundle.
   // Ticket 12's ui-host row injects this service instead of re-deriving block

@@ -96,11 +96,10 @@ dsh/host                                         dsh/client
 | `providers/fs` | 文件系统 provider：4 根 ＋ bundled（票 18 已落地） | （注册进 `agentProviders`） | `agentProviders`；可选 `fs` |
 | `control` | 控制核心 ＋ writer | `agentControl` | `agentRegistry`、`aliasRegistry`；可选 `agentOrchestrator` |
 | `summon` | `summon_agent` 工具 ＋ 原生替换 | — | `agentOrchestrator`、`tools`、`subagents` |
-| `catalog`（06） | 目录注入 digest ＋ 工具警告 | — | `agentRegistry`、`aliasRegistry`、`tools` |
 | `ui-host`（12） | HTTP exact route | — | `agentControl`；可选 `agentOrchestrator`、`webServer` |
 | `ui-client` | 左侧栏「智能体工坊」面板（`sidebar.panellist` 行 ＋ 同 id `main` keyed 面板） | — | HTTP fetch（12 的 route；客户端不拿宿主服务） |
 
-行是**能力边界**，不是文件边界；一个行可以很小（只做注册）。**同一个服务只 provide 一次**：patch 在 `src/index.ts` 的 all-in-one 行与 granular 行之间二选一，不能同时插入。`core` ＋ `providers/fs` 已随票 18 落地（两行同票 active，HMR 才能整组替换）；`control` / `summon` / `catalog` / `ui-*` / `providers/default` 随 11/12/07/06/05 落地，期间 `src/index.ts` 保持 all-in-one 兼容。
+行是**能力边界**，不是文件边界；一个行可以很小（只做注册）。**同一个服务只 provide 一次**：patch 在 `src/index.ts` 的 all-in-one 行与 granular 行之间二选一，不能同时插入。`core` ＋ `providers/fs` 已随票 18 落地（两行同票 active，HMR 才能整组替换）；`control` / `summon` / `ui-*` / `providers/default` 随 11/12/07/05 落地；06 的目录注入不新增行，由 `core` 行安装 `agent/pre-step` 监听器，纯投影/摘要/门控/渲染在 `agent-assembly` 层。期间 `src/index.ts` 保持 all-in-one 兼容。
 
 ### 2.2 服务契约
 
@@ -328,7 +327,7 @@ interface ProviderLookupOptions {
 - `control` 行：构造 writer、catalog 依赖、可选 orchestrator；provide `agentControl`。
 - `providers/default` 行（后票）：注册模型层与默认对 provider；`ctx.get('fs')` / `ctx.get('agentDefaultModel')` 按用时读。
 - `summon`（07）：注册 `summon_agent` tool；把 `PreparedAgent` 翻译成 `ctx.subagents.start` 的 request；`system-prompt/assemble` 过滤原生工具；链耗尽 → tool isError；能力降级 → 警告放行。
-- `catalog`（06）：pre-step digest；last-digest / offered message id 等会话状态留在本行；core 只渲染条目与算哈希。
+- 目录注入（06）：由 `core` 行安装 `agent/pre-step` 监听器（不新增行）；纯投影、摘要门控、渲染与发布规划在 `agent-assembly` 层，宿主适配在 `dsh/host`；会话历史经 `session.deriveMessages()` 读取。
 - `ui-host`（12）：`ctx.webServer` exact route；校验请求 → 调 `agentControl` → 序列化；错误 400/404/409/5xx；请求上限。
 - `ui-client`：左侧栏「智能体工坊」面板（`sidebar.panellist` 行 ＋ 同 id `main` keyed 面板，2026-10-19 裁决）；构造 HTTP `AgentDocPort`，创建 session，渲染 `<AgentControlPage>`；加载 / 失败 / 重试兜底。
 - persona 委托原生 `deployment:persona-prefix`，不重复发明。
@@ -471,7 +470,7 @@ test/
 | --- | --- | --- | --- |
 | P1 | **机械分层**：搬 01/02 模块（含 `types.ts` → `contract/`）；拆 fs 端口与 provider；加 import 矩阵守卫；更新锚点与测试 import；仍单行 apply | 票 16 | 行为零变化；`pnpm check` 全绿 |
 | P2 | `core` ＋ `providers/fs` 两行（票 18 已落地）；`agentProviders` 注册表上线；catalogs 改消费注册表；`providers/default`（模型层 / 默认对）与 **Service 子类包装 ＋ `@deepseek-ai/cordis` peer ＋ loader 安装探针**随后续票；`src/index.ts` 保持 all-in-one 兼容 | 18、01/02、16 | 注册 / 注销 / invalidate 重扫（已测）；真机 HMR 两行同票 active |
-| P3 | `core/resolve`（03）＋ `core/assemble`（04）＋ `agentOrchestrator` 行；`summon`（07）＋ `catalog`（06）行 | 03、04、06、07 | 假 ctx 集成；链耗尽 isError |
+| P3 | `core/resolve`（03）＋ `core/assemble`（04）＋ `agentOrchestrator` 行；目录注入（06，core 行内）＋ `summon`（07） | 03、04、06、07 | 假 ctx 集成；链耗尽 isError |
 | P4 | `control` 行（11）＋ `ui-host` / `ui-client`（12）＋ `ui-core` / `ui-react`（05/13） | 11、12、05、13 | 适配器契约套件；真机编辑落盘 |
 | P5 | 拆包 / 第三方 provider | §7.2 触发 | 安装与回退实测 |
 
@@ -482,7 +481,7 @@ test/
 | 01 / 02 | `core/catalog` ＋ `providers/fs`（fs / bundled，票 18）＋ `providers/default`（模型层 / 默认对，后票） |
 | 03 | `core/resolve`（内部）→ `agentOrchestrator` |
 | 04 | `core/assemble`（内部）＋ sink 注册在 summon / dsh 行 |
-| 06 | `core/catalog-injection` ＋ `core/tool-capability` ＋ `catalog` 行 |
+| 06 | `agent-assembly` 的目录投影/摘要/门控 ＋ `dsh/host` 的 pre-step 适配（core 行内，无独立行） |
 | 07 | `agentOrchestrator` 消费 ＋ `summon` 行（tool / subagents / 原生过滤） |
 | 11 | `core/control` → `agentControl` 服务 |
 | 12 | `ui-host` 行 ＋ `ui-client` 入口 ＋ `ui-core` HTTP port |

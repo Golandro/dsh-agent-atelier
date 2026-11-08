@@ -57,7 +57,7 @@ plugin_manager { action: "remove_bundle",  target: "dsh-agent-atelier" }
 Delivered: agent discovery + `agentRegistry` (01), alias/model registry (02),
 provider sub-plugin (18), control core + HTTP wiring + sidebar editor
 (11/12/05), model resolution (03), prompt assembly planner + compat
-registration (04). Catalog injection (06) and the summon tool (07) follow the
+registration (04), catalog injection (06). The summon tool (07) follows the
 roadmap: issues and specs
 live in GitHub Issues ([Golandro/dsh-agent-atelier](https://github.com/Golandro/dsh-agent-atelier/issues);
 overview map: [#1](https://github.com/Golandro/dsh-agent-atelier/issues/1)).
