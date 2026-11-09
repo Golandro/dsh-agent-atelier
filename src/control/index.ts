@@ -8,6 +8,21 @@
 export { createAgentDocPort, createControlCore, planDirtyEdits } from './core.ts'
 export type { AgentDocPort, ControlCore, ControlDependencies } from './core.ts'
 export { ChainExhaustedError } from './session-agent.ts'
+export {
+  isDefaultBridge,
+  missingRequiredTools,
+  planSummonStart,
+  readSummonArguments,
+  summonRestriction,
+} from './summon.ts'
+export type {
+  SummonAgentOptions,
+  SummonArguments,
+  SummonProviderCapabilities,
+  SummonRestrictionInput,
+  SummonStartPlan,
+  SummonToolMask,
+} from './summon.ts'
 export { projectItemEffort, routeNotAllowed, sessionChainContext } from './resolve.ts'
 export type {
   EffortCapabilities,

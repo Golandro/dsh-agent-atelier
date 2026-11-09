@@ -14,7 +14,8 @@ export {
   evaluateAgentQuery,
   planDirtyEdits,
 } from './control/index.ts'
-export { BUNDLED_AGENTS_DIR, apply, optionalFileSystem } from './dsh/host/index.ts'
+export { BUNDLED_AGENTS_DIR, apply, applySummon, optionalFileSystem, SUMMON_TOOL_NAME } from './dsh/host/index.ts'
+export type { SummonPluginConfig } from './dsh/host/index.ts'
 export type { AgentDefinition, AgentRegistry, AliasRegistry } from './contract/index.ts'
 export type {
   AgentAssembly,

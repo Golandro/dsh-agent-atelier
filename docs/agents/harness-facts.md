@@ -70,3 +70,27 @@ Provider（host）：`Service.listService` / `Event.listEvents` / `Config.listCo
 - **错误**：向连对话流都没有的死子代理（`session/new` 即挂或零输出被停）发消息复用会话。**正确**：重派一律用 `subagent()` 重新创建全新会话，死会话只读日志取死因、不续用。
 - **错误**：并行会话下用 `GIT_INDEX_FILE` 指向 /tmp 做隔离暂存，再 `git add` 相对路径。**正确**：空索引 + 相对路径会产出「删光全树」的提交；隔离提交用 pathspec：`git commit -m … -- <自己的明确路径>`（绕开索引）；出事立即 `git reset --soft <好提交>`，工作树不受影响。
 - **错误**：在 volcengine-plan 上并发多个重子代理当无上限。**正确**：volcengine 有账户级限流（429 AccountRateLimitExceeded），两个并发重任务可致其中途夭折；重任务尽量串行，429 死亡读子会话日志确认后重派。
+
+## 安装包 rc.1 与源码树漂移（2026-11-09，实测）
+
+- **源码树 ≠ 已装版本**：`~/repo/deepseek-harness` 是 `dsh-v0.2.2-rc.1` tag **之后 811 个提交**的 master；票面/事实复核要用安装包，不能用 checkout 的 HEAD。安装包位置：`node_modules/@deepseek-ai/dsh-*`（本仓 devDeps）或 `~/.local/share/pnpm/store/v11/links/@deepseek-ai/<pkg>/0.2.2-rc.1/*/node_modules/@deepseek-ai/<pkg>`。
+- **子代理激活形状**：已装 rc.1 `ctx.subagents.startActivation` 收 `{provider, label, childId?, request: {prompt, parent, agentOptions?, maxDepth?, cwd?}, signal, delivery}`；`request` 是嵌套对象，不是 master 的平铺形状。`SubagentActivation` 只有 `childId/messageId?/result/dispose`，没有 `name`；原生 tool 返回 `{kind:'activation', subagentId}`。
+- **本地后端判定**：provider 有 `prepareContinuable` 方法才接受保留 `childId`，否则抛 `reserved child ids require a local backend`；外部 provider 不创建本地 Agent，`agent/created` 关联与 persona 挂载只对本地 provider 成立。
+- **子代理 header**：`SessionHeader` 的 `origin`/`delegationDepth` 在 header 顶层（`header.origin === 'subagent'`），不在 `header.meta`。
+- **本地激活依赖持久化**：`delivery:'parent'` 的本地激活要求 `sessionPersistence`；测试用 `mountAgentLoopTestDependencies(ctx,{workingDirectory:true})` + `@deepseek-ai/dsh-session-persistence-jsonl`（`mkdtemp` 临时 root）。
+- **agent/created**：rc.1 payload 是 `{agent, source, signal?}`；本仓宿主镜像只需读 `agent`。
+
+## 进程内宿主验收测试（2026-11-09）
+
+- **依赖形态**：宿主服务与 testkit 以 devDependencies 安装（范围 `^0.2.2-rc.1`，不 pin）；`cordis` 对齐 `^4.1.0`。它们不进 bundle 运行时，符合“宿主共享实例走 peer + dev”的既有纪律。
+- **挂载**：`new Context()` → `mountAgentLoopTestDependencies(ctx,{workingDirectory:true})` → `mountAgentLoopTestHarness(ctx)` → 可选 `SubagentRuntime` / `JsonlSessionPersistence({root: mkdtemp})`；用 `ownContext` 统一 `ctx.fiber.dispose()`。
+- **tsc 隔离**：`test/host-*.test.ts` 与 `test/support/host.ts` 从 `tsconfig.json` 排除——宿主包会声明合并 Cordis `Events`，与本仓刻意不 import 宿主包的结构镜像冲突；生产代码仍全量 typecheck，宿主测试由 vitest 运行。
+- **`pnpm run check` 的沙箱注意**：pnpm 11 的 `verify-deps-before-run` 会先跑 `pnpm install`；沙箱内 store 在 `~` 下不可写（SQLite EROFS）。校验脚本用 `pnpm_config_verify_deps_before_run=false pnpm run check`，或在沙箱外跑原命令。
+
+## 失败台账两条腿（2026-11-09，真机探针）
+
+- **`llm/stream` 不被 scope 滤掉**：`this: LlmRuntime` 只是类型位；Cordis 只在 emitter 带 `Context.filter` 时过滤（`cordis src/events.ts:162-171`），`Service` 级 filter 只比 **`llm` 服务隔离标签**（`cordis src/service.ts:61`），bundle 行与 runtime 同域 ⇒ 收到。若未来某插件 `isolate('llm')` 另供 runtime，行监听者收不到那份实例的事件。
+- **`agent/request-error` 的 scope filter 放行未打标签的 ctx**：carrier 由 `dsh-scope` 的 `scopeTarget` 构造（`dsh-agent lib/types/dispatch.js:19-42`），规则为「未打标签 ⇒ 全局；打标签 ⇒ 同键或祖先键」（`dsh-scope lib/types/index.js:327-335`）。bundle 行 ctx 无标签 ⇒ 收所有 Agent 的失败；挂在 Agent scope 里则只收该 Agent 及其子。
+- **失败请求的 model**：`session.requestContext()`（最近一条 `request/context` 折叠，在 stream 之前追加，`dsh-agent-loop lib/index.js:1075`）；`agent.model.current()` 是「下一步」选择（`pending ?? lastUsed`），不能当失败路由；`turn/end.reason.error` 只有 `LlmFailure`、无 route。
+- **腿 B 的 route 最权威**：`llm/stream` 的 `GenerateOptions` 自带本次尝试 `provider/model`，且 waterfall 同样包住 `preparedCall.stream` 路径；但终局判定（是否会重试）只能由腿 A 的 `next()` 返回值给出。
+- **证据与复现**：`test/host-llm-events.test.ts`（真实 LlmRuntime/AgentLoop/Session + 假 adapter，2 例）；完整结论见 `docs/research/2026-11-09-07a-llm-stream-scope.md`。

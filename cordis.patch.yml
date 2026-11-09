@@ -6,6 +6,7 @@
 # provider 行 inject agentProviders，注册四个文件根 + bundled 的 AgentSourceProvider；
 # assembly 行提供 agentAssembly（兼容模式）。替换模式经 patch 停用本行并 insert 替换行，
 # 两行不得同时 provide 同一个 key；
+# summon 行提供 summon_agent 工具并在 agent/created 挂载组装、隐藏原生入口（票 07）。
 # ui-host 行必须用「裸包名」（不能是子路径行）：client-modules 只扫描裸包名/路径型 entry，
 # 子路径行永远不算 client row（packages/client/modules/src/index.ts:893-896）；它的
 # config.role = ui-host 让包根 apply 只注册 /agent-atelier/* 路由，不重复挂 core/provider。
@@ -20,6 +21,12 @@
     - id: agent-atelier-assembly
       name: 'dsh-agent-atelier/assembly'
       config: {}
+    # 07：召唤入口与原生入口替换。内部等待 tools/subagents/agents 三个宿主服务；
+    # keepNativeSubagentTools: true 是兼容回退（保留原生 subagent/subagent_fork）。
+    - id: agent-atelier-summon
+      name: 'dsh-agent-atelier/summon'
+      config:
+        keepNativeSubagentTools: false
     - id: agent-atelier-ui
       name: 'dsh-agent-atelier'
       inject: ['webServer', 'agentControl']

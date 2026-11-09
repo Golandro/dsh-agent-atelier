@@ -12,7 +12,7 @@ first message) and deliberately delegates runtime orchestration to native DSH.
 | Item | Value |
 | --- | --- |
 | Package | `dsh-agent-atelier` |
-| Bundle rows | `agent-atelier-core`, `agent-atelier-provider-fs`, `agent-atelier-assembly`, `agent-atelier-ui` (`cordis.patch.yml`) |
+| Bundle rows | `agent-atelier-core`, `agent-atelier-provider-fs`, `agent-atelier-assembly`, `agent-atelier-summon`, `agent-atelier-ui` (`cordis.patch.yml`) |
 | Services | `agentRegistry` · `aliasRegistry` · `agentProviders` · `agentControl` · `agentAssembly` |
 | Control routes | `/agent-atelier/state` · `compose` · `plan` · `commit` · `registry` · `invalidate` |
 | GUI panel | sidebar 「智能体工坊」, id `agent-atelier`, order 5 |
@@ -57,7 +57,11 @@ plugin_manager { action: "remove_bundle",  target: "dsh-agent-atelier" }
 Delivered: agent discovery + `agentRegistry` (01), alias/model registry (02),
 provider sub-plugin (18), control core + HTTP wiring + sidebar editor
 (11/12/05), model resolution (03), prompt assembly planner + compat
-registration (04), catalog injection (06). The summon tool (07) follows the
+registration (04), catalog injection (06), and the `summon_agent` entry +
+native-entry replacement (07 — unit, fake-host, and in-process real-host
+acceptance: persona/order/shadowing, tool masking, keepNative restore,
+disposer reload, chain-exhausted isError, real local child composition).
+A profile install is now only a release smoke. The failure ledger (07b) follows the
 roadmap: issues and specs
 live in GitHub Issues ([Golandro/dsh-agent-atelier](https://github.com/Golandro/dsh-agent-atelier/issues);
 overview map: [#1](https://github.com/Golandro/dsh-agent-atelier/issues/1)).

@@ -125,8 +125,8 @@
 |---|---|---|
 | `system` | `ctx.systemPrompt.section(PromptSection)` | 已执行（兼容 sink） |
 | `digest` | `ctx.systemPrompt.context(PromptContext)`（06 建模；实际投递经 `agent/pre-step`） | 06 已落地（pre-step），digest 仍只建模 |
-| `tools` | `ctx.tools.restrict()` 做过滤；`systemPrompt.tools()` 只追加 schema | 仅建模，未接线 |
-| `first-message` | Agent 启动 / 首条消息（07 决定） | 仅建模，未接线 |
+| `tools` | `ctx.tools.restrict()` 做过滤；`systemPrompt.tools()` 只追加 schema | 07 已接线：`agent/created` 在 child 的 scope 隐藏原生入口 |
+| `first-message` | Agent 启动 / 首条消息（07 决定） | 07 已接线：`startActivation` 的 prompt 是子代理首条消息 |
 | `pre-step` | agent loop 的 `agent/pre-step`（DSH 原生） | 06 已接入目录投递；其余原生用途由 DSH |
 
 - 领域名（`AssemblyChannel`、`AssemblySection`、`AssemblyPlan`）只用于规划与面板；直接与 DSH 服务交互的数据一律用原生名。
@@ -181,17 +181,17 @@
 | 契约类型与服务 key | `assembly.ts`、`service-keys.ts` | 契约已落；宿主面已改原生名 | 06/07 按通道 extend |
 | 宿主注册面切片 | `SystemPrompt`、`PromptSection`、`AssembleContext` | 已扩展（原生名） | 06/07 按需加成员 |
 | 纯函数规划器 | `src/agent-assembly/planner.ts` | 已交付 | 06 消费 lint |
-| 兼容注册 sink | `src/agent-assembly/sink.ts` | 已交付 | 07 挂载 |
+| 兼容注册 sink | `src/agent-assembly/sink.ts` | 已交付 | 07 已挂载（`agent/created`） |
 | 独立组装插件行 | `src/dsh/host/assembly.ts`、`./assembly` 导出、patch 行 | 已交付 | — |
 | `ComposedAgentSession.model` | 接口字段 + 填充 | 已交付 | 07 消费 |
 | `ControlSnapshot.assemblies` | 快照投影 | 已交付 | 面板消费 |
 | 顾问面板 | 规划表 | 已替换 | — |
 | 06 lint 消费 | 无 | 未开始 | 06 |
-| 07 召唤与关联簿 | 无 | 未开始 | 07 |
+| 07 召唤与关联簿 | `src/dsh/host/summon.ts`、`src/control/summon.ts`、`test/summon.test.ts`、`test/host-*.test.ts` | 已交付（单元 + 假宿主 + 进程内真实宿主服务验收） | `install_bundle` 仅发布冒烟；#8 按新证据收尾 |
 | 替换模式包 | 无 | 已定，不实现 | 后续额外包票 |
 | ADR-0006 | 已提交文档 | 已交付 | — |
 | GLOSSARY 词条 | 已更新 | 已交付 | — |
-| 票 04 规格 | GitHub #5 评论 | 已实现 | 接口文档已同步；真机验收待做 |
+| 票 04 规格 | GitHub #5 评论 | 已实现 | 接口文档已同步；进程内真实服务验收已做（`test/host-system-prompt.test.ts`） |
 
 ## 10. 不变式与验收门
 
@@ -236,6 +236,7 @@
 - **模式切换**：停用旧组装行会 dispose 现有挂载；07 的关联簿需在新服务出现后重挂。
 - **宿主漂移**：persona order 0、节名、`section()` 返回 disposer 都可能随版本变化；v1 用原生名直接 extend，漂移风险更高，需真机集成测试与后续守卫兜住。
 - **complete 未接线**：`PromptSection.complete` 已是原生形状，但兼容 sink 不设置；真正使用 complete 的票必须先明确它与人设遮蔽的关系。
-- **digest 仍只建模 / pre-step 已接线**：06 的目录投递走 `agent/pre-step`（core 行监听器），不注册 `systemPrompt.context`；digest 行仍是规划锚点。07 的工具过滤走 `ctx.tools.restrict()`；本票只建模通道，不提前造平行接口。
+- **digest 仍只建模 / pre-step 已接线**：06 的目录投递走 `agent/pre-step`（core 行监听器），不注册 `systemPrompt.context`；digest 行仍是规划锚点。07 已把 `tools` 通道接到 `ctx.tools.restrict()`（`agent/created` 窗口），把 `first-message` 接到 `startActivation`。
+- **宿主 0.2.2-rc.1 的接线事实**：`SubagentStartRequest` 已无 `persona`/`toolFilter`；`system-prompt/assemble` 的 `PromptPresentation` 只含 sections/contexts/variables，tools 在 waterfall 之后由 provider 追加。07 因此不用 assemble 过滤 tools，而用 per-agent `tools.restrict()`；子代理的人设/模型节在 `agent/created`（首条 prompt 组装之前）挂到 child scope。已装 rc.1 的 `startActivation` 参数是嵌套 `request`，且子代理 header 的 `origin` 在顶层（详见 [harness-facts](../agents/harness-facts.md) 的「安装包 rc.1 与源码树漂移」）。
 - **文档漂移**：`.scratch/agents-manager/spec.md` 已不存在；当前权威是票面、#5 评论、ADR、GLOSSARY 与本文。
 - **票面旧词**：`includes` 已废弃，现字段是 `skills` / 预置技能；注入方式归 07。

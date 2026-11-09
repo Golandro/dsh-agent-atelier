@@ -18,6 +18,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { applyAssembly } from './assembly.ts'
 import { applyCore } from './core.ts'
 import { applyProviders } from './providers.ts'
+import { applySummon } from './summon.ts'
 import { applyUiHost } from './ui-host.ts'
 
 /** Loader-row config understood by the package root. */
@@ -40,5 +41,6 @@ export function apply(ctx: Context, config: AgentManagerPluginConfig = {}): void
   // tick, so the provider half receives the registry instance directly.
   const { providers } = applyCore(ctx)
   applyAssembly(ctx)
+  applySummon(ctx)
   applyProviders(ctx, providers)
 }
