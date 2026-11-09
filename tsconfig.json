@@ -28,5 +28,10 @@
     "outDir": "lib",
     "types": ["node"]
   },
-  "include": ["src", "test", "client-editor", "client-list"]
+  // Host-acceptance tests mount real DSH packages; those packages augment
+  // Cordis Events with their exact types, which intentionally conflict with
+  // this bundle's self-contained structural mirrors (the bundle never imports
+  // host packages). Keep them in the runtime test island, outside tsc.
+  "include": ["src", "test", "client-editor", "client-list"],
+  "exclude": ["test/host-*.test.ts", "test/support/host.ts"]
 }
