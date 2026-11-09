@@ -61,9 +61,11 @@ registration (04), catalog injection (06), and the `summon_agent` entry +
 native-entry replacement (07 — unit, fake-host, and in-process real-host
 acceptance: persona/order/shadowing, tool masking, keepNative restore,
 disposer reload, chain-exhausted isError, real local child composition).
-A profile install is now only a release smoke. The failure ledger (07b) follows the
-roadmap: issues and specs
-live in GitHub Issues ([Golandro/dsh-agent-atelier](https://github.com/Golandro/dsh-agent-atelier/issues);
+The failure ledger (07b — in-memory recorder, both runtime legs, and session-path
+consumption: terminal-request vs attempt semantics, request-level rate-limit
+streak, UNKNOWN not accounted) is in; a profile install is now only a release
+smoke. Issues and specs live in GitHub Issues
+([Golandro/dsh-agent-atelier](https://github.com/Golandro/dsh-agent-atelier/issues);
 overview map: [#1](https://github.com/Golandro/dsh-agent-atelier/issues/1)).
 `.scratch/agents-manager/` is the pre-migration archive — historical context
 only, not tracked. Domain terms in `GLOSSARY.md`, decisions in `docs/adr/`.

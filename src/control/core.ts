@@ -266,6 +266,8 @@ async function composeSessionFor(
       policy: options?.policy ?? dependencies.resolveSelectionPolicy?.(),
       flavor: options?.flavor,
       itemEffort: options?.itemEffort,
+      observations: options?.observations,
+      now: options?.now,
     }),
   })
   if (!resolution.ok) throw new ChainExhaustedError(resolution, refusalByPolicy(resolution))

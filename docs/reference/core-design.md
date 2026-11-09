@@ -326,7 +326,7 @@ interface ProviderLookupOptions {
 - `providers/fs` 行（票 18）：`inject: ['agentProviders']`；把 4 根 ＋ bundled 注册进 `agentProviders`，每个 disposer 包进一个 `ctx.effect`；`fs` 按用时读（bundled 固定走 Node）。
 - `control` 行：构造 writer、catalog 依赖、可选 orchestrator；provide `agentControl`。
 - `providers/default` 行（后票）：注册模型层与默认对 provider；`ctx.get('fs')` / `ctx.get('agentDefaultModel')` 按用时读。
-- `summon`（07）：注册 `summon_agent`；`composeSession` → `startActivation({provider,label,request:{…},signal,delivery})`；`agent/created` 挂 assembly 节并对 per-agent `tools.restrict()`；只有本地 provider（有 `prepareContinuable`）才保留 childId、可挂人设；链耗尽 → isError，外部 provider 警告降级。
+- `summon`（07）：注册 `summon_agent`；`composeSession` → `startActivation({provider,label,request:{…},signal,delivery})`；`agent/created` 挂 assembly 节并对 per-agent `tools.restrict()`；只有本地 provider（有 `prepareContinuable`）才保留 childId、可挂人设；链耗尽 → isError，外部 provider 警告降级。07b 在同一条行内挂失败台账：`agent/request-error` 先委派 `next()` 再记终局、`llm/stream` 只记尝试；`composeSession` 接受 `observations`/`now`，空台账不传以保持无台账时的报告形状。
 - 目录注入（06）：由 `core` 行安装 `agent/pre-step` 监听器（不新增行）；纯投影、摘要门控、渲染与发布规划在 `agent-assembly` 层，宿主适配在 `dsh/host`；会话历史经 `session.deriveMessages()` 读取。
 - `ui-host`（12）：`ctx.webServer` exact route；校验请求 → 调 `agentControl` → 序列化；错误 400/404/409/5xx；请求上限。
 - `ui-client`：左侧栏「智能体工坊」面板（`sidebar.panellist` 行 ＋ 同 id `main` keyed 面板，2026-10-19 裁决）；构造 HTTP `AgentDocPort`，创建 session，渲染 `<AgentControlPage>`；加载 / 失败 / 重试兜底。

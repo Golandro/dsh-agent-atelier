@@ -9,7 +9,7 @@
  * parameters, and a failed chain leaves as {@link ChainExhaustedError} carrying
  * that same report, so the consumer never re-resolves to explain itself.
  */
-import type { AgentDefinition, ChainResolutionReport, ModelDefinition, ModelRoute, ModelSelectionPolicy } from '../contract/index.ts'
+import type { AgentDefinition, ChainObservations, ChainResolutionReport, ModelDefinition, ModelRoute, ModelSelectionPolicy } from '../contract/index.ts'
 
 /**
  * The session-start parameters one agent resolved to: the route plus what the
@@ -60,4 +60,11 @@ export interface ComposeSessionOptions {
   readonly policy?: ModelSelectionPolicy | undefined
   /** Caller overrides of per-entry effort (D7); they win over the snapshot's `effort`. */
   readonly itemEffort?: Readonly<Record<string, string | undefined>> | undefined
+  /**
+   * The runtime failure ledger (07b / #56), as the caller's recorder currently
+   * reads it. Absent means "no ledger": the report keeps its pre-R2 shape.
+   */
+  readonly observations?: ChainObservations | undefined
+  /** Clock for the ledger windows (epoch ms); only read when `observations` is present. */
+  readonly now?: number | undefined
 }

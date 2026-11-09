@@ -27,14 +27,16 @@ import { isAbsolute, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 
 import {
+  createFailureRecorder,
   missingRequiredTools,
   planSummonStart,
   readSummonArguments,
   summonRestriction,
 } from '../../control/index.ts'
+import { mountFailureLedger } from './failures.ts'
 
-import type { ComposedAgentSession } from '../../control/index.ts'
-import type { AgentAssembly, AssemblyScope, AssemblySession } from '../../contract/index.ts'
+import type { ComposedAgentSession, FailureRecorder } from '../../control/index.ts'
+import type { AgentAssembly, AssemblyScope, AssemblySession, ChainObservations } from '../../contract/index.ts'
 
 /** Model-facing name of this bundle's delegation entry. */
 export const SUMMON_TOOL_NAME = 'summon_agent'
@@ -148,6 +150,10 @@ interface HostAgentControl {
     options?: {
       readonly cwd?: string | undefined
       readonly flavor?: 'spawn' | 'fork' | undefined
+      /** The runtime failure ledger the executor recorded so far (07b). */
+      readonly observations?: ChainObservations | undefined
+      /** Epoch milliseconds the ledger was read at. */
+      readonly now?: number | undefined
     },
   ): Promise<ComposedAgentSession>
 }
@@ -199,6 +205,12 @@ export function applySummon(ctx: Context, config: SummonPluginConfig = {}): void
   const keepNative = config.keepNativeSubagentTools === true
   const nativeToolNames = normalizeNativeToolNames(config.nativeToolNames)
   const pending = new Map<string, PendingSummon>()
+  // 07b: one in-memory, row-lived ledger. Both runtime legs write into it and
+  // the tool below hands its current reading to chain resolution, so a route
+  // that keeps failing is demoted on the next summon (R2 §2.2/§2.4).
+  const clock = (): number => Date.now()
+  const failures = createFailureRecorder()
+  ctx.effect(() => mountFailureLedger(ctx, failures, { now: clock }))
   ctx.inject(['tools', 'subagents', 'agents'], (scope) => {
     const tools = scope.get('tools') as unknown as HostTools | undefined
     const agents = scope.get('agents') as unknown as HostAgents | undefined
@@ -209,7 +221,7 @@ export function applySummon(ctx: Context, config: SummonPluginConfig = {}): void
     }
     // Registering the tool first means the replacement only ever hides the
     // native entries once the bundle's own entry exists.
-    scope.effect(() => tools.register(createSummonTool(scope, subagents, pending, config)))
+    scope.effect(() => tools.register(createSummonTool(scope, subagents, pending, config, failures, clock)))
     // Mount on every Agent this row sees: existing Agents (a hot-reloaded row)
     // and every later creation, including the summons this tool starts.
     for (const agent of agents.list()) void installRestrictions(scope, tools, agent, nativeToolNames, keepNative, pending)
@@ -225,6 +237,8 @@ function createSummonTool(
   subagents: HostSubagents,
   pending: Map<string, PendingSummon>,
   config: SummonPluginConfig,
+  failures: FailureRecorder,
+  clock: () => number,
 ): HostToolDefinition {
   return {
     name: SUMMON_TOOL_NAME,
@@ -298,9 +312,16 @@ function createSummonTool(
       if (args.cwd !== undefined) {
         childCwd = isAbsolute(args.cwd) || parentCwd === undefined ? args.cwd : resolve(parentCwd, args.cwd)
       }
+      // Read the ledger once and use the same instant for the read and the
+      // resolution, so a rate-limit window cannot be judged against two clocks.
+      const observedAt = clock()
+      const ledger = failures.observations(observedAt)
       const composed = await control.composeSession(args.agent, {
         ...parentCwd === undefined ? {} : { cwd: parentCwd },
         ...args.flavor === undefined ? {} : { flavor: args.flavor },
+        // An empty ledger is "no observations": pass nothing so the report
+        // keeps the exact shape it had before R2 (see projectHealth).
+        ...ledger.routes.length === 0 ? {} : { observations: ledger, now: observedAt },
       })
       exec.signal.throwIfAborted()
 

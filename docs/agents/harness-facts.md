@@ -94,3 +94,14 @@ Provider（host）：`Service.listService` / `Event.listEvents` / `Config.listCo
 - **失败请求的 model**：`session.requestContext()`（最近一条 `request/context` 折叠，在 stream 之前追加，`dsh-agent-loop lib/index.js:1075`）；`agent.model.current()` 是「下一步」选择（`pending ?? lastUsed`），不能当失败路由；`turn/end.reason.error` 只有 `LlmFailure`、无 route。
 - **腿 B 的 route 最权威**：`llm/stream` 的 `GenerateOptions` 自带本次尝试 `provider/model`，且 waterfall 同样包住 `preparedCall.stream` 路径；但终局判定（是否会重试）只能由腿 A 的 `next()` 返回值给出。
 - **证据与复现**：`test/host-llm-events.test.ts`（真实 LlmRuntime/AgentLoop/Session + 假 adapter，2 例）；完整结论见 `docs/research/2026-11-09-07a-llm-stream-scope.md`。
+
+## 失败台账记录器 07b（2026-11-09，已落地）
+
+- **口径**：`failures` 只计「请求终局」的 transient 类（server/timeout/transport/empty-response），按 `(sessionId, turn, step)` 去重，一个请求记 1 次；`RATE_LIMIT` 不进 `failures`（否则两次限流就绕过 `rateLimitStreak ≥ 3` 的门槛），只喂请求级、窗口内的 streak。
+- **不入账**：`UNKNOWN`、未知码（`transient-unknown`）、`INVALID_REQUEST`、`CONTEXT_WINDOW_EXCEEDED`。`AUTH`/`QUOTA` 只写展示字段，不写计数器（v1 投影没有 provider 级计数）。
+- **腿 A 顺序**：`await next()` 原样返回后再记录；`terminal = action === undefined`；route 取 `session.requestContext()`，取不到就不记（不 fallback 到 `agent.model.current()`）。
+- **腿 B 只记尝试**：`finish{reason:{kind:'error'}}` 记 `terminal:false`，只更新展示字段；非 Agent 调用（compaction/title）没有 request 身份，不伪造归属。记录异常吞进 warn，绝不打断被观察的流。
+- **接线**：summon 行内 `ctx.effect(() => mountFailureLedger(ctx, recorder, { now: clock }))`；`composeSession` 新增可选 `observations`/`now`，空 ledger 不传（保持无台账时的报告形状）。
+- **证据**：`test/failures.test.ts`（16 例）、`test/failures-wiring.test.ts`（8 例）、`test/control-failures.test.ts`（3 例，阈值+窗口）、`test/host-failures.test.ts`（2 例真机：两条腿合流后一个请求只记一次）。
+- **工作树副本**：vitest 会把 `.agents/`、`.dsh/`、`.trae/` 下的 worktree 测试当成本包套件收集（重复且易因内部构建状态失败）；`vitest.config.ts` 需显式排除。
+

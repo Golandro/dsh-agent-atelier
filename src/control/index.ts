@@ -8,6 +8,8 @@
 export { createAgentDocPort, createControlCore, planDirtyEdits } from './core.ts'
 export type { AgentDocPort, ControlCore, ControlDependencies } from './core.ts'
 export { ChainExhaustedError } from './session-agent.ts'
+export { classify, createFailureRecorder } from './failures.ts'
+export type { FailureClass, FailureRecorder, FailureRequest, FailureSignal, FailureSource } from './failures.ts'
 export {
   isDefaultBridge,
   missingRequiredTools,
