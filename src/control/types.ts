@@ -16,6 +16,7 @@ import type {
   AliasDefinition,
   AliasDiagnostic,
   AliasFinding,
+  AliasRegistryLayerSnapshot,
   AssemblyPlan,
   ModelDefinition,
 } from '../contract/index.ts'
@@ -196,6 +197,14 @@ export interface ControlSnapshot {
   readonly agents: readonly AgentDefinition[]
   readonly models: readonly ModelDefinition[]
   readonly aliases: readonly AliasDefinition[]
+  /**
+   * The layer projection behind {@link models}/{@link aliases} (ticket 57):
+   * each registry.yaml layer's own declarations, highest precedence first. The
+   * workspace layer is absent for a user-global read; the global layer is
+   * always present, possibly empty. The UI renders the spaces and shadowing
+   * from this, never by re-merging.
+   */
+  readonly registryLayers: readonly AliasRegistryLayerSnapshot[]
   readonly agentDiagnostics: readonly AgentDiagnostic[]
   readonly aliasDiagnostics: readonly AliasDiagnostic[]
   readonly findings: readonly ControlFinding[]

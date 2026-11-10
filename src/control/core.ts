@@ -165,9 +165,10 @@ export function createControlCore(dependencies: ControlDependencies): ControlCor
     async snapshot(options) {
       const scope = await resolveScope(dependencies, options)
       const cwd = scope.scanCwd
-      const [agents, aliasSnapshot, agentDiagnostics, aliasDiagnostics] = await Promise.all([
+      const [agents, aliasSnapshot, aliasLayers, agentDiagnostics, aliasDiagnostics] = await Promise.all([
         dependencies.agentRegistry.list({ cwd }),
         dependencies.aliasRegistry.snapshot({ cwd }),
+        dependencies.aliasRegistry.layers({ cwd }),
         dependencies.agentRegistry.diagnostics({ cwd }),
         dependencies.aliasRegistry.diagnostics({ cwd }),
       ])
@@ -181,6 +182,10 @@ export function createControlCore(dependencies: ControlDependencies): ControlCor
         agents,
         models: aliasSnapshot.models,
         aliases: aliasSnapshot.aliases,
+        // The layered projection behind the merged lists (ticket 57): both
+        // surfaces came from the same memoised load, so they cannot disagree
+        // about which entries a layer declared.
+        registryLayers: aliasLayers,
         agentDiagnostics,
         aliasDiagnostics,
         findings,

@@ -32,8 +32,9 @@ import type {
   AliasDiagnostic,
   AliasFinding,
   AliasRegistry,
+  AliasRegistryLayerSnapshot,
+  AliasRegistryLayerSource,
   AliasRegistrySnapshot,
-  AliasRegistrySource,
   ModelDeclaration,
   ModelDefinition,
 } from '../../contract/index.ts'
@@ -60,16 +61,17 @@ export interface AliasRegistryOptions {
   readonly env?: Record<string, string | undefined> | undefined
 }
 
-/** One memoised load: both read surfaces come from the same pass. */
+/** One memoised load: the merged snapshot, the layered projection and the diagnostics all come from the same pass. */
 interface AliasLoad {
   readonly snapshot: AliasRegistrySnapshot
+  readonly layers: readonly AliasRegistryLayerSnapshot[]
   readonly diagnostics: readonly AliasDiagnostic[]
 }
 
 /** One layer file, in precedence order. */
 export interface AliasLayer {
   readonly path: string
-  readonly source: AliasRegistrySource
+  readonly source: AliasRegistryLayerSource
 }
 
 /**
@@ -123,14 +125,23 @@ export function createAliasRegistryService(
     const diagnostics: AliasDiagnostic[] = []
     const models: ModelDefinition[] = []
     const aliases: AliasDefinition[] = []
+    const layers: AliasRegistryLayerSnapshot[] = []
     const claimedModels = new Set<string>()
     const claimedAliases = new Set<string>()
     for (const layer of buildLayers(projectRoot)) {
-      // A missing layer file is a layer with nothing to merge, not a problem.
+      // A missing layer file is an empty layer for the projection and has
+      // nothing to merge, not a problem either way.
+      const emptyLayer: AliasRegistryLayerSnapshot = { source: layer.source, path: layer.path, models: [], aliases: [] }
       const text = await port.readTextFile(layer.path)
-      if (text === undefined) continue
+      if (text === undefined) {
+        layers.push(emptyLayer)
+        continue
+      }
       const read = readRegistryLayer(text)
       if (!read.ok) {
+        // A dropped layer still names its space; the projection is empty and the
+        // diagnostics keep the reason.
+        layers.push(emptyLayer)
         for (const failure of read.failures) {
           const diagnostic: AliasDiagnostic = { path: layer.path, code: failure.code, message: failure.message }
           diagnostics.push(diagnostic)
@@ -138,6 +149,9 @@ export function createAliasRegistryService(
         }
         continue
       }
+      // The projection keeps the file's own declarations, before precedence is
+      // applied; the merged lists below keep only the first layer to claim a name.
+      layers.push({ source: layer.source, path: layer.path, models: read.data.models, aliases: read.data.aliases })
       for (const entry of read.data.models) {
         if (claimedModels.has(entry.modelName)) continue
         claimedModels.add(entry.modelName)
@@ -149,7 +163,7 @@ export function createAliasRegistryService(
         aliases.push({ ...entry, source: layer.source, path: layer.path })
       }
     }
-    return { snapshot: foldModelGroups(withBuiltInAlias({ models, aliases }, readDefaultPair?.())), diagnostics }
+    return { snapshot: foldModelGroups(withBuiltInAlias({ models, aliases }, readDefaultPair?.())), layers, diagnostics }
   }
 
   /**
@@ -165,6 +179,9 @@ export function createAliasRegistryService(
   return {
     async snapshot(options) {
       return (await lazy.forQuery(options?.cwd, options?.signal)).snapshot
+    },
+    async layers(options) {
+      return (await lazy.forQuery(options?.cwd, options?.signal)).layers
     },
     async getAlias(aliasName, options) {
       return (await lazy.forQuery(options?.cwd, options?.signal)).snapshot.aliases.find((entry) => entry.alias === aliasName)

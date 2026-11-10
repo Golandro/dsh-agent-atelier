@@ -144,7 +144,7 @@ describe('agent-atelier plugin', () => {
   it('registers the alias registry with the frozen read face', async () => {
     const { aliasRegistry } = await mounted()
 
-    expect(Object.keys(aliasRegistry).sort()).toEqual(['diagnostics', 'getAlias', 'getModel', 'invalidate', 'snapshot'])
+    expect(Object.keys(aliasRegistry).sort()).toEqual(['diagnostics', 'getAlias', 'getModel', 'invalidate', 'layers', 'snapshot'])
   })
 
   it('resolves the built-in dsh-default alias from a default-model service mounted after the plugin', async () => {

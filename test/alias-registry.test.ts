@@ -145,6 +145,113 @@ describe('alias registry layers', () => {
   })
 })
 
+describe('the per-layer projection', () => {
+  it('keeps every layer declaration the merge would shadow', async () => {
+    const home = homeDir(USER_LAYER)
+    const workspace = workspaceDir('models:\n  ds-chat: { provider: deepseek, model: deepseek-v4 }\naliases:\n  fast: [ds-reasoner]\n')
+
+    const layers = await service(home).layers({ cwd: workspace })
+
+    expect(layers.map((layer) => [layer.source, layer.path])).toEqual([
+      ['project-dsh', projectLayerPath(workspace)],
+      ['user-dsh', join(home, 'agents', 'registry.yaml')],
+    ])
+    // The project layer wins the merge, but the user layer keeps its own
+    // ds-chat declaration: that shadowed pair is what the UI renders.
+    expect(layers[0]?.models).toEqual([
+      { modelName: 'ds-chat', provider: 'deepseek', model: 'deepseek-v4', available: true },
+    ])
+    expect(layers[1]?.models.map((entry) => [entry.modelName, entry.model])).toEqual([
+      ['ds-chat', 'deepseek-chat'],
+      ['ds-reasoner', 'deepseek-reasoner'],
+    ])
+    expect(layers[0]?.aliases).toEqual([{ alias: 'fast', targets: ['ds-reasoner'] }])
+    expect(layers[1]?.aliases.map((entry) => [entry.alias, entry.targets])).toEqual([
+      ['smart', ['ds-reasoner']],
+      ['fast', ['ds-chat']],
+    ])
+  })
+
+  it('treats a missing project layer file as an empty workspace layer', async () => {
+    const home = homeDir(USER_LAYER)
+    const workspace = workspaceDir()
+
+    const layers = await service(home).layers({ cwd: workspace })
+
+    expect(layers.map((layer) => layer.source)).toEqual(['project-dsh', 'user-dsh'])
+    expect(layers[0]).toMatchObject({ path: projectLayerPath(workspace), models: [], aliases: [] })
+    expect(layers[1]?.models).toHaveLength(2)
+  })
+
+  it('has no workspace layer in a user-global query', async () => {
+    const layers = await service(homeDir(USER_LAYER)).layers()
+
+    expect(layers.map((layer) => layer.source)).toEqual(['user-dsh'])
+  })
+
+  it('keeps a dropped layer empty and reports it only as a diagnostic', async () => {
+    const home = homeDir(USER_LAYER)
+    const workspace = workspaceDir('aliases:\n  broken: [ds-chat\n')
+    const registry = service(home)
+
+    const layers = await registry.layers({ cwd: workspace })
+
+    expect(layers[0]).toMatchObject({ source: 'project-dsh', models: [], aliases: [] })
+    expect(layers[1]?.aliases.map((entry) => entry.alias)).toEqual(['smart', 'fast'])
+    expect(await registry.diagnostics({ cwd: workspace })).toHaveLength(1)
+  })
+
+  it('keeps layer declarations raw while the merged snapshot folds the model group', async () => {
+    const registry = service(homeDir(POOLED_LAYER))
+
+    const [layer] = await registry.layers()
+    expect(layer?.models.map((entry) => [entry.modelName, entry.available])).toEqual([
+      ['reasoner-official', true],
+      ['reasoner-account', false],
+      ['chat-official', true],
+    ])
+
+    const snapshot = await registry.snapshot()
+    expect(snapshot.models.map((entry) => [entry.modelName, entry.available])).toEqual([
+      ['reasoner-official', false],
+      ['reasoner-account', false],
+      ['chat-official', true],
+    ])
+  })
+
+  it('never puts the built-in pointer or the synthesised entry in a layer', async () => {
+    const registry = service(homeDir(USER_LAYER), { readDefaultPair: () => ({ provider: 'volcengine-plan', model: 'glm-5.3' }) })
+
+    const snapshot = await registry.snapshot()
+    expect(snapshot.aliases.map((entry) => entry.alias)).toContain(DEFAULT_ALIAS_NAME)
+    expect(snapshot.models).toContainEqual(
+      expect.objectContaining({ modelName: DEFAULT_ALIAS_NAME, synthesized: true, source: 'built-in' }),
+    )
+
+    const [layer] = await registry.layers()
+    expect(layer?.aliases.map((entry) => entry.alias)).toEqual(['smart', 'fast'])
+    expect(layer?.models.map((entry) => entry.modelName)).toEqual(['ds-chat', 'ds-reasoner'])
+  })
+
+  it('serves the layer projection and the merged snapshot from one generation until invalidate', async () => {
+    const home = homeDir(USER_LAYER)
+    const workspace = workspaceDir('models:\n  ds-chat: { provider: deepseek, model: deepseek-v4 }\n')
+    const registry = service(home)
+    await registry.snapshot({ cwd: workspace })
+
+    // The file changes behind the memoised load: both read surfaces stay on the
+    // generation they were loaded from, then move together after invalidate.
+    writeFileSync(projectLayerPath(workspace), 'models:\n  ds-chat: { provider: deepseek, model: deepseek-v5 }\n')
+    expect((await registry.layers({ cwd: workspace }))[0]?.models[0]?.model).toBe('deepseek-v4')
+    expect((await registry.snapshot({ cwd: workspace })).models[0]?.model).toBe('deepseek-v4')
+
+    registry.invalidate()
+
+    expect((await registry.layers({ cwd: workspace }))[0]?.models[0]?.model).toBe('deepseek-v5')
+    expect((await registry.snapshot({ cwd: workspace })).models[0]?.model).toBe('deepseek-v5')
+  })
+})
+
 /** Two provider lines of one model id, one of them switched off at model level. */
 const POOLED_LAYER = [
   'models:',

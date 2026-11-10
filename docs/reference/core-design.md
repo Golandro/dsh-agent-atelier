@@ -107,7 +107,7 @@ dsh/host                                         dsh/client
 | --- | --- | --- | --- |
 | `agentProviders` | 4（apiVersion ＋ 注册 1 ＋ 读 2 ＋ change 1；agent 侧已落地，票 18） | 1 | provider 行、catalogs |
 | `agentRegistry` | 4（冻结） | —（形状即契约） | 06、ui-host、第三方 |
-| `aliasRegistry` | 5（冻结） | —（形状即契约） | 03、06、ui-host |
+| `aliasRegistry` | 6（冻结；票 57 增分层读） | —（形状即契约） | 03、06、ui-host |
 | `agentOrchestrator` | 1 | 1 | summon、ui-host、第三方 |
 | `agentControl` | 6 | 1 | ui-host、CLI、第三方 |
 
@@ -140,7 +140,7 @@ dsh/host                                         dsh/client
 
 ### 3.2 `core/catalog`
 
-两个冻结读面不变：
+两个冻结读面（票 57 为 `aliasRegistry` 增 `layers`，合并语义不变）：
 
 ```ts
 interface AgentRegistry {          // ctx.agentRegistry
@@ -151,6 +151,7 @@ interface AgentRegistry {          // ctx.agentRegistry
 }
 interface AliasRegistry {          // ctx.aliasRegistry
   snapshot(options?): Promise<AliasRegistrySnapshot>
+  layers(options?): Promise<readonly AliasRegistryLayerSnapshot[]>
   getAlias(aliasName, options?): Promise<AliasDefinition | undefined>
   getModel(modelName, options?): Promise<ModelDefinition | undefined>
   diagnostics(options?): Promise<readonly AliasDiagnostic[]>

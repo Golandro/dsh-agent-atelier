@@ -53,11 +53,27 @@ describe('control core over the in-memory adapter', () => {
     expect(snapshot.agents.map((agent) => agent.agentName)).toEqual(['gamma', 'beta'])
     expect(snapshot.models.map((model) => model.modelName)).toEqual(['gpt5', 'kimi'])
     expect(snapshot.aliases.map((alias) => alias.alias)).toEqual(['smart'])
+    // The layered projection behind the merged lists (ticket 57): the workspace
+    // layer declares first, the global layer keeps its own shadowed declaration.
+    expect(snapshot.registryLayers.map((layer) => [
+      layer.source,
+      layer.models.map((model) => model.modelName),
+      layer.aliases.map((alias) => alias.alias),
+    ])).toEqual([
+      ['project-dsh', ['gpt5'], ['smart']],
+      ['user-dsh', ['kimi'], []],
+    ])
     const origins = snapshot.findings.map((finding) => finding.origin)
     expect(origins).toContain('agent-scan')
     expect(origins).toContain('cross-layer')
     const cross = snapshot.findings.find((finding) => finding.origin === 'cross-layer')
     expect(cross !== undefined && cross.finding.code === 'unknown-alias').toBe(true)
+  })
+
+  it('omits the workspace layer from a user-global snapshot', async () => {
+    const snapshot = await createCore().snapshot({ cwd: null })
+
+    expect(snapshot.registryLayers.map((layer) => layer.source)).toEqual(['user-dsh'])
   })
 
   it('compose exposes byte-exact blocks and rejects unknown agents', async () => {

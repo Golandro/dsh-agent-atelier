@@ -87,10 +87,22 @@ describe('wire dispatcher', () => {
     })
 
     expect(result.status).toBe(200)
-    const body = result.body as { cwd: string; scanId: number; snapshot: { agents: { agentName: string }[] } }
+    const body = result.body as {
+      cwd: string
+      scanId: number
+      snapshot: {
+        agents: { agentName: string }[]
+        registryLayers: { source: string; path: string; models: { modelName: string }[] }[]
+      }
+    }
     expect(body.cwd).toBe(PROJECT)
     expect(body.scanId).toBe(7)
     expect(body.snapshot.agents.map((agent) => agent.agentName)).toEqual(['alpha'])
+    // The layered registry projection rides through /state untouched (ticket 57).
+    expect(body.snapshot.registryLayers.map((layer) => [layer.source, layer.path, layer.models.map((model) => model.modelName)])).toEqual([
+      ['project-dsh', REGISTRY, ['gpt5']],
+      ['user-dsh', `${HOME}/agents/registry.yaml`, []],
+    ])
   })
 
   it('GET /state carries the per-agent assembly projection', async () => {

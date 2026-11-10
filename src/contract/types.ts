@@ -136,6 +136,9 @@ export interface AgentRegistry {
 /** Registry layer a model entry or alias was declared in, highest precedence first. */
 export type AliasRegistrySource = 'project-dsh' | 'user-dsh' | 'built-in'
 
+/** Registry file layer that can declare entries: the workspace and the global layer. */
+export type AliasRegistryLayerSource = Exclude<AliasRegistrySource, 'built-in'>
+
 /**
  * One real model entry as a layer declares it (spec §5.2).
  *
@@ -202,6 +205,27 @@ export interface AliasDefinition extends AliasDeclaration {
 }
 
 /**
+ * One registry.yaml layer as its file declares it (ticket 57): the layered
+ * projection behind the merged snapshot, so a settings view can show the
+ * workspace and global spaces without re-running the merge.
+ *
+ * Entries are declarations, not merged definitions: no per-entry `source` or
+ * `path` (the layer carries them once), no folded `available`, and never the
+ * built-in pointer or the implicit entry the merge synthesises. A missing or
+ * dropped layer is an empty layer; its diagnostics stay in
+ * {@link AliasRegistry.diagnostics}, one fact in one place.
+ */
+export interface AliasRegistryLayerSnapshot {
+  readonly source: AliasRegistryLayerSource
+  /** Absolute path of the layer file, whether or not it exists. */
+  readonly path: string
+  /** Every model this layer declares, in file order (raw, before the merge). */
+  readonly models: readonly ModelDeclaration[]
+  /** Every alias this layer declares, in file order (raw, before the merge). */
+  readonly aliases: readonly AliasDeclaration[]
+}
+
+/**
  * Everything the two layers declare, merged, plus the built-in pointer.
  *
  * This is the pure data ticket 03's resolution engine consumes: no filesystem,
@@ -248,6 +272,13 @@ export interface AliasDiagnosticsOptions {
 export interface AliasRegistry {
   /** The merged registry: real model entries first, then the built-in alias. */
   snapshot(options?: AliasLookupOptions): Promise<AliasRegistrySnapshot>
+  /**
+   * The per-layer projection: each layer's own declarations, highest
+   * precedence first (workspace, then global). Read from the same memoised load
+   * as {@link snapshot}, so both surfaces always describe one generation. A
+   * user-global query has no workspace layer.
+   */
+  layers(options?: AliasLookupOptions): Promise<readonly AliasRegistryLayerSnapshot[]>
   /** The alias named `aliasName`, if any; the built-in `dsh-default` is present when a pair is readable. */
   getAlias(aliasName: string, options?: AliasLookupOptions): Promise<AliasDefinition | undefined>
   /** The model entry named `modelName`, if any. */

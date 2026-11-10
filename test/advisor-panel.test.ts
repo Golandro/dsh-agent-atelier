@@ -50,6 +50,7 @@ function snapshot(assemblies: ControlSnapshot['assemblies']): ControlSnapshot {
     agents: [AGENT],
     models: [MODEL],
     aliases: [],
+    registryLayers: [{ source: 'user-dsh', path: '/fixtures/registry.yaml', models: [MODEL], aliases: [] }],
     agentDiagnostics: [],
     aliasDiagnostics: [],
     findings: [],
