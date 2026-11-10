@@ -15,6 +15,7 @@ import {
 } from '../src/dsh/host/index.ts'
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { ModelSelectionPolicy } from '../src/contract/index.ts'
 import type { ControlCore } from '../src/control/index.ts'
 import type { InMemoryControlCore } from '../src/control/memory.ts'
 import type { ControlDispatchInput, ControlDispatchResult } from '../src/dsh/host/index.ts'
@@ -42,6 +43,38 @@ function createCore(): InMemoryControlCore {
       [DOC]: DOC_TEXT,
       [REGISTRY]: REGISTRY_TEXT,
     },
+  })
+}
+
+const CHAIN_REGISTRY = [
+  'models:',
+  '  good: { provider: deepseek, model: deepseek-chat }',
+  '  later: { provider: deepseek, model: deepseek-reasoner }',
+  '  off: { provider: vendor, model: retired, available: false }',
+  '  forbidden: { provider: vendor, model: secret }',
+  'aliases:',
+  '  dangling: [nowhere]',
+  '  good: [good]',
+  '  later: [later]',
+  '  off: [off]',
+  '  forbidden: [forbidden]',
+].join('\n')
+
+const CHAIN_REGISTRY_FILE = `${AGENTS}/registry.yaml`
+
+/** One fixture exercising every skip reason the session path can produce. */
+function chainCore(selectionPolicy?: ModelSelectionPolicy): InMemoryControlCore {
+  return createInMemoryControlCore({
+    projectRoot: PROJECT,
+    dshHome: HOME,
+    files: {
+      [`${PROJECT}/.git`]: '',
+      [CHAIN_REGISTRY_FILE]: CHAIN_REGISTRY,
+      [`${AGENTS}/mixed/mixed.agent.md`]: '---\nname: mixed\nmodelOrder: [ghost, dangling, off]\n---\nmixed\n',
+      [`${AGENTS}/forbidden/forbidden.agent.md`]: '---\nname: forbidden\nmodelOrder: [forbidden]\n---\nforbidden\n',
+      [`${AGENTS}/winner/winner.agent.md`]: '---\nname: winner\nmodelOrder: [good, later]\n---\nwinner\n',
+    },
+    ...selectionPolicy === undefined ? {} : { selectionPolicy },
   })
 }
 
@@ -146,6 +179,54 @@ describe('wire dispatcher', () => {
     const missing = await call(core, '/agent-atelier/compose', { body: { agentName: 'ghost', cwd: PROJECT } })
     expect(missing.status).toBe(404)
     expect((missing.body as { error: { code: string } }).error.code).toBe('not-found')
+  })
+
+  it('POST /chain returns the report and keeps exhaustion at 200', async () => {
+    const core = createCore()
+    const result = await call(core, '/agent-atelier/chain', { body: { agentName: 'alpha', cwd: PROJECT } })
+
+    expect(result.status).toBe(200)
+    const body = result.body as { cwd: string; exhausted: boolean; report: { selectedBy: string; candidates: unknown[] } }
+    expect(body.cwd).toBe(PROJECT)
+    expect(body.exhausted).toBe(true)
+    expect(body.report.selectedBy).toBe('none')
+    // The route adds no interpretation: it is the core's report as-is.
+    expect(body.report).toEqual((await core.chainReport('alpha', { cwd: PROJECT })).report)
+  })
+
+  it('POST /chain 404s an unknown agent and 400s a malformed request', async () => {
+    const core = createCore()
+    const missing = await call(core, '/agent-atelier/chain', { body: { agentName: 'ghost', cwd: PROJECT } })
+    expect(missing.status).toBe(404)
+    expect((missing.body as { error: { code: string } }).error.code).toBe('not-found')
+
+    const nameless = await call(core, '/agent-atelier/chain', { body: { cwd: PROJECT } })
+    expect(nameless.status).toBe(400)
+    expect((nameless.body as { error: { code: string } }).error.code).toBe('invalid-request')
+
+    const wrongMethod = await call(core, '/agent-atelier/chain', { method: 'GET', headers: {} })
+    expect(wrongMethod.status).toBe(405)
+  })
+
+  it('POST /chain forwards every skip reason the session path can produce', async () => {
+    const refused = chainCore({ routes: [] })
+    const allowed = chainCore()
+
+    const mixed = await call(refused, '/agent-atelier/chain', { body: { agentName: 'mixed', cwd: PROJECT } })
+    const forbidden = await call(refused, '/agent-atelier/chain', { body: { agentName: 'forbidden', cwd: PROJECT } })
+    const winner = await call(allowed, '/agent-atelier/chain', { body: { agentName: 'winner', cwd: PROJECT } })
+
+    type ChainBody = { exhausted: boolean; report: { aliasChain: { skipped?: string }[]; candidates: { skipped?: string }[] } }
+    const mixedBody = mixed.body as ChainBody
+    expect(mixedBody.exhausted).toBe(true)
+    expect(mixedBody.report.aliasChain[0]).toMatchObject({ alias: 'ghost', skipped: 'unknown-alias' })
+    expect(mixedBody.report.candidates.map((candidate) => candidate.skipped)).toEqual(['unknown-model', 'unavailable'])
+    expect((forbidden.body as ChainBody).report.candidates.map((candidate) => candidate.skipped)).toEqual(['not-allowed'])
+    const winnerBody = winner.body as ChainBody
+    expect(winnerBody.exhausted).toBe(false)
+    expect(winnerBody.report.candidates.map((candidate) => candidate.skipped)).toEqual([undefined, 'not-reached'])
+    // `unsupported-effort` stays engine-only here: neither the session path nor
+    // the read face injects a supportedEfforts table, and the route invents nothing.
   })
 
   it('POST /plan previews writes without touching the disk', async () => {
@@ -296,7 +377,7 @@ describe('wire dispatcher', () => {
 })
 
 describe('host row wiring', () => {
-  it('registers six exact routes and unmounts them with the effect', () => {
+  it('registers seven exact routes and unmounts them with the effect', () => {
     const ctx = new Context()
     const routes = new Map<string, { kind: string; path: string }>()
     ctx.provide(AGENT_CONTROL_SERVICE, createCore())

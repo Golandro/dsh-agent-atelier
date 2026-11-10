@@ -33,7 +33,7 @@ export type {
   SessionChainContext,
   SessionResolutionRequest,
 } from './resolve.ts'
-export type { ComposeSessionOptions, ComposedAgentSession, SessionStartParameters } from './session.ts'
+export type { AgentChainReport, ChainReportOptions, ComposeSessionOptions, ComposedAgentSession, SessionStartParameters } from './session.ts'
 export { createMemoryControlClient } from './client.ts'
 export type { ControlClient, ControlClientOptions, MemoryControlClientOptions } from './client.ts'
 export { createHttpControlClient } from './http-client.ts'

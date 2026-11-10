@@ -1,6 +1,6 @@
 /**
- * The client-facing control port (ticket 12): the six operations a settings
- * page consumes, projected as edits-in / reports-out instead of the host-side
+ * The client-facing control port (ticket 12): the operations a settings page
+ * consumes, projected as edits-in / reports-out instead of the host-side
  * `plan(doc, edits)` / `commit(plan)` pair a server holds.
  *
  * Two adapters implement this one interface — the in-memory adapter over the
@@ -13,6 +13,7 @@
 import { planDirtyEdits, type ControlCore } from './core.ts'
 import { composeError, ControlClientError, reportOrThrow, throwIfAborted } from './client-errors.ts'
 
+import type { AgentChainReport } from './session.ts'
 import type {
   ComposedAgentDocument,
   ControlSnapshot,
@@ -30,10 +31,12 @@ export interface ControlClientOptions {
   readonly signal?: AbortSignal | undefined
 }
 
-/** The six operations a settings view needs; implemented by memory and HTTP. */
+/** The operations a settings view needs; implemented by memory and HTTP. */
 export interface ControlClient {
   snapshot(options?: ControlClientOptions): Promise<ControlSnapshot>
   compose(agentName: string, options?: ControlClientOptions): Promise<ComposedAgentDocument>
+  /** One agent's resolution report (ticket 58); a chain that ran out is data, never a 404. */
+  chainReport(agentName: string, options?: ControlClientOptions): Promise<AgentChainReport>
   /** Preview: the plan (including per-edit rejections) is data, never a write. */
   plan(agentName: string, edits: readonly DocumentEdit[], options?: ControlClientOptions): Promise<WritePlan>
   /** Commit dirty edits; rejects with `edit-rejected` when the plan refuses any edit. */
@@ -67,6 +70,15 @@ export function createMemoryControlClient(core: ControlCore, options: MemoryCont
       throwIfAborted(options?.signal)
       try {
         return await core.compose(agentName, scopeOf(options))
+      } catch (error) {
+        throw composeError(error)
+      }
+    },
+
+    async chainReport(agentName, options) {
+      throwIfAborted(options?.signal)
+      try {
+        return await core.chainReport(agentName, scopeOf(options))
       } catch (error) {
         throw composeError(error)
       }

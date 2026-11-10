@@ -23,6 +23,7 @@ import type {
   AgentDefinition,
   AgentRegistry,
   AliasRegistry,
+  AliasRegistrySnapshot,
   AssemblyPlan,
   ChainResolution,
   ModelSelectionPolicy,
@@ -32,7 +33,7 @@ import { errorMessage, UnknownAgentError } from './client-errors.ts'
 import { composeAgentDocument } from './compose.ts'
 import { applyRegistryEdit, type RegistryEditContext } from './registry-edit.ts'
 import { sessionChainContext } from './resolve.ts'
-import type { ComposeSessionOptions, ComposedAgentSession } from './session.ts'
+import type { AgentChainReport, ChainReportOptions, ComposeSessionOptions, ComposedAgentSession } from './session.ts'
 import { ChainExhaustedError, chainInputOf, composeSessionOf } from './session-agent.ts'
 import { commitPlan, planDocumentEdits } from './writes.ts'
 import type {
@@ -124,6 +125,15 @@ export interface ControlCore {
    * path to keep in step.
    */
   composeSession(agentName: string, options?: ComposeSessionOptions): Promise<ComposedAgentSession>
+  /**
+   * One agent's chain resolution **as data** (ticket 58): the same document,
+   * snapshot, policy and engine call as {@link ControlCore.composeSession}, but
+   * a chain that ran out comes back as `exhausted: true` with the report instead
+   * of throwing. That is what lets a settings view echo not-reached / skipped /
+   * health without running the engine itself. Unknown agents still throw
+   * `UnknownAgentError`; that is the only failure not carried as data here.
+   */
+  chainReport(agentName: string, options?: ChainReportOptions): Promise<AgentChainReport>
 }
 
 /** One resolved call scope: what to scan, what was asked for, where it came from. */
@@ -238,16 +248,33 @@ export function createControlCore(dependencies: ControlDependencies): ControlCor
     composeSession(agentName, options) {
       return composeSessionFor(dependencies, agentName, resolveProjectRoot(), options)
     },
+
+    chainReport(agentName, options) {
+      return chainReportFor(dependencies, agentName, options)
+    },
   }
 }
 
-/** One session-start resolution over the injected registries; both callers share it. */
-async function composeSessionFor(
+/** One resolved chain read: the document, the snapshot and the engine's answer, one generation. */
+interface ResolvedAgentChain {
+  readonly definition: AgentDefinition
+  readonly cwd: string | undefined
+  readonly snapshot: AliasRegistrySnapshot
+  readonly resolution: ChainResolution
+}
+
+/**
+ * The read + engine call both session consumers share (tickets 19 / 58): one
+ * document and one snapshot read in parallel through the injected registries,
+ * handed to the frozen chain engine with the caller's inputs. There is no
+ * second resolution path; only how a failure is presented differs per caller.
+ */
+async function resolveAgentChain(
   dependencies: ControlDependencies,
   agentName: string,
   projectRoot: string | undefined,
   options: ComposeSessionOptions | undefined,
-): Promise<ComposedAgentSession> {
+): Promise<ResolvedAgentChain> {
   const cwd = options?.cwd ?? projectRoot
   // One read each, in parallel: the registries memoise per root, so the
   // document and the snapshot a caller resolves against are the ones this
@@ -275,8 +302,35 @@ async function composeSessionFor(
       now: options?.now,
     }),
   })
+  return { definition, cwd, snapshot, resolution }
+}
+
+/** One session-start resolution over the shared chain read; a failure is thrown, not returned. */
+async function composeSessionFor(
+  dependencies: ControlDependencies,
+  agentName: string,
+  projectRoot: string | undefined,
+  options: ComposeSessionOptions | undefined,
+): Promise<ComposedAgentSession> {
+  const { definition, cwd, snapshot, resolution } = await resolveAgentChain(dependencies, agentName, projectRoot, options)
   if (!resolution.ok) throw new ChainExhaustedError(resolution, refusalByPolicy(resolution))
   return composeSessionOf(definition, cwd, resolution, snapshot)
+}
+
+/**
+ * One on-demand chain report (ticket 58): the same chain read as session start,
+ * with the engine's failure kept as data. The scope rule is the snapshot's —
+ * `null` is user-global — so the route and the panel read the same workspace the
+ * other control calls read.
+ */
+async function chainReportFor(
+  dependencies: ControlDependencies,
+  agentName: string,
+  options: ChainReportOptions | undefined,
+): Promise<AgentChainReport> {
+  const scope = await resolveScope(dependencies, options)
+  const { resolution } = await resolveAgentChain(dependencies, agentName, scope.scanCwd, { ...options, cwd: scope.scanCwd })
+  return { report: resolution.report, exhausted: !resolution.ok }
 }
 
 /**

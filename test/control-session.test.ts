@@ -5,7 +5,7 @@ import { ChainExhaustedError } from '../src/control/session-agent.ts'
 import { createInMemoryControlCore } from '../src/control/memory.ts'
 import { resolveModelChain } from '../src/core/index.ts'
 
-import type { AgentDefinition, AliasRegistrySnapshot, ChainResolutionInput, ModelSelectionPolicy } from '../src/contract/index.ts'
+import type { AgentDefinition, AliasRegistrySnapshot, ChainObservations, ChainResolutionInput, ModelSelectionPolicy } from '../src/contract/index.ts'
 import type { InMemoryControlCore } from '../src/control/memory.ts'
 import type { ComposeSessionOptions } from '../src/control/session.ts'
 
@@ -332,5 +332,53 @@ describe('routeNotAllowed', () => {
     const allowed = resolveModelChain({ agent: { agentName: 'x', body: '', modelOrder: ['a'] }, snapshot })
     expect(routeNotAllowed(refused, { provider: 'p', model: 'm' })).toBe(true)
     expect(routeNotAllowed(allowed, { provider: 'p', model: 'm' })).toBe(false)
+  })
+})
+
+describe('chainReport: the on-demand read face (ticket 58)', () => {
+  it('returns the same report the session path resolved for the same inputs', async () => {
+    const core = createCore()
+    const reported = await core.chainReport('alias-agent', { cwd: PROJECT })
+    const session = await core.composeSession('alias-agent', { cwd: PROJECT })
+
+    expect(reported.exhausted).toBe(false)
+    expect(reported.report).toEqual(session.report)
+  })
+
+  it('keeps the chain as data when it runs out, with the thrown report unchanged', async () => {
+    const policy: ModelSelectionPolicy = { routes: [] }
+    const core = createCore()
+
+    const reported = await core.chainReport('alias-agent', { cwd: PROJECT, policy })
+    expect(reported.exhausted).toBe(true)
+    expect(reported.report.selectedBy).toBe('none')
+
+    let caught: unknown
+    try {
+      await core.composeSession('alias-agent', { cwd: PROJECT, policy })
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(ChainExhaustedError)
+    expect((caught as ChainExhaustedError).report).toEqual(reported.report)
+  })
+
+  it('passes the same observations ledger through both paths, health included', async () => {
+    const observations: ChainObservations = {
+      routes: [{ route: { provider: 'deepseek', model: 'deepseek-chat' }, failures: 2, lastFailureCode: 'SERVER', lastFailureAt: 1000 }],
+    }
+    const core = createCore()
+    const reported = await core.chainReport('alias-agent', { cwd: PROJECT, observations, now: 2000 })
+    const session = await core.composeSession('alias-agent', { cwd: PROJECT, observations, now: 2000 })
+
+    expect(reported.report).toEqual(session.report)
+    expect(reported.report.candidates[0]?.health).toBe('degraded')
+  })
+
+  it('rejects an unknown agent, and a user-global read cannot see the project layer', async () => {
+    const core = createCore()
+    await expect(core.chainReport('ghost', { cwd: PROJECT })).rejects.toThrow('unknown agent')
+    // The wire's explicit `null` scope is user-global: the project agent is not scanned.
+    await expect(core.chainReport('alias-agent', { cwd: null })).rejects.toThrow('unknown agent')
   })
 })

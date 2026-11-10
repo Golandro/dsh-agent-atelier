@@ -105,6 +105,15 @@ describe('control client adapters', () => {
     expect(http.baseText).toBe(memory.baseText)
   })
 
+  it('chainReport returns the same report and exhaustion through both adapters', async () => {
+    const pair = adapters()
+    const [memory, http] = await Promise.all([pair.memory.chainReport('alpha'), pair.http.chainReport('alpha')])
+
+    expect(http).toEqual(memory)
+    expect(memory.exhausted).toBe(true)
+    expect(memory.report.selectedBy).toBe('none')
+  })
+
   it('plan previews identical entries and rejections without writing', async () => {
     const pair = adapters()
     const [memory, http] = await Promise.all([
@@ -161,6 +170,9 @@ describe('control client adapters', () => {
     await expect(memory).rejects.toBeInstanceOf(ControlClientError)
     await expect(memory).rejects.toMatchObject({ status: 404, code: 'not-found' })
     await expect(http).rejects.toMatchObject({ status: 404, code: 'not-found' })
+
+    await expect(pair.memory.chainReport('ghost')).rejects.toMatchObject({ status: 404, code: 'not-found' })
+    await expect(pair.http.chainReport('ghost')).rejects.toMatchObject({ status: 404, code: 'not-found' })
   })
 
   it('maps a read-only refusal to the same 409 code through both adapters', async () => {

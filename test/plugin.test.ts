@@ -93,13 +93,14 @@ describe('agent-atelier plugin', () => {
     expect((await mounted()).ctx.get(AGENT_ASSEMBLY_SERVICE)).toBeDefined()
   })
 
-  it('provides the six-member agentControl write face plus the session-start member', async () => {
+  it('provides the agentControl write face, session-start and chain-report members', async () => {
     const { control } = await mounted()
 
-    // Ticket 19 adds one optional seventh member on top of ticket 11's six; the
-    // six keep their exact names and shapes.
+    // Ticket 11's six keep their exact names and shapes; 19 added composeSession
+    // and 58 added the on-demand chainReport read.
     expect(Object.keys(control).sort()).toEqual([
       'applyRegistryEdit',
+      'chainReport',
       'commit',
       'compose',
       'composeSession',
@@ -122,7 +123,7 @@ describe('agent-atelier plugin', () => {
 
     apply(ctx, { role: 'ui-host' })
 
-    expect(routes).toHaveLength(6)
+    expect(routes).toHaveLength(7)
     // The ui-host row must not mount the registries a second time.
     expect(ctx.get(AGENT_REGISTRY_SERVICE)).toBeUndefined()
   })

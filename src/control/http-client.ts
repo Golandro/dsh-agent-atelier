@@ -11,6 +11,7 @@
 import { abortError, CLIENT_MARKER_HEADER, CLIENT_MARKER_VALUE, ControlClientError } from './client-errors.ts'
 
 import type { ControlClient, ControlClientOptions } from './client.ts'
+import type { AgentChainReport } from './session.ts'
 import type {
   ComposedAgentDocument,
   ControlSnapshot,
@@ -20,6 +21,7 @@ import type {
   WriteRejection,
   WriteReport,
 } from './types.ts'
+import type { ChainResolutionReport } from '../contract/index.ts'
 
 /** Route namespace registered by `src/dsh/host/ui-host.ts`. */
 const DEFAULT_BASE_URL = 'agent-atelier'
@@ -38,7 +40,7 @@ export interface HttpControlClientOptions {
 
 type JsonRecord = Record<string, unknown>
 
-/** The HTTP adapter: one `ControlClient` over the six exact routes. */
+/** The HTTP adapter: one `ControlClient` over the seven exact routes. */
 export function createHttpControlClient(options: HttpControlClientOptions = {}): ControlClient {
   const baseUrl = trimTrailingSlash(options.baseUrl ?? DEFAULT_BASE_URL)
   const fetchImpl = options.fetchImpl ?? globalThis.fetch
@@ -95,6 +97,18 @@ export function createHttpControlClient(options: HttpControlClientOptions = {}):
     async compose(agentName, call) {
       const body = await request('compose', 'POST', { agentName }, call)
       return readField<ComposedAgentDocument>(body, 'document', 'document')
+    },
+
+    async chainReport(agentName, call) {
+      const body = await request('chain', 'POST', { agentName }, call)
+      const report = readField<ChainResolutionReport>(body, 'report', 'report')
+      // Two wire fields, one domain shape: the exhausted flag is checked, not
+      // defaulted, so a schema drift cannot read as "the chain resolved".
+      const exhausted = body.exhausted
+      if (typeof exhausted !== 'boolean') {
+        throw new ControlClientError(500, 'internal', 'control route response is missing "exhausted"')
+      }
+      return { report, exhausted } satisfies AgentChainReport
     },
 
     async plan(agentName, edits: readonly DocumentEdit[], call) {

@@ -14,7 +14,7 @@ first message) and deliberately delegates runtime orchestration to native DSH.
 | Package | `dsh-agent-atelier` |
 | Bundle rows | `agent-atelier-core`, `agent-atelier-provider-fs`, `agent-atelier-assembly`, `agent-atelier-summon`, `agent-atelier-ui` (`cordis.patch.yml`) |
 | Services | `agentRegistry` · `aliasRegistry` · `agentProviders` · `agentControl` · `agentAssembly` |
-| Control routes | `/agent-atelier/state` · `compose` · `plan` · `commit` · `registry` · `invalidate` |
+| Control routes | `/agent-atelier/state` · `compose` · `chain` · `plan` · `commit` · `registry` · `invalidate` |
 | GUI panel | sidebar 「智能体工坊」, id `agent-atelier`, order 5 |
 | Agent document | `<root>/<agent-name>/<agent-name>.agent.md` (ADR-0002) |
 | Discovery roots | `.dsh/agents`, `.agents/agents` (project) · `$DSH_HOME/agents`, `$DSH_AGENTS_HOME/agents` (user) · bundled — low rank wins |

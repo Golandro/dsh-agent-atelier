@@ -18,7 +18,7 @@
    | 目录读面 `agentRegistry` / `aliasRegistry` | — | ✔（已冻结） | 06 / UI / 第三方都要读 |
    | Provider 注册表 `agentProviders` | — | ✔（新增） | provider bundle 的扩展点 |
    | 编排 `agentOrchestrator.prepare` | — | ✔（新增） | summon / UI 顾问 / 第三方消费 |
-   | 写面 `agentControl`（6 成员） | — | ✔（新增） | UI host route / CLI / 第三方消费 |
+   | 写面 `agentControl`（8 成员：11 的 6 ＋ 19 的 composeSession ＋ 58 的 chainReport） | — | ✔（新增） | UI host route / CLI / 第三方消费 |
    | 链解析、组装规划、工具差集、目录注入渲染 | ✔ | — | 纯算法，只被本 bundle 的 module 调用 |
    | 连接器 sinks / routes | ✔ | — | 每个能力插件自己的效果面 |
    | UI session / view models / 组件 | ✔ | — | 界面 bundle 内部 |
@@ -109,7 +109,7 @@ dsh/host                                         dsh/client
 | `agentRegistry` | 4（冻结） | —（形状即契约） | 06、ui-host、第三方 |
 | `aliasRegistry` | 6（冻结；票 57 增分层读） | —（形状即契约） | 03、06、ui-host |
 | `agentOrchestrator` | 1 | 1 | summon、ui-host、第三方 |
-| `agentControl` | 6 | 1 | ui-host、CLI、第三方 |
+| `agentControl` | 8（11 的 6 ＋ 19 增 composeSession ＋ 58 增 chainReport） | 1 | ui-host、CLI、第三方 |
 
 约定：**新增**服务对象带 `readonly apiVersion: 1`；既有两读面保持冻结形状、不加字段（它们就是契约本身）。消费方取到新服务后先校验版本，不匹配按「能力缺失」处理（不猜）。例外：`agentProviders` 是 **plain object**，不进 `Service.listService` 目录——2026-10-18 探针证实 plain object 仍可被行级 `inject` 消费（`docs/agents/harness-facts.md`），这让 provider 行不依赖 Service 基类即可接线。其余服务实现都是 `dsh/host` 的 `Service` 子类（core 只提供纯行为对象），`ctx.get` 返回服务代理——测试断言行为，不断言对象身份。跨 bundle 只传契约对象（服务对象、provider 实例）与可序列化领域的子集；不传 `ctx` / fiber / 宿主活对象；`apiVersion` 之外的破坏性变更换新 key。
 
@@ -226,7 +226,7 @@ interface PreparedAgent {
 
 **票 11 落地为 `src/control/` 独立层**（check.mjs 矩阵五层之一；公开面 `src/control/index.ts`，跨层 import 只走它），服务 provide（`agentControl`）仍归 12/16 接线。
 
-接口与语义以票 11 为准（`snapshot` / `compose` / `plan` / `commit` / `applyRegistryEdit` / `invalidate`），provide 为 `agentControl`。位置与不变量：
+接口与语义以票 11 为准（`snapshot` / `compose` / `plan` / `commit` / `applyRegistryEdit` / `invalidate`），19 增 `composeSession`，58 增只读 `chainReport`；provide 为 `agentControl`。位置与不变量：
 
 - provide 方 = `control` 插件行；依赖：两个 catalog（inject）、可选 `agentOrchestrator`（get）、`DefinitionWriter`；
 - `compose` 返回域形状（无编辑器偏移）；`plan` 纯函数；`commit` 逐文件原子写、写后重校验、覆盖冲突明确报错；`applyRegistryEdit` 藏住层解析 / 删除回退 / 路径推导；

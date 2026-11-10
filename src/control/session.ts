@@ -51,6 +51,28 @@ export interface ComposedAgentSession {
   readonly model?: ModelDefinition | undefined
 }
 
+/**
+ * Options of {@link ControlCore.chainReport} (ticket 58): the session-start
+ * inputs, plus the wire's scope rule where `null` means user-global.
+ */
+export interface ChainReportOptions extends Omit<ComposeSessionOptions, 'cwd'> {
+  /** `null` asks for user-global (no project layer), exactly like the wire's `cwd`. */
+  readonly cwd?: string | null | undefined
+}
+
+/**
+ * One agent's chain resolution as the on-demand read face returns it (ticket
+ * 58): the engine's report, untouched, plus the one bit the session path would
+ * turn into a throw. Read from the same document/snapshot/engine call as
+ * {@link ControlCore.composeSession}, so the two can never disagree.
+ */
+export interface AgentChainReport {
+  /** The engine's report: both chain halves, every skip reason, the winner's provenance. */
+  readonly report: ChainResolutionReport
+  /** True when the chain ran out; the session path throws `chain-exhausted` for the same answer. */
+  readonly exhausted: boolean
+}
+
 /** Options of one session-start resolution; every field is per call, never cached. */
 export interface ComposeSessionOptions {
   readonly cwd?: string | undefined

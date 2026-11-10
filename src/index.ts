@@ -34,6 +34,7 @@ export type {
   SystemPrompt,
 } from './contract/index.ts'
 export type {
+  AgentChainReport,
   AgentDocPort,
   AgentListQuery,
   AgentRow,

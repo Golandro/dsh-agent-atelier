@@ -7,6 +7,7 @@
  * Frozen shapes:
  *   GET  /agent-atelier/state?cwd=…        → { cwd, scanId, snapshot }
  *   POST /agent-atelier/compose {agentName}→ { cwd, document }
+ *   POST /agent-atelier/chain {agentName}  → { cwd, report, exhausted } (exhaustion is data)
  *   POST /agent-atelier/plan {edits[]}     → { cwd, plan } (rejections are data)
  *   POST /agent-atelier/commit {edits[]}   → { cwd, report } | 400 {error, rejections}
  *   POST /agent-atelier/registry {edit}    → { cwd, report }
@@ -48,6 +49,7 @@ export const CONTROL_BASE_PATH = '/agent-atelier'
 export const CONTROL_ROUTE_PATHS = [
   `${CONTROL_BASE_PATH}/state`,
   `${CONTROL_BASE_PATH}/compose`,
+  `${CONTROL_BASE_PATH}/chain`,
   `${CONTROL_BASE_PATH}/plan`,
   `${CONTROL_BASE_PATH}/commit`,
   `${CONTROL_BASE_PATH}/registry`,
@@ -88,11 +90,12 @@ const FRONTMATTER_FIELDS: readonly FrontmatterField[] = [
   'skills',
 ]
 
-type RouteName = 'state' | 'compose' | 'plan' | 'commit' | 'registry' | 'invalidate'
+type RouteName = 'state' | 'compose' | 'chain' | 'plan' | 'commit' | 'registry' | 'invalidate'
 
 const ROUTES: Readonly<Record<string, { readonly name: RouteName; readonly methods: readonly string[] }>> = {
   [`${CONTROL_BASE_PATH}/state`]: { name: 'state', methods: ['GET'] },
   [`${CONTROL_BASE_PATH}/compose`]: { name: 'compose', methods: ['POST'] },
+  [`${CONTROL_BASE_PATH}/chain`]: { name: 'chain', methods: ['POST'] },
   [`${CONTROL_BASE_PATH}/plan`]: { name: 'plan', methods: ['POST'] },
   [`${CONTROL_BASE_PATH}/commit`]: { name: 'commit', methods: ['POST'] },
   [`${CONTROL_BASE_PATH}/registry`]: { name: 'registry', methods: ['POST'] },
@@ -148,6 +151,8 @@ export async function dispatchControlRequest(input: ControlDispatchInput): Promi
         return await handleState(input)
       case 'compose':
         return await handleCompose(input)
+      case 'chain':
+        return await handleChain(input)
       case 'plan':
         return await handlePlan(input)
       case 'commit':
@@ -183,6 +188,23 @@ async function handleCompose(input: ControlDispatchInput): Promise<ControlDispat
   try {
     const document = await input.control.compose(agentName.value, { cwd: cwd.value })
     return { status: 200, body: { cwd: cwd.value, document } }
+  } catch (error) {
+    if (isUnknownAgent(error)) return fail(404, 'not-found', errorMessage(error))
+    throw error
+  }
+}
+
+/** `POST /chain`: one agent's resolution report; a chain that ran out is still a 200. */
+async function handleChain(input: ControlDispatchInput): Promise<ControlDispatchResult> {
+  const parsed = parseJsonObject(input.bodyText)
+  if (!parsed.ok) return fail(400, 'invalid-request', parsed.message)
+  const agentName = readAgentName(parsed.value.agentName)
+  if (!agentName.ok) return fail(400, 'invalid-request', agentName.message)
+  const cwd = readCwdValue(parsed.value.cwd)
+  if (!cwd.ok) return fail(400, 'invalid-request', cwd.message)
+  try {
+    const { report, exhausted } = await input.control.chainReport(agentName.value, { cwd: cwd.value })
+    return { status: 200, body: { cwd: cwd.value, report, exhausted } }
   } catch (error) {
     if (isUnknownAgent(error)) return fail(404, 'not-found', errorMessage(error))
     throw error
