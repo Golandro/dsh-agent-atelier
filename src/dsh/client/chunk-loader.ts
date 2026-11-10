@@ -9,7 +9,7 @@
  * the out-of-tree build and `pnpm run typecheck` a concrete shape to check
  * against.
  */
-import type { EditorChunk, ListChunk } from './chunk-contracts.ts'
+import type { EditorChunk, ListChunk, RegistryChunk } from './chunk-contracts.ts'
 
 /** Load the lazy CodeMirror editor chunk (lib/client.editor.js). */
 export function loadEditorChunk(): Promise<EditorChunk> {
@@ -18,5 +18,10 @@ export function loadEditorChunk(): Promise<EditorChunk> {
 
 /** Load the lazy TanStack list chunk (lib/client.list.js). */
 export function loadListChunk(): Promise<ListChunk> {
+  throw new Error('chunk loading is only available inside the built client bundle')
+}
+
+/** Load the lazy registry pages chunk (lib/client.registry.js). */
+export function loadRegistryChunk(): Promise<RegistryChunk> {
   throw new Error('chunk loading is only available inside the built client bundle')
 }

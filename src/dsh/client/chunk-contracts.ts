@@ -17,14 +17,14 @@
  *
  * These files are the coordination seam: the main bundle consumes the chunks
  * only through these shapes, and the chunk sources (`client-editor/`,
- * `client-list/`, outside `src/` so the import matrix keeps treating the main
- * bundle as dependency-free) implement exactly these exports.
+ * `client-list/`, `client-registry/`, outside `src/` so the import matrix keeps
+ * treating the main bundle as dependency-free) implement exactly these exports.
  */
 
 import type { ControlSnapshot } from '../../control/index.ts'
 
 /** Specifiers the on-demand chunk loader accepts for this package. */
-export type ChunkSpecifier = './client.editor.js' | './client.list.js'
+export type ChunkSpecifier = './client.editor.js' | './client.list.js' | './client.registry.js'
 
 /** Editable block kind the editor chunk renders (v1 ruling: no clip rows). */
 export type EditorBlockKind = 'frontmatter' | 'prose'
@@ -92,4 +92,24 @@ export interface AgentListViewProps {
 /** List chunk exports (`lib/client.list.js`): a React component. */
 export interface ListChunk {
   readonly AgentListView: (props: AgentListViewProps) => unknown
+}
+
+/**
+ * Props the lazy registry views render from (ticket 59). The seam carries
+ * **pure data plus `on*` callbacks only**: the host-resolved snapshot, never a
+ * client/service object, and never a re-merge (the host already resolved
+ * layers; `registryLayers` is the layered projection). Page-specific state and
+ * callbacks land with their pages (tickets 63/68), which extend this shape.
+ */
+export interface RegistryViewProps {
+  readonly snapshot: ControlSnapshot
+}
+
+/**
+ * Registry chunk exports (`lib/client.registry.js`): the two registry pages
+ * (模型关联 / 系统提示词) share one chunk and therefore one load.
+ */
+export interface RegistryChunk {
+  readonly ModelRegistryView: (props: RegistryViewProps) => unknown
+  readonly PromptRegistryView: (props: RegistryViewProps) => unknown
 }

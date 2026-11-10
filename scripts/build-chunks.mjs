@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 /**
- * Build the two package-local lazy chunks (ticket 05) into the artifact shapes
- * the DSH module loader's on-demand chunk channel expects:
+ * Build the package-local lazy chunks (ticket 05; registry chunk ticket 59)
+ * into the artifact shapes the DSH module loader's on-demand chunk channel
+ * expects:
  *
- *   client-editor/index.ts → lib/client.editor.js  (IIFE, react-free CodeMirror)
- *   client-list/index.tsx  → lib/client.list.js    (CJS, external = react only)
+ *   client-editor/index.ts   → lib/client.editor.js   (IIFE, react-free CodeMirror)
+ *   client-list/index.tsx    → lib/client.list.js     (CJS, external = react only)
+ *   client-registry/index.tsx → lib/client.registry.js (CJS, external = react only)
  *
  * Q4 ruling (2026-10-19): browser release artifact, local, no CDN, fully lazy.
  * Vite (an existing devDependency) produces the self-contained browser bundle;
@@ -12,8 +14,9 @@
  * `window.__ModuleLoader__.load({ id, chunk, factory })` — the exact shape
  * `require.async('./client.<name>.js')` resolves against (DSH `client/modules`
  * `client/system.ts`: `CLIENT_CHUNK` name rule + classic script-tag import).
- * The chunk name MUST stay `client.<name>.js` and the factory's only external
- * for the list chunk is the platform `react` seed word.
+ * The chunk name MUST stay `client.<name>.js`; the list and registry chunks'
+ * only external is the platform `react` seed word, and the editor chunk's
+ * IIFE global name stays unique (only IIFE chunks get one).
  */
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -66,6 +69,16 @@ window.__ModuleLoader__.load({
 `
 }
 
+/** CJS factory body: `react` stays a platform `require`, everything else is inlined. */
+function cjsFactory(code) {
+  return `(require) => {
+var module = { exports: {} };
+var exports = module.exports;
+${code}
+return module.exports;
+}`
+}
+
 const editorCode = await buildChunk({
   entry: 'client-editor/index.ts',
   formats: ['iife'],
@@ -88,16 +101,23 @@ const listCode = await buildChunk({
 })
 const listBundle = wrapChunk({
   chunkFile: 'client.list.js',
-  factoryBody: `(require) => {
-var module = { exports: {} };
-var exports = module.exports;
-${listCode}
-return module.exports;
-}`,
+  factoryBody: cjsFactory(listCode),
+})
+
+const registryCode = await buildChunk({
+  entry: 'client-registry/index.tsx',
+  formats: ['cjs'],
+  external: ['react'],
+  outDir: join(STAGE_DIR, 'registry'),
+})
+const registryBundle = wrapChunk({
+  chunkFile: 'client.registry.js',
+  factoryBody: cjsFactory(registryCode),
 })
 
 mkdirSync(join(ROOT, 'lib'), { recursive: true })
 writeFileSync(join(ROOT, 'lib/client.editor.js'), editorBundle)
 writeFileSync(join(ROOT, 'lib/client.list.js'), listBundle)
+writeFileSync(join(ROOT, 'lib/client.registry.js'), registryBundle)
 rmSync(STAGE_DIR, { recursive: true, force: true })
-console.log(`built lib/client.editor.js (${editorBundle.length} bytes), lib/client.list.js (${listBundle.length} bytes)`)
+console.log(`built lib/client.editor.js (${editorBundle.length} bytes), lib/client.list.js (${listBundle.length} bytes), lib/client.registry.js (${registryBundle.length} bytes)`)

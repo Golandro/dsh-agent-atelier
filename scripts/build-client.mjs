@@ -10,8 +10,8 @@
  * `window.__ModuleLoader__.load` factory shape the in-tree preset emits.
  * `react` stays a platform `require`; local modules resolve through a tiny
  * in-factory registry; the on-demand chunk channel (`require.async`) is
- * forwarded into that registry so the page can lazy-load the editor and list
- * chunks (`src/dsh/client/chunk-loader.ts`).
+ * forwarded into that registry so the page can lazy-load the editor, list and
+ * registry chunks (`src/dsh/client/chunk-loader.ts`).
  */
 import { readdirSync, readFileSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
@@ -125,6 +125,7 @@ for (const module of modules) {
     localModules[module.id] = `module.exports = {
   loadEditorChunk: () => localRequire.async('./client.editor.js'),
   loadListChunk: () => localRequire.async('./client.list.js'),
+  loadRegistryChunk: () => localRequire.async('./client.registry.js'),
 }`
     continue
   }
