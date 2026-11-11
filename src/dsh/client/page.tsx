@@ -29,13 +29,14 @@
  *   → commit(edits, {cwd}) → WriteReport 进操作历史 → 成功后重新 compose 并清掉已提交块草稿。
  *   块级保存 / 回退走同一条管线（仅该块 edit / 仅清该块草稿）。
  */
-import { createElement as h, Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { ControlClientError } from '../../control/client-errors.ts'
+import { createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ControlClientError, abortError } from '../../control/client-errors.ts'
 import { nsClass } from './class-names.ts'
 import { loadListChunk } from './chunk-loader.ts'
 import { routeFocusRequest } from './panel-focus.ts'
 import { panelViewId } from './panel-types.ts'
 import { RegistryMount } from './registry-mount.tsx'
+import { REGISTRY_WRITE_BUSY, createRegistryWriter } from './registry-writes.ts'
 import { EditorMount } from './editor-mount.tsx'
 import { AdvisorPanel } from './advisor.tsx'
 import { OperationHistory } from './operation-history.tsx'
@@ -52,8 +53,8 @@ import {
   writeRemembered,
 } from './workspace-scope.ts'
 
-import type { ControlClient, ComposedAgentDocument, ControlSnapshot, DocumentEdit, WritePlan, WriteReport } from '../../control/index.ts'
-import type { AgentListViewProps, PanelFocus, RegistryDestination } from './chunk-contracts.ts'
+import type { ControlClient, ComposedAgentDocument, ControlSnapshot, DocumentEdit, RegistryEdit, WritePlan, WriteReport } from '../../control/index.ts'
+import type { AgentListViewProps, PanelFocus, RegistryDestination, RegistryWriteOutcome } from './chunk-contracts.ts'
 import type { FocusPending } from './panel-focus.ts'
 import type { HistoryEntry } from './operation-history.tsx'
 import type { PanelTab, ReloadState } from './panel-types.ts'
@@ -88,6 +89,14 @@ type SaveState =
 interface ScopeLocalState {
   readonly selected: string | null
   readonly drafts: Record<string, Record<string, string>>
+}
+
+/** 页面唯一 reload 管线的一次调用（刷新 / 切空间 / 写后回读）。 */
+interface ReloadSnapshotOptions {
+  readonly cwd: string | undefined
+  readonly signal?: AbortSignal | undefined
+  readonly invalidate: boolean
+  readonly recompose: boolean
 }
 
 const EMPTY_DRAFTS: Readonly<Record<string, string>> = Object.freeze({})
@@ -134,6 +143,7 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
   const [save, setSave] = useState<SaveState>({ status: 'idle' })
   const [reports, setReports] = useState<HistoryEntry[]>([])
   const [reload, setReload] = useState<ReloadState>({ status: 'idle' })
+  const [registryWriteBusy, setRegistryWriteBusy] = useState(false)
   const [advisorOpen, setAdvisorOpen] = useState(false)
   /* 面板页签：智能体 / 模型关联 / 系统提示词 / 操作历史。四个视图都保持挂载。 */
   const [tab, setTab] = useState<PanelTab>(props.initialTab ?? 'agents')
@@ -151,9 +161,17 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
   // 写路径 / 刷新目录是事件驱动的异步操作：卸载时中止在途请求。
   const writeAbortRef = useRef<AbortController | null>(null)
   const reloadAbortRef = useRef<AbortController | null>(null)
+  const registryWriteAbortRef = useRef<AbortController | null>(null)
+
+  /** 中止在途 registry 写；写与刷新 / 切空间共用这一个取消点。 */
+  const abortRegistryWrite = (): void => {
+    registryWriteAbortRef.current?.abort()
+  }
+
   useEffect(() => () => {
     writeAbortRef.current?.abort()
     reloadAbortRef.current?.abort()
+    abortRegistryWrite()
   }, [])
 
   // compose：随选中 / 范围变化；重跑（换 agent / 重试 / 刷新后 recompose）即中止上一次。
@@ -343,31 +361,89 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
     setSave((prev) => (prev.status === 'planned' ? { status: 'idle' } : prev))
   }
 
-  /* ── 刷新目录 / 切换范围：同一条 invalidate → snapshot → recompose 管线 ── */
+  /* ── 刷新目录 / 切换范围 / 写后回读：同一条管线 ── */
 
-  const runReload = (nextCwd: string | undefined, onFailure?: () => void): void => {
+  /**
+   * 页面唯一的回读实现。刷新 / 切空间传 `invalidate: true`；registry 写绑定
+   * 只读快照分支（`invalidate: false`）——/registry 已在宿主侧 invalidate。
+   * 每次运行先中止上一次；调用方信号（写批次）也会中止本次。回读成功的新快照
+   * 直接替换页面状态，所有已挂载视图看到的都是写后事实，不做二次合并。
+   */
+  const reloadSnapshot = useCallback((options: ReloadSnapshotOptions): Promise<ControlSnapshot> => {
     reloadAbortRef.current?.abort()
     const controller = new AbortController()
     reloadAbortRef.current = controller
+    const release = linkAbort(options.signal, controller)
     setReload({ status: 'reloading' })
-    const options = { signal: controller.signal, cwd: nextCwd }
-    client.invalidate(options)
-      .then(() => client.snapshot(options))
+    const call = { signal: controller.signal, cwd: options.cwd }
+    const started = options.invalidate ? client.invalidate(call) : Promise.resolve()
+    return started
+      .then(() => client.snapshot(call))
       .then((next) => {
-        if (controller.signal.aborted) return
+        if (controller.signal.aborted) throw abortError()
         setSnapshot(next)
-        setSnapshotCwd(nextCwd)
+        setSnapshotCwd(options.cwd)
         setReload({ status: 'idle' })
-        setComposeAttempt((a) => a + 1)
+        if (options.recompose) setComposeAttempt((attempt) => attempt + 1)
+        return next
       })
       .catch((error: unknown) => {
-        if (controller.signal.aborted || isAbortError(error)) return
+        if (isAbortError(error) || controller.signal.aborted) {
+          // 被更新的回读取代时不动 reload 状态（新回读已经置为 reloading）；
+          // 真是本次被中止且没有后继时，清掉 reloading，避免永久转圈。
+          if (reloadAbortRef.current === controller) setReload({ status: 'idle' })
+          throw abortError()
+        }
         setReload({ status: 'failed', message: errorMessage(error) })
-        onFailure?.()
+        throw error
       })
+      .finally(() => {
+        release()
+        if (reloadAbortRef.current === controller) reloadAbortRef.current = null
+      })
+  }, [client])
+
+  /** 唯一写通道：一批在途、写后一次只读快照回读。 */
+  const registryWriter = useMemo(
+    () => createRegistryWriter({
+      applyRegistryEdit: (edit, options) => client.applyRegistryEdit(edit, options),
+      reloadAfterWrite: (options) => reloadSnapshot({
+        cwd: options.cwd,
+        signal: options.signal,
+        invalidate: false,
+        recompose: false,
+      }),
+    }),
+    [client, reloadSnapshot],
+  )
+
+  /** registry 页拿到的写入口；写失败是数据，只有 abort 会 reject。 */
+  const handleRegistryWrite = async (edits: readonly RegistryEdit[]): Promise<RegistryWriteOutcome> => {
+    if (registryWriter.isBusy()) return REGISTRY_WRITE_BUSY
+    abortRegistryWrite()
+    const controller = new AbortController()
+    registryWriteAbortRef.current = controller
+    setRegistryWriteBusy(true)
+    try {
+      return await registryWriter.run(edits, { cwd, signal: controller.signal })
+    } finally {
+      if (registryWriteAbortRef.current === controller) registryWriteAbortRef.current = null
+      setRegistryWriteBusy(false)
+    }
   }
 
-  const handleInvalidate = (): void => runReload(cwd)
+  const runReload = (nextCwd: string | undefined, onFailure?: () => void): void => {
+    void reloadSnapshot({ cwd: nextCwd, invalidate: true, recompose: true }).catch((error: unknown) => {
+      if (isAbortError(error)) return
+      onFailure?.()
+    })
+  }
+
+  const handleInvalidate = (): void => {
+    // 刷新与在途 registry 写共用一条回读链：旧写的回读已无意义，先中止。
+    abortRegistryWrite()
+    runReload(cwd)
+  }
 
   const handleSelectWorkspace = (next: WorkspaceChoice): void => {
     if (choiceKey(next) === scopeKey) return
@@ -376,6 +452,8 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
     writeRemembered(props.scope.storage, next)
     setBootNotice(undefined)
     setSave({ status: 'idle' })
+    // 旧 cwd 的在途写不再可信：先中止，再让新范围走同一条 reload。
+    abortRegistryWrite()
     // 切换失败就把选择器退回原处：选择器显示的范围必须和屏幕上实际读到的范围一致。
     runReload(cwdOf(next), () => {
       setChoice(previous)
@@ -533,6 +611,8 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
           focus: pendingFocus?.destination === 'models' ? pendingFocus.focus : null,
           onFocusConsumed: handleFocusConsumed,
           onRequestFocus: handleFocusRequest,
+          onRegistryWrite: handleRegistryWrite,
+          registryWriteBusy,
         })),
 
       h('section',
@@ -549,6 +629,8 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
           focus: pendingFocus?.destination === 'prompts' ? pendingFocus.focus : null,
           onFocusConsumed: handleFocusConsumed,
           onRequestFocus: handleFocusRequest,
+          onRegistryWrite: handleRegistryWrite,
+          registryWriteBusy,
         })),
 
       h(OperationHistory, {
@@ -600,6 +682,18 @@ function LazyAgentListView(props: AgentListViewProps): ReactNode {
 }
 
 /* ── 小工具 ─────────────────────────────────────────────────────────── */
+
+/** 把调用方信号挂到回读控制器上；返回解除监听的清理函数。 */
+function linkAbort(signal: AbortSignal | undefined, controller: AbortController): () => void {
+  if (signal === undefined) return () => {}
+  if (signal.aborted) {
+    controller.abort()
+    return () => {}
+  }
+  const onAbort = (): void => controller.abort()
+  signal.addEventListener('abort', onAbort, { once: true })
+  return () => signal.removeEventListener('abort', onAbort)
+}
 
 /** 来源层标签（视图文案，照搬原型 model.ts 的 layerLabel）。 */
 function layerLabel(source: ComposedAgentDocument['source']): string {

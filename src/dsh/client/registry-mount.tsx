@@ -73,6 +73,8 @@ export function RegistryMount(props: RegistryMountProps): ReactNode {
     focus: props.focus ?? null,
     onFocusConsumed: props.onFocusConsumed,
     onRequestFocus: props.onRequestFocus,
+    onRegistryWrite: props.onRegistryWrite,
+    registryWriteBusy: props.registryWriteBusy,
   }))
 }
 
