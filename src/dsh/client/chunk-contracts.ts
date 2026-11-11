@@ -21,6 +21,7 @@
  * treating the main bundle as dependency-free) implement exactly these exports.
  */
 
+import type { AliasRegistrySource } from '../../contract/index.ts'
 import type { ControlSnapshot } from '../../control/index.ts'
 
 /** Specifiers the on-demand chunk loader accepts for this package. */
@@ -81,6 +82,25 @@ export interface EditorChunk {
   createDocumentEditor(container: HTMLElement, options: DocumentEditorOptions): DocumentEditorHandle
 }
 
+/** Kind of entity a cross-page focus request points at (ticket 60). */
+export type PanelFocusKind = 'model' | 'alias' | 'agent'
+
+/**
+ * One cross-page focus target (ticket 60): an entity the receiving page
+ * should locate. `source` pins the registry layer the target was seen in
+ * (model / alias only); absent means the merged face. The page that cannot
+ * find the target in its current space switches to the merged space itself —
+ * the space segment is page-owned, the shell only routes and holds the target.
+ */
+export interface PanelFocus {
+  readonly kind: PanelFocusKind
+  readonly name: string
+  readonly source?: AliasRegistrySource | undefined
+}
+
+/** Registry page a focus request lands on (ticket 60). */
+export type RegistryDestination = 'models' | 'prompts'
+
 /** Props for the lazy list view (the prototype's `AgentListProps`). */
 export interface AgentListViewProps {
   readonly snapshot: ControlSnapshot
@@ -103,6 +123,22 @@ export interface ListChunk {
  */
 export interface RegistryViewProps {
   readonly snapshot: ControlSnapshot
+  /**
+   * Pending focus target routed to this page (ticket 60). The page locates it
+   * (scroll + highlight) and then calls `onFocusConsumed()`; the shell clears
+   * the pending target only on that acknowledgement. A target outside the
+   * page's current space makes the page switch to the merged space first.
+   */
+  readonly focus?: PanelFocus | null | undefined
+  /** Acknowledge that `focus` was located; the shell clears the pending target. */
+  onFocusConsumed?: (() => void) | undefined
+  /**
+   * Originate a cross-page jump (ticket 60): the shell routes by target kind
+   * (model → prompts by default, alias → models, agent → agents) and hands the
+   * pending target to the destination page. `destination` overrides the
+   * default for a model (e.g. focus the model row on the models page).
+   */
+  onRequestFocus?: ((focus: PanelFocus, destination?: RegistryDestination) => void) | undefined
 }
 
 /**

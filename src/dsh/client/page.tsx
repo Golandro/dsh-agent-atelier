@@ -7,9 +7,9 @@
  *        全部回退 / plan 预览 chips / 保存状态）+ EditorMount；未选中时占位提示。
  *   容器宽度放不下两侧最小宽度时（styles.css 的 `@container pane`）切单栏：
  *        列表隐藏、编辑器独占主视图；JS 不再参与该决策。
- *   头部 = 题头行（标题 + 工作空间选择器）+ 页签行（智能体 / 操作历史 / 配置
- *        + 状态 / 刷新目录）；三个视图都保持挂载（hidden 切换），选中 agent、草稿与
- *        滚动位置不丢。
+ *   头部 = 题头行（标题 + 工作空间选择器）+ 页签行（智能体 / 模型关联 / 系统提示词 /
+ *        操作历史 + 状态 / 刷新目录）；四个视图都保持挂载（hidden 切换），选中 agent、
+ *        草稿与滚动位置不丢。
  *
  * 数据流：页面持有本组件作用域内的一个 createHttpControlClient() 实例（由壳传入）；
  *   onSelect → compose(agentName, {cwd}) → ComposedAgentDocument；
@@ -33,8 +33,9 @@ import { createElement as h, Fragment, useEffect, useMemo, useRef, useState } fr
 import { ControlClientError } from '../../control/client-errors.ts'
 import { nsClass } from './class-names.ts'
 import { loadListChunk } from './chunk-loader.ts'
+import { routeFocusRequest } from './panel-focus.ts'
 import { panelViewId } from './panel-types.ts'
-import { ConfigPlaceholder } from './config-placeholder.tsx'
+import { RegistryMount } from './registry-mount.tsx'
 import { EditorMount } from './editor-mount.tsx'
 import { AdvisorPanel } from './advisor.tsx'
 import { OperationHistory } from './operation-history.tsx'
@@ -52,7 +53,8 @@ import {
 } from './workspace-scope.ts'
 
 import type { ControlClient, ComposedAgentDocument, ControlSnapshot, DocumentEdit, WritePlan, WriteReport } from '../../control/index.ts'
-import type { AgentListViewProps } from './chunk-contracts.ts'
+import type { AgentListViewProps, PanelFocus, RegistryDestination } from './chunk-contracts.ts'
+import type { FocusPending } from './panel-focus.ts'
 import type { HistoryEntry } from './operation-history.tsx'
 import type { PanelTab, ReloadState } from './panel-types.ts'
 import type { ScopeNotice, ScopeSource, WorkspaceChoice } from './workspace-scope.ts'
@@ -69,6 +71,8 @@ export interface AgentsWorkspaceProps {
   readonly initialNotice?: ScopeNotice | undefined
   /** 宿主工作区 / 会话列表的订阅面；缺失即「列表不可用」，面板照常工作。 */
   readonly scope: ScopeSource
+  /** 首帧页签；缺省智能体（壳不传，测试 / 嵌入方可渲染指定页签）。 */
+  readonly initialTab?: PanelTab | undefined
 }
 
 type DocState = 'idle' | 'loading' | 'ready' | 'error'
@@ -131,8 +135,10 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
   const [reports, setReports] = useState<HistoryEntry[]>([])
   const [reload, setReload] = useState<ReloadState>({ status: 'idle' })
   const [advisorOpen, setAdvisorOpen] = useState(false)
-  /* 面板页签：智能体（列表 + 编辑器）/ 操作历史 / 配置占位。三个视图都保持挂载。 */
-  const [tab, setTab] = useState<PanelTab>('agents')
+  /* 面板页签：智能体 / 模型关联 / 系统提示词 / 操作历史。四个视图都保持挂载。 */
+  const [tab, setTab] = useState<PanelTab>(props.initialTab ?? 'agents')
+  /* 跨页聚焦：只有目的页的视图收到 focus，避免两页重复消费同一个目标。 */
+  const [pendingFocus, setPendingFocus] = useState<FocusPending | null>(null)
 
   const updateLocal = (updater: (state: ScopeLocalState) => ScopeLocalState): void => {
     setLocalStates((prev) => {
@@ -203,6 +209,29 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
     // 草稿变化使未确认的 plan 失效（提交中的不折腾，成功路径会自行收尾）。
     setSave((prev) => (prev.status === 'planned' ? { status: 'idle' } : prev))
   }
+
+  /* ── 页签 / 聚焦通道（票 60） ── */
+
+  /** 手动切页签：作废未消费的跳转目标，避免回到旧页后再误跳。 */
+  const handleTab = (next: PanelTab): void => {
+    setTab(next)
+    setPendingFocus(null)
+  }
+
+  /**
+   * 跨页跳转的唯一入口（三条方向都走它）：按目标种类选目的页签并挂起目标。
+   * 智能体目标由页面自己消费（选中即落点，目标不在列表时只切页不假装选中）；
+   * 模型 / 别名目标交给目的页，由页内定位（必要时切合并空间）后调
+   * onFocusConsumed 清空。
+   */
+  const handleFocusRequest = (focus: PanelFocus, destination?: RegistryDestination): void => {
+    const outcome = routeFocusRequest(focus, destination, snapshot)
+    setTab(outcome.tab)
+    if (outcome.selection !== null) handleSelect(outcome.selection)
+    setPendingFocus(outcome.pending)
+  }
+
+  const handleFocusConsumed = (): void => setPendingFocus(null)
 
   /* ── 保存流程：drafts → edits → /plan → 预览 → /commit ── */
 
@@ -363,14 +392,14 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
   return h(Fragment, null,
     h(PanelHeader, {
       tab,
-      onTab: setTab,
+      onTab: handleTab,
       reload,
       onRefresh: handleInvalidate,
       scope: { choice, choices, status: list.status, notice: scopeNotice },
       onSelectWorkspace: handleSelectWorkspace,
     }),
 
-    // 测量锚点放在始终可见的 wrapper：切到操作历史时 .agents-page 虽然 hidden，
+    // 测量锚点放在始终可见的 wrapper：切到其它页签时 .agents-page 虽然 hidden，
     // 列表宽度仍按面板真实宽度夹取，切回来不会掉回最小值。
     h('div', { className: nsClass('panel-body'), ref: containerRef },
       h('div',
@@ -490,13 +519,43 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
         advisorOpen && h('div', { className: nsClass('advisor-panel') },
           h(AdvisorPanel, { snapshot, selectedAgent: selected, workspaceTitle, onSelectAgent: handleSelect })))),
 
+      h('section',
+        {
+          className: nsClass('registry-view'),
+          id: panelViewId('models'),
+          role: 'tabpanel',
+          'aria-labelledby': 'panel-tab-models',
+          hidden: tab !== 'models',
+        },
+        h(RegistryMount, {
+          view: 'models',
+          snapshot,
+          focus: pendingFocus?.destination === 'models' ? pendingFocus.focus : null,
+          onFocusConsumed: handleFocusConsumed,
+          onRequestFocus: handleFocusRequest,
+        })),
+
+      h('section',
+        {
+          className: nsClass('registry-view'),
+          id: panelViewId('prompts'),
+          role: 'tabpanel',
+          'aria-labelledby': 'panel-tab-prompts',
+          hidden: tab !== 'prompts',
+        },
+        h(RegistryMount, {
+          view: 'prompts',
+          snapshot,
+          focus: pendingFocus?.destination === 'prompts' ? pendingFocus.focus : null,
+          onFocusConsumed: handleFocusConsumed,
+          onRequestFocus: handleFocusRequest,
+        })),
+
       h(OperationHistory, {
         plan: save.status === 'planned' || save.status === 'committing' ? save.plan : null,
         reports,
         hidden: tab !== 'history',
       }),
-
-      h(ConfigPlaceholder, { hidden: tab !== 'config' }),
     ),
   )
 }

@@ -1,24 +1,25 @@
 /**
- * 面板头部 / 选择器 / 操作历史的行为锚点（票 05；票 37 扩展）。
+ * 面板头部 / 选择器 / 操作历史 / 页签键盘的行为锚点（票 05；票 37；票 60）。
  *
  * 组件级 seam：用 react-dom/server 渲染静态标记，不依赖宿主 DOM。
- * 覆盖：题头行的页面标题与工作空间选择器（三态）、页签行（智能体 / 操作历史 /
- * 配置）+ 状态区 + 刷新按钮、选择器选项列表的 ARIA 关系、配置占位与操作历史。
+ * 覆盖：题头行的页面标题与工作空间选择器（三态）、四页签行（智能体 / 模型关联 /
+ * 系统提示词 / 操作历史）+ 状态区 + 刷新按钮、选择器选项列表的 ARIA 关系、
+ * 页签键盘纯规则与操作历史。
  */
 import { createElement as h } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { ConfigPlaceholder } from '../src/dsh/client/config-placeholder.tsx'
 import { OperationHistory } from '../src/dsh/client/operation-history.tsx'
 import { PanelHeader } from '../src/dsh/client/panel-header.tsx'
-import { panelViewId } from '../src/dsh/client/panel-types.ts'
+import { panelTabKey, panelViewId } from '../src/dsh/client/panel-types.ts'
 import { USER_CHOICE } from '../src/dsh/client/workspace-scope.ts'
 import { WORKSPACE_LIST_ID, WorkspaceListbox, workspaceChoiceLabel, workspaceOptionId, workspaceSelectKey } from '../src/dsh/client/workspace-select.tsx'
 
 import type { WritePlan } from '../src/control/index.ts'
 import type { HistoryEntry } from '../src/dsh/client/operation-history.tsx'
 import type { PanelHeaderScope } from '../src/dsh/client/panel-header.tsx'
+import type { PanelTab } from '../src/dsh/client/panel-types.ts'
 import type { WorkspaceChoice } from '../src/dsh/client/workspace-scope.ts'
 
 const noop = (): void => {}
@@ -29,7 +30,7 @@ function defaultScope(overrides: Partial<PanelHeaderScope> = {}): PanelHeaderSco
   return { choice: USER_CHOICE, choices: [USER_CHOICE], status: 'ready', ...overrides }
 }
 
-function renderHeader(tab: 'agents' | 'history' | 'config', scope: PanelHeaderScope = defaultScope()): string {
+function renderHeader(tab: PanelTab, scope: PanelHeaderScope = defaultScope()): string {
   return renderToStaticMarkup(h(PanelHeader, {
     tab,
     onTab: noop,
@@ -71,28 +72,60 @@ describe('插件面板头部', () => {
     expect(html).toContain('工作区列表不可用')
   })
 
-  it('页签顺序为 智能体 → 操作历史 → 配置，刷新按钮仍在操作区', () => {
+  it('页签顺序为 智能体 → 模型关联 → 系统提示词 → 操作历史，配置占位已退场', () => {
     const html = renderHeader('agents')
     expect(html).toContain('智能体')
+    expect(html).toContain('模型关联')
+    expect(html).toContain('系统提示词')
     expect(html).toContain('操作历史')
-    expect(html).toContain('配置')
-    expect(html.indexOf('panel-tab-agents')).toBeLessThan(html.indexOf('panel-tab-history'))
-    expect(html.indexOf('panel-tab-history')).toBeLessThan(html.indexOf('panel-tab-config'))
+    expect(html).not.toContain('配置')
+    expect(html.indexOf('panel-tab-agents')).toBeLessThan(html.indexOf('panel-tab-models'))
+    expect(html.indexOf('panel-tab-models')).toBeLessThan(html.indexOf('panel-tab-prompts'))
+    expect(html.indexOf('panel-tab-prompts')).toBeLessThan(html.indexOf('panel-tab-history'))
     expect(html).toContain('aria-label="刷新目录"')
   })
 
   it('当前页签由 aria-selected 标记', () => {
     expect(renderHeader('agents')).toMatch(/aria-selected="true"[^>]*>智能体<\/button>/)
+    expect(renderHeader('models')).toMatch(/aria-selected="true"[^>]*>模型关联<\/button>/)
+    expect(renderHeader('prompts')).toMatch(/aria-selected="true"[^>]*>系统提示词<\/button>/)
     expect(renderHeader('history')).toMatch(/aria-selected="true"[^>]*>操作历史<\/button>/)
-    expect(renderHeader('config')).toMatch(/aria-selected="true"[^>]*>配置<\/button>/)
   })
 
-  it('aria-controls 指向三个视图共用的稳定 id', () => {
+  it('aria-controls 指向四个视图共用的稳定 id', () => {
     const html = renderHeader('agents')
     expect(html).toContain('aria-controls="panel-view-agents"')
+    expect(html).toContain('aria-controls="panel-view-models"')
+    expect(html).toContain('aria-controls="panel-view-prompts"')
     expect(html).toContain('aria-controls="panel-view-history"')
-    expect(html).toContain('aria-controls="panel-view-config"')
-    expect(panelViewId('agents')).toBe('panel-view-agents')
+    expect(panelViewId('models')).toBe('panel-view-models')
+    expect(panelViewId('prompts')).toBe('panel-view-prompts')
+  })
+
+  it('roving tabindex：只有当前页签可 Tab 进入', () => {
+    const html = renderHeader('models')
+    expect((html.match(/tabindex="0"/g) ?? []).length).toBe(1)
+    expect((html.match(/tabindex="-1"/g) ?? []).length).toBe(3)
+    expect(html).toMatch(/id="panel-tab-models"[^>]*tabindex="0"/)
+  })
+})
+
+describe('页签键盘契约', () => {
+  it('←/→ 循环、Home/End 首尾（↑/↓ 交还默认行为）', () => {
+    expect(panelTabKey(0, 4, 'ArrowRight')).toEqual({ handled: true, next: 1 })
+    expect(panelTabKey(3, 4, 'ArrowRight')).toEqual({ handled: true, next: 0 })
+    expect(panelTabKey(0, 4, 'ArrowLeft')).toEqual({ handled: true, next: 3 })
+    expect(panelTabKey(1, 4, 'Home')).toEqual({ handled: true, next: 0 })
+    expect(panelTabKey(1, 4, 'End')).toEqual({ handled: true, next: 3 })
+    expect(panelTabKey(1, 4, 'ArrowDown')).toEqual({ handled: false, next: 1 })
+    expect(panelTabKey(1, 4, 'ArrowUp')).toEqual({ handled: false, next: 1 })
+  })
+
+  it('不认领的键交还默认行为；非法下标回落到第一个', () => {
+    expect(panelTabKey(1, 4, 'Tab')).toEqual({ handled: false, next: 1 })
+    expect(panelTabKey(1, 4, 'Enter')).toEqual({ handled: false, next: 1 })
+    expect(panelTabKey(-1, 4, 'ArrowRight')).toEqual({ handled: true, next: 1 })
+    expect(panelTabKey(0, 0, 'ArrowRight')).toEqual({ handled: false, next: 0 })
   })
 })
 
@@ -150,14 +183,6 @@ describe('工作空间选择器选项', () => {
     expect(workspaceSelectKey({ open: true, active: 1, count: 3 }, 'Escape')).toMatchObject({ preventDefault: true })
     expect(workspaceSelectKey({ open: false, active: 0, count: 3 }, 'Enter')).toMatchObject({ preventDefault: true })
     expect(workspaceSelectKey({ open: false, active: 0, count: 3 }, 'a')).toMatchObject({ handled: false, preventDefault: false })
-  })
-})
-
-describe('配置占位视图', () => {
-  it('明确标注尚未实现', () => {
-    const html = renderToStaticMarkup(h(ConfigPlaceholder, { hidden: false }))
-    expect(html).toContain('配置')
-    expect(html).toContain('尚未实现')
   })
 })
 

@@ -12,8 +12,8 @@
  * client 与初始快照交给 AgentsWorkspace（./page.tsx）——compose / plan / commit /
  * invalidate 的业务流程全部在页面组件内，壳不再持有域状态。
  *
- * 作用域根：AgentsWorkspace 返回页头（智能体 / 操作历史 / 配置页签 + 刷新）与
- * `.agents-page` / 操作历史两个保持挂载的视图；本壳负责渲染
+ * 作用域根：AgentsWorkspace 返回页头（智能体 / 模型关联 / 系统提示词 / 操作历史
+ * 页签 + 刷新）与四个保持挂载的视图；本壳负责渲染
  * `.agent-atelier-page` 基座——styles.css 的全部前缀化规则、`--dsh-*`
  * token 与 pane.tsx 拖拽态的 closest() 查找都挂在这层上。
  *

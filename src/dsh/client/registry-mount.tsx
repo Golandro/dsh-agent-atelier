@@ -6,8 +6,8 @@
  *   pendingArrival），所以这里不另建缓存。
  * - 加载中 / 失败带明确文案，失败态 role=alert 且带「重试」——重试重新走一次
  *   require.async，不白屏。
- * - chunk 视图只收 snapshot（纯数据）与 on* 回调；本挂载器不把 client /
- *   service 对象递进去。
+ * - chunk 视图只收 snapshot（纯数据）、聚焦目标与 on* 回调；本挂载器不把
+ *   client / service 对象递进去。
  * - 样式归属：页面样式仍由主 bundle 的 data-plugin 标记注入；挂载器与 chunk
  *   都不建 style 元素，宿主 claimStyles/removeOwnedStyles 不会摘掉页面样式。
  */
@@ -68,7 +68,12 @@ export function RegistryMount(props: RegistryMountProps): ReactNode {
   const View = (props.view === 'models'
     ? state.chunk.ModelRegistryView
     : state.chunk.PromptRegistryView) as (viewProps: RegistryViewProps) => ReactNode
-  return h('div', { className: nsClass('registry-mount') }, h(View, { snapshot: props.snapshot }))
+  return h('div', { className: nsClass('registry-mount') }, h(View, {
+    snapshot: props.snapshot,
+    focus: props.focus ?? null,
+    onFocusConsumed: props.onFocusConsumed,
+    onRequestFocus: props.onRequestFocus,
+  }))
 }
 
 function errorMessage(error: unknown): string {

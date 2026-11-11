@@ -206,7 +206,8 @@
 
 /* ── 面板头部（票 05）：两行布局 ──────────────────────────────────────
  * 第一行：标题 + 工作空间选择器占位（靠右）；
- * 第二行：主要页签（智能体 / 操作历史 / 配置）靠左，刷新目录/状态靠右。 */
+ * 第二行：主要页签（智能体 / 模型关联 / 系统提示词 / 操作历史）靠左，
+ *         刷新目录/状态靠右。 */
 .agent-atelier-page .panel-header { flex: none; display: flex; flex-direction: column; border-bottom: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }
 .agent-atelier-page .panel-header-top { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 8px 12px 2px; }
 .agent-atelier-page .panel-header-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; line-height: 20px; letter-spacing: 0.01em; color: var(--dsw-alias-label-primary); }
@@ -560,10 +561,11 @@ body:not([data-ds-dark-theme]) .agent-atelier-page .doc-editor .cm-editor.cm-foc
 .agent-atelier-page .declare-card p { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .agent-atelier-page .declare-item { display: inline-block; margin: 2px 0; padding: 0 6px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-sm); font-size: 11px; line-height: 18px; }
 
-/* ── 配置占位视图（本票只交付智能体视图） ───────────────────────────── */
-.agent-atelier-page .config-view { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-bg-base); overflow: auto; }
-.agent-atelier-page .config-view[hidden] { display: none; }
-.agent-atelier-page .config-placeholder p { margin: 0 0 6px; }
+/* ── Registry 页签容器（模型关联 / 系统提示词共用同一 chunk 视图） ───── */
+.agent-atelier-page .registry-view { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--dsw-alias-bg-base); }
+.agent-atelier-page .registry-view[hidden] { display: none; }
+.agent-atelier-page .registry-mount { flex: 1; min-height: 0; display: flex; }
+.agent-atelier-page .registry-page { flex: 1; min-height: 0; display: flex; }
 
 /* ── 操作历史（原「最近写入」状态栏，升格为页签视图） ───────────────── */
 .agent-atelier-page .history-view { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--dsw-alias-bg-base); }
