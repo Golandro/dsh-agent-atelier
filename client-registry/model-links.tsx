@@ -15,9 +15,17 @@
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, CSSProperties, KeyboardEvent, ReactNode } from 'react'
 import type { PanelFocus, RegistryDestination, RegistryViewProps } from '../src/dsh/client/chunk-contracts.ts'
-import type { ControlSnapshot } from '../src/control/index.ts'
-import { AliasDetailBody, Fact } from './alias-detail.tsx'
+import type { ControlSnapshot, RegistryEdit } from '../src/control/index.ts'
+import { AliasDetailBody } from './alias-detail.tsx'
 import { ListPane } from './list-pane.tsx'
+import { AddModelForm, ModelDetailBody } from './model-detail.tsx'
+import {
+  EMPTY_ADD_MODEL_DRAFT,
+  addModelCheckOf,
+  buildAddModelEdit,
+  deleteModelEditOf,
+  setAvailableEditOf,
+} from './model-detail.ts'
 import { ModelRowView } from './model-rows.tsx'
 import { PaneSplitter, usePaneLayout } from './pane.tsx'
 import { registryLayerLabel } from './registry-model.ts'
@@ -28,8 +36,6 @@ import {
   modelsRowsOf,
   relationTagClass,
   resolveFocusTarget,
-  rowPathLabel,
-  rowRoute,
   selectionKey,
   selectionOfRow,
   sourceTagClass,
@@ -42,7 +48,9 @@ import type {
   RegistrySelection,
 } from './model-links.ts'
 import type { AliasChainState, AliasCopyStatus } from './alias-detail.ts'
+import type { AddModelDraft, ModelWriteUi } from './model-detail.ts'
 import type {
+  ModelRow,
   RegistryKind,
   RegistryListQuery,
   RegistryRow,
@@ -73,6 +81,12 @@ export interface ModelsPageState {
   readonly detailOpen: boolean
   /** 重映射预览里用户选择的 target；null = 跟当前目标。票 64 只读预览。 */
   readonly remapTarget: string | null
+  /** 新增模型条目的表单是否展开（票 66）。 */
+  readonly addOpen: boolean
+  /** 新增表单草稿；切空间 / 切类别时清空。 */
+  readonly addDraft: AddModelDraft
+  /** 删除条目的二次确认是否展开（票 66）。 */
+  readonly deleteConfirm: boolean
 }
 
 export const INITIAL_MODELS_PAGE_STATE: ModelsPageState = {
@@ -85,9 +99,12 @@ export const INITIAL_MODELS_PAGE_STATE: ModelsPageState = {
   selected: null,
   detailOpen: true,
   remapTarget: null,
+  addOpen: false,
+  addDraft: EMPTY_ADD_MODEL_DRAFT,
+  deleteConfirm: false,
 }
 
-export type ModelsPagePatch = Partial<Pick<ModelsPageState, 'space' | 'kind' | 'text' | 'sort' | 'direction' | 'onlyIssues' | 'detailOpen' | 'remapTarget'>>
+export type ModelsPagePatch = Partial<Pick<ModelsPageState, 'space' | 'kind' | 'text' | 'sort' | 'direction' | 'onlyIssues' | 'detailOpen' | 'remapTarget' | 'addOpen' | 'addDraft' | 'deleteConfirm'>>
 
 export interface ModelsPageViewProps {
   readonly snapshot: ControlSnapshot
@@ -101,6 +118,13 @@ export interface ModelsPageViewProps {
   readonly onCopyName?: (() => void) | undefined
   readonly onRetryChain?: (() => void) | undefined
   readonly onRequestFocus?: ((focus: PanelFocus, destination?: RegistryDestination) => void) | undefined
+  /** 写结果反馈（票 62 的词表）；缺省 = 没有写入进行。 */
+  readonly write?: ModelWriteUi | undefined
+  /** 写通道在途：禁用开关 / 删除 / 新增提交。 */
+  readonly writeBusy?: boolean | undefined
+  readonly onToggleAvailable?: ((row: ModelRow, available: boolean) => void) | undefined
+  readonly onDeleteModel?: ((row: ModelRow) => void) | undefined
+  readonly onAddModel?: ((draft: AddModelDraft) => void) | undefined
 }
 
 /** 受控视图：所有状态由外部传入，SSR / 组件测试直接按状态渲染。 */
@@ -272,6 +296,20 @@ export function ModelsPageView(props: ModelsPageViewProps): ReactNode {
               },
               '仅异常',
             ),
+            state.kind === 'model' && props.onAddModel !== undefined
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: state.addOpen ? 'btn btn-sm btn-primary' : 'btn btn-sm',
+                    'data-add-model': '1',
+                    'aria-expanded': state.addOpen,
+                    disabled: props.writeBusy === true,
+                    onClick: () => props.onState({ addOpen: !state.addOpen }),
+                  },
+                  state.addOpen ? '取消新增' : '新增模型条目',
+                )
+              : null,
           ),
           !projectAvailable
             ? h(
@@ -327,9 +365,18 @@ export function ModelsPageView(props: ModelsPageViewProps): ReactNode {
             chain: props.chain,
             copied: props.copied ?? 'idle',
             remapTarget: state.remapTarget,
+            addOpen: state.addOpen,
+            addDraft: state.addDraft,
+            deleteConfirm: state.deleteConfirm,
+            write: props.write,
+            writeBusy: props.writeBusy === true,
+            onState: props.onState,
             onCopyName: props.onCopyName,
             onRetryChain: props.onRetryChain,
             onRemapTarget: (name: string) => props.onState({ remapTarget: name }),
+            onToggleAvailable: props.onToggleAvailable,
+            onDeleteModel: props.onDeleteModel,
+            onAddModel: props.onAddModel,
             onRequestFocus: props.onRequestFocus,
             onClose: closeDetail,
           })
@@ -382,9 +429,18 @@ interface ModelDetailPaneProps {
   readonly chain: AliasChainState | undefined
   readonly copied: AliasCopyStatus
   readonly remapTarget: string | null
+  readonly addOpen: boolean
+  readonly addDraft: AddModelDraft
+  readonly deleteConfirm: boolean
+  readonly write?: ModelWriteUi | undefined
+  readonly writeBusy: boolean
+  readonly onState: (patch: ModelsPagePatch) => void
   readonly onCopyName?: (() => void) | undefined
   readonly onRetryChain?: (() => void) | undefined
   readonly onRemapTarget?: ((name: string) => void) | undefined
+  readonly onToggleAvailable?: ((row: ModelRow, available: boolean) => void) | undefined
+  readonly onDeleteModel?: ((row: ModelRow) => void) | undefined
+  readonly onAddModel?: ((draft: AddModelDraft) => void) | undefined
   readonly onRequestFocus?: ((focus: PanelFocus, destination?: RegistryDestination) => void) | undefined
   readonly onClose: () => void
 }
@@ -411,29 +467,37 @@ function ModelDetailPane(props: ModelDetailPaneProps): ReactNode {
     h(
       'div',
       { className: 'model-detail-head' },
-      row === null
-        ? h('span', { className: 'model-detail-name dim' }, '未选择条目')
-        : h(
+      props.addOpen
+        ? h(
             Fragment,
             null,
-            h('span', { className: 'tag tag-scope' }, kindNoun(row.kind)),
-            h('span', { className: 'model-detail-name', title: row.name }, row.name),
-            h('span', { className: 'tag ' + sourceTagClass(row.source) }, registryLayerLabel(row.source)),
-            relationClass === null ? null : h('span', { className: 'tag ' + relationClass }, row.layer.label),
-            row.kind === 'alias'
-              ? h(
-                  'button',
-                  {
-                    type: 'button',
-                    className: 'btn btn-sm model-detail-copy',
-                    'data-copy': 'alias',
-                    'aria-label': '复制别名 ' + row.name,
-                    onClick: props.onCopyName,
-                  },
-                  copyLabel(props.copied),
-                )
-              : null,
-          ),
+            h('span', { className: 'tag tag-scope' }, '新增'),
+            h('span', { className: 'model-detail-name' }, '新增模型条目'),
+            h('span', { className: 'tag tag-dim' }, spaceLabel(props.space)),
+          )
+        : row === null
+          ? h('span', { className: 'model-detail-name dim' }, '未选择条目')
+          : h(
+              Fragment,
+              null,
+              h('span', { className: 'tag tag-scope' }, kindNoun(row.kind)),
+              h('span', { className: 'model-detail-name', title: row.name }, row.name),
+              h('span', { className: 'tag ' + sourceTagClass(row.source) }, registryLayerLabel(row.source)),
+              relationClass === null ? null : h('span', { className: 'tag ' + relationClass }, row.layer.label),
+              row.kind === 'alias'
+                ? h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'btn btn-sm model-detail-copy',
+                      'data-copy': 'alias',
+                      'aria-label': '复制别名 ' + row.name,
+                      onClick: props.onCopyName,
+                    },
+                    copyLabel(props.copied),
+                  )
+                : null,
+            ),
       h('span', { className: 'model-detail-fill' }),
       h(
         'button',
@@ -450,32 +514,56 @@ function ModelDetailPane(props: ModelDetailPaneProps): ReactNode {
     h(
       'div',
       { className: 'model-detail-body' },
-      row === null
-        ? h(
-            'div',
-            { className: 'model-detail-empty' },
-            h('div', { className: 'model-empty-title' }, '未选择条目'),
-            h('p', { className: 'dim' }, '在左侧选择别名或模型条目，查看层与关联摘要。'),
-          )
-        : row.kind === 'alias'
-          ? h(AliasDetailBody, {
-              snapshot: props.snapshot,
-              row,
-              space: props.space,
-              chain: props.chain ?? IDLE_CHAIN,
-              remapTarget: props.remapTarget,
-              onRetryChain: props.onRetryChain,
-              onRemapTarget: props.onRemapTarget,
-              onRequestFocus: props.onRequestFocus,
-            })
-          : h(
-              'dl',
-              { className: 'model-facts' },
-              h(Fact, { label: '空间' }, spaceLabel(props.space) + ' · ' + registryLayerLabel(row.source)),
-              h(Fact, { label: '文件' }, h('code', null, rowPathLabel(row))),
-              h(Fact, { label: '路线' }, h('code', null, rowRoute(row) ?? '未声明')),
-              h(Fact, { label: '层关系' }, row.layer.label === '' ? '无同名冲突' : row.layer.label),
-            ),
+      props.addOpen
+        ? h(AddModelForm, {
+            spaceName: spaceLabel(props.space),
+            draft: props.addDraft,
+            check: addModelCheckOf(props.snapshot, props.space, props.addDraft),
+            write: props.write,
+            writeBusy: props.writeBusy,
+            onDraftChange: (patch: Partial<AddModelDraft>) => props.onState({ addDraft: { ...props.addDraft, ...patch } }),
+            onSubmit: props.onAddModel === undefined ? undefined : () => props.onAddModel?.(props.addDraft),
+            onCancel: () => props.onState({ addOpen: false }),
+          })
+        : row === null
+          ? h(
+              'div',
+              { className: 'model-detail-empty' },
+              h('div', { className: 'model-empty-title' }, '未选择条目'),
+              h('p', { className: 'dim' }, '在左侧选择别名或模型条目，查看层与关联摘要。'),
+            )
+          : row.kind === 'alias'
+            ? h(AliasDetailBody, {
+                snapshot: props.snapshot,
+                row,
+                space: props.space,
+                chain: props.chain ?? IDLE_CHAIN,
+                remapTarget: props.remapTarget,
+                onRetryChain: props.onRetryChain,
+                onRemapTarget: props.onRemapTarget,
+                onRequestFocus: props.onRequestFocus,
+              })
+            : h(ModelDetailBody, {
+                snapshot: props.snapshot,
+                row,
+                space: props.space,
+                spaceName: spaceLabel(props.space),
+                write: props.write,
+                writeBusy: props.writeBusy,
+                deleteConfirm: props.deleteConfirm,
+                onToggleAvailable: props.onToggleAvailable === undefined
+                  ? undefined
+                  : (available: boolean) => props.onToggleAvailable?.(row, available),
+                onRequestDelete: props.onDeleteModel === undefined
+                  ? undefined
+                  : () => props.onState({ deleteConfirm: true }),
+                onConfirmDelete: () => {
+                  props.onState({ deleteConfirm: false })
+                  props.onDeleteModel?.(row)
+                },
+                onCancelDelete: () => props.onState({ deleteConfirm: false }),
+                onRequestFocus: props.onRequestFocus,
+              }),
       row === null
         ? h(
             'div',
@@ -505,13 +593,33 @@ function focusedRowKey(target: EventTarget | null): string | null {
 /** chunk 入口：状态在这里，视图在 ModelsPageView。 */
 export function ModelRegistryView(props: RegistryViewProps): ReactNode {
   const [state, setState] = useState<ModelsPageState>(INITIAL_MODELS_PAGE_STATE)
-  const applyState = (patch: ModelsPagePatch): void => setState((previous) => ({ ...previous, ...patch }))
-  const select = (selection: RegistrySelection): void => setState((previous) => ({
-    ...previous,
-    selected: selection,
-    detailOpen: true,
-    remapTarget: null,
-  }))
+  const [write, setWrite] = useState<ModelWriteUi>({ status: 'idle' })
+  const applyState = (patch: ModelsPagePatch): void => {
+    // 切空间 / 切类别会换写入层与表单语义：关闭新增与删除确认，草稿清空。
+    if (patch.space !== undefined || patch.kind !== undefined) {
+      setWrite({ status: 'idle' })
+      setState((previous) => ({
+        ...previous,
+        ...patch,
+        addOpen: false,
+        addDraft: EMPTY_ADD_MODEL_DRAFT,
+        deleteConfirm: false,
+      }))
+      return
+    }
+    setState((previous) => ({ ...previous, ...patch }))
+  }
+  const select = (selection: RegistrySelection): void => {
+    setWrite({ status: 'idle' })
+    setState((previous) => ({
+      ...previous,
+      selected: selection,
+      detailOpen: true,
+      remapTarget: null,
+      addOpen: false,
+      deleteConfirm: false,
+    }))
+  }
 
   const page = useMemo(() => modelsRowsOf(props.snapshot, state), [props.snapshot, state])
   const aliasName = page.selectedRow?.kind === 'alias' ? page.selectedRow.name : null
@@ -563,6 +671,53 @@ export function ModelRegistryView(props: RegistryViewProps): ReactNode {
   const copied: AliasCopyStatus =
     copy !== null && aliasName !== null && copy.name === aliasName ? copy.status : 'idle'
 
+  // 写动作统一走页面的单一写通道（票 62）：这里是唯一的 in-flight 状态来源，
+  // 写失败是结果行而不是异常；只有 abort 会 reject。
+  const runWrite = (edits: readonly RegistryEdit[], label: string, afterOk?: () => void): void => {
+    const handler = props.onRegistryWrite
+    if (handler === undefined) return
+    setWrite({ status: 'writing', label })
+    handler(edits)
+      .then((outcome) => {
+        setWrite({ status: 'done', outcome })
+        if (outcome.changedCount > 0) afterOk?.()
+      })
+      .catch((error: unknown) => {
+        if (isAbortError(error)) {
+          setWrite({ status: 'idle' })
+          return
+        }
+        setWrite({ status: 'error', message: errorMessage(error) })
+      })
+  }
+
+  const toggleAvailable = (row: ModelRow, available: boolean): void => {
+    runWrite([setAvailableEditOf(row, available)], '更新 ' + row.name + ' 的 available')
+  }
+
+  const deleteModel = (row: ModelRow): void => {
+    runWrite([deleteModelEditOf(row)], '删除 ' + row.name, () => {
+      setState((previous) => ({ ...previous, deleteConfirm: false, selected: null }))
+    })
+  }
+
+  const addModel = (draft: AddModelDraft): void => {
+    const check = addModelCheckOf(props.snapshot, page.space, draft)
+    if (!check.canSubmit || check.target === undefined) return
+    const name = draft.name.trim()
+    // 写后回读会让新行进入快照；选中先指向它，回读完成后详情自动接上。
+    setState((previous) => ({ ...previous, selected: { kind: 'model', name } }))
+    runWrite([buildAddModelEdit(check.target, draft)], '新增 ' + name, () => {
+      setState((previous) => ({
+        ...previous,
+        addOpen: false,
+        addDraft: EMPTY_ADD_MODEL_DRAFT,
+        deleteConfirm: false,
+        selected: { kind: 'model', name },
+      }))
+    })
+  }
+
   // 跨页聚焦：目标在当前空间找不到时切合并空间（票 60 的裁决），找到才消费；
   // 目标还没进快照就不消费，等下一份快照再试。
   useEffect(() => {
@@ -570,6 +725,7 @@ export function ModelRegistryView(props: RegistryViewProps): ReactNode {
     if (focus === null || focus === undefined) return
     const target = resolveFocusTarget(focus, props.snapshot, state.space)
     if (target === null) return
+    setWrite({ status: 'idle' })
     setState((previous) => ({
       ...previous,
       space: target.space,
@@ -579,6 +735,9 @@ export function ModelRegistryView(props: RegistryViewProps): ReactNode {
       selected: { kind: target.kind, name: target.name },
       detailOpen: true,
       remapTarget: null,
+      addOpen: false,
+      addDraft: EMPTY_ADD_MODEL_DRAFT,
+      deleteConfirm: false,
     }))
     props.onFocusConsumed?.()
   }, [props.focus, props.snapshot, state.space, props.onFocusConsumed])
@@ -592,6 +751,11 @@ export function ModelRegistryView(props: RegistryViewProps): ReactNode {
     copied,
     onCopyName: copyName,
     onRetryChain: () => setChainAttempt((attempt) => attempt + 1),
+    write,
+    writeBusy: props.registryWriteBusy === true || write.status === 'writing',
+    onToggleAvailable: props.onRegistryWrite === undefined ? undefined : toggleAvailable,
+    onDeleteModel: props.onRegistryWrite === undefined ? undefined : deleteModel,
+    onAddModel: props.onRegistryWrite === undefined ? undefined : addModel,
     onRequestFocus: props.onRequestFocus,
   })
 }

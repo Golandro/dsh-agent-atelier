@@ -759,6 +759,64 @@ body:not([data-ds-dark-theme]) .agent-atelier-page .doc-editor .cm-editor.cm-foc
 .agent-atelier-page .alias-jump { flex: none; }
 .agent-atelier-page .model-detail-copy { flex: none; }
 
+/* ── 模型详情（票 66）：可用开关、引用 / 可达、sysPrompt、删除与新增 ───── */
+.agent-atelier-page .model-detail-model { display: flex; flex-direction: column; gap: 14px; }
+.agent-atelier-page .model-avail { padding: 8px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-sm); }
+.agent-atelier-page .model-avail-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12.5px; line-height: 18px; }
+.agent-atelier-page .model-avail-toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--dsw-alias-label-primary); }
+.agent-atelier-page .model-avail-toggle input { margin: 0; }
+.agent-atelier-page .model-avail-note { margin: 0; font-size: 11.5px; line-height: 17px; color: var(--dsw-alias-label-tertiary); }
+.agent-atelier-page .model-avail-warn { margin: 0; padding: 4px 6px; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-state-warn-bg); color: var(--dsw-alias-state-warn-primary); font-size: 11.5px; line-height: 17px; }
+.agent-atelier-page .model-reach { display: flex; flex-direction: column; gap: 4px; }
+.agent-atelier-page .model-reach-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; font-size: 12px; line-height: 18px; }
+.agent-atelier-page .model-reach-via { color: var(--dsw-alias-label-tertiary); font-size: 11.5px; }
+.agent-atelier-page .model-prompt {
+  margin: 0;
+  max-height: 12rem;
+  overflow: auto;
+  padding: 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-family: var(--dsh-font-family-code-default);
+  font-size: 11.5px;
+  line-height: 17px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agent-atelier-page .model-delete-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border: 0.5px solid var(--dsw-alias-state-error-primary);
+  border-radius: var(--dsw-radius-sm);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 6%, transparent);
+  font-size: 12px;
+  line-height: 18px;
+}
+.agent-atelier-page .model-delete-confirm p { margin: 0; }
+.agent-atelier-page .model-delete-actions { display: flex; gap: 8px; padding-top: 2px; }
+.agent-atelier-page .model-delete-btn { color: var(--dsw-alias-state-error-primary); border-color: var(--dsw-alias-state-error-primary); }
+.agent-atelier-page .model-add { padding: 8px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-sm); }
+.agent-atelier-page .model-add-field { display: grid; grid-template-columns: 6em minmax(0, 1fr); align-items: center; gap: 8px; font-size: 12.5px; line-height: 18px; }
+.agent-atelier-page .model-add-label { color: var(--dsw-alias-label-tertiary); }
+.agent-atelier-page .model-add-field .input { height: 30px; font-size: 12.5px; }
+.agent-atelier-page .model-add-prompt { height: auto; min-height: 66px; padding: 6px 10px; line-height: 17px; resize: vertical; }
+.agent-atelier-page .model-add-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; line-height: 18px; }
+.agent-atelier-page .model-add-check input { margin: 0; }
+.agent-atelier-page .model-add-problems { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0 0 0 1.2em; color: var(--dsw-alias-state-error-primary); font-size: 11.5px; line-height: 17px; }
+.agent-atelier-page .model-add-actions { display: flex; gap: 8px; padding-top: 2px; }
+.agent-atelier-page .model-write { display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: var(--dsw-radius-sm); font-size: 12px; line-height: 18px; }
+.agent-atelier-page .model-write-ok { background: var(--dsw-alias-state-success-bg); color: var(--dsw-alias-state-success-primary); }
+.agent-atelier-page .model-write-warn { background: var(--dsw-alias-state-warn-bg); color: var(--dsw-alias-state-warn-primary); }
+.agent-atelier-page .model-write-err { background: var(--dsw-alias-state-error-bg); color: var(--dsw-alias-state-error-primary); }
+.agent-atelier-page .model-write-head { font-weight: 600; }
+.agent-atelier-page .model-write-lines { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0 0 0 1.1em; }
+.agent-atelier-page .model-write-line-ok { color: var(--dsw-alias-label-secondary); }
+
+
 
 /* 放不下「列表 20rem + 分隔条 0.375rem + 详情 40rem」时单栏显示列表；
  * 详情在窄容器的浮层/返回路径归票 69，不与主 bundle 的单栏决策打架。 */
