@@ -10,9 +10,16 @@ import { describe, expect, it } from 'vitest'
 
 import {
   PANE_CONTENT_MIN_REM,
+  PANE_LIST_DEFAULT_REM,
   PANE_LIST_MIN_REM,
   PANE_SPLITTER_REM,
 } from '../src/dsh/client/pane.tsx'
+import {
+  PANE_CONTENT_MIN_REM as CHUNK_CONTENT_MIN_REM,
+  PANE_LIST_DEFAULT_REM as CHUNK_LIST_DEFAULT_REM,
+  PANE_LIST_MIN_REM as CHUNK_LIST_MIN_REM,
+  PANE_SPLITTER_REM as CHUNK_SPLITTER_REM,
+} from '../client-registry/pane.tsx'
 
 const CSS_URL = new URL('../src/dsh/client/styles.css', import.meta.url)
 const css = readFileSync(CSS_URL, 'utf8')
@@ -34,5 +41,16 @@ describe('分栏布局（CSS 容器查询）', () => {
 
   it('不再存在 JS 侧的 editor-overlay 布局类', () => {
     expect(css).not.toContain('editor-overlay')
+  })
+
+  it('registry chunk 的私有分栏常量与主 bundle 同口径', () => {
+    expect(CHUNK_LIST_MIN_REM).toBe(PANE_LIST_MIN_REM)
+    expect(CHUNK_CONTENT_MIN_REM).toBe(PANE_CONTENT_MIN_REM)
+    expect(CHUNK_SPLITTER_REM).toBe(PANE_SPLITTER_REM)
+    expect(CHUNK_LIST_DEFAULT_REM).toBe(PANE_LIST_DEFAULT_REM)
+  })
+
+  it('模型关联页的窄容器单栏规则用同一断点', () => {
+    expect(css).toContain(`.agent-atelier-page .models-page .models-body { grid-template-columns: minmax(0, 1fr); }`)
   })
 })
