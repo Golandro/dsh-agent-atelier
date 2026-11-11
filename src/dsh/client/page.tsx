@@ -251,6 +251,15 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
 
   const handleFocusConsumed = (): void => setPendingFocus(null)
 
+  /**
+   * 别名详情的链诊断（票 64）：复用 /agent-atelier/chain 读面（票 58），不新开
+   * 路由、不重跑解析；cwd 跟随当前工作空间，signal 让页内切换中止在途请求。
+   */
+  const handleChainReport = useCallback(
+    (agentName: string, signal?: AbortSignal) => client.chainReport(agentName, { cwd, signal }),
+    [client, cwd],
+  )
+
   /* ── 保存流程：drafts → edits → /plan → 预览 → /commit ── */
 
   const runPlan = (edits: readonly DocumentEdit[]): void => {
@@ -613,6 +622,7 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
           onRequestFocus: handleFocusRequest,
           onRegistryWrite: handleRegistryWrite,
           registryWriteBusy,
+          onChainReport: handleChainReport,
         })),
 
       h('section',
@@ -631,6 +641,7 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
           onRequestFocus: handleFocusRequest,
           onRegistryWrite: handleRegistryWrite,
           registryWriteBusy,
+          onChainReport: handleChainReport,
         })),
 
       h(OperationHistory, {

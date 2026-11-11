@@ -14,20 +14,18 @@
  */
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, CSSProperties, KeyboardEvent, ReactNode } from 'react'
-import type { RegistryViewProps } from '../src/dsh/client/chunk-contracts.ts'
+import type { PanelFocus, RegistryDestination, RegistryViewProps } from '../src/dsh/client/chunk-contracts.ts'
 import type { ControlSnapshot } from '../src/control/index.ts'
+import { AliasDetailBody, Fact } from './alias-detail.tsx'
 import { ListPane } from './list-pane.tsx'
 import { ModelRowView } from './model-rows.tsx'
 import { PaneSplitter, usePaneLayout } from './pane.tsx'
 import { registryLayerLabel } from './registry-model.ts'
 import {
-  aliasTargetLabel,
-  effectiveSelection,
   emptyReasonOf,
   kindNoun,
   layerCountsOf,
-  registryListOf,
-  registryQueryOf,
+  modelsRowsOf,
   relationTagClass,
   resolveFocusTarget,
   rowPathLabel,
@@ -43,6 +41,7 @@ import type {
   LayerCounts,
   RegistrySelection,
 } from './model-links.ts'
+import type { AliasChainState, AliasCopyStatus } from './alias-detail.ts'
 import type {
   RegistryKind,
   RegistryListQuery,
@@ -72,6 +71,8 @@ export interface ModelsPageState {
   readonly onlyIssues: boolean
   readonly selected: RegistrySelection | null
   readonly detailOpen: boolean
+  /** 重映射预览里用户选择的 target；null = 跟当前目标。票 64 只读预览。 */
+  readonly remapTarget: string | null
 }
 
 export const INITIAL_MODELS_PAGE_STATE: ModelsPageState = {
@@ -83,39 +84,33 @@ export const INITIAL_MODELS_PAGE_STATE: ModelsPageState = {
   onlyIssues: false,
   selected: null,
   detailOpen: true,
+  remapTarget: null,
 }
 
-export type ModelsPagePatch = Partial<Pick<ModelsPageState, 'space' | 'kind' | 'text' | 'sort' | 'direction' | 'onlyIssues' | 'detailOpen'>>
+export type ModelsPagePatch = Partial<Pick<ModelsPageState, 'space' | 'kind' | 'text' | 'sort' | 'direction' | 'onlyIssues' | 'detailOpen' | 'remapTarget'>>
 
 export interface ModelsPageViewProps {
   readonly snapshot: ControlSnapshot
   readonly state: ModelsPageState
   onState(patch: ModelsPagePatch): void
   onSelect(selection: RegistrySelection): void
+  /** 按需读面（POST /agent-atelier/chain）的当前别名报告；缺省 = 未读取。 */
+  readonly chain?: AliasChainState | undefined
+  /** 复制名称的反馈，只对当前别名有意义。 */
+  readonly copied?: AliasCopyStatus | undefined
+  readonly onCopyName?: (() => void) | undefined
+  readonly onRetryChain?: (() => void) | undefined
+  readonly onRequestFocus?: ((focus: PanelFocus, destination?: RegistryDestination) => void) | undefined
 }
 
 /** 受控视图：所有状态由外部传入，SSR / 组件测试直接按状态渲染。 */
 export function ModelsPageView(props: ModelsPageViewProps): ReactNode {
   const { snapshot, state } = props
   const projectAvailable = snapshot.scope.projectRoot !== null
-  // 用户全局没有项目根：工作区按钮禁用，当前若仍停在 project 就显示合并（不改写状态，
-  // 下一份快照带回项目根时自动恢复用户原来的选择）。
-  const space: RegistrySpace = state.space === 'project' && !projectAvailable ? 'merged' : state.space
-  const query = useMemo(
-    () => registryQueryOf({ text: state.text, sort: state.sort, direction: state.direction, onlyIssues: state.onlyIssues }),
-    [state.text, state.sort, state.direction, state.onlyIssues],
-  )
-  const list = useMemo(
-    () => registryListOf(snapshot, space, state.kind, query),
-    [snapshot, space, state.kind, query],
-  )
-  const allRows = list.allRows
-  const rows = list.rows
-  const selection = effectiveSelection(state.selected, allRows, rows, state.kind)
+  // 页面与 chunk 入口共用 modelsRowsOf：工作区不可用时已回退合并，选中已落地。
+  const page = useMemo(() => modelsRowsOf(snapshot, state), [snapshot, state])
+  const { space, allRows, rows, selection, selectedRow } = page
   const selectedKey = selection === null ? null : selectionKey(selection, space)
-  const selectedRow = selectedKey === null
-    ? null
-    : allRows.find((row) => row.key === selectedKey) ?? null
   // 选中行被筛选掉时，roving tab stop 落在可见首行；否则列表没有可 Tab 进入的行。
   const tabStopKey = selectedKey !== null && rows.some((row) => row.key === selectedKey)
     ? selectedKey
@@ -325,9 +320,17 @@ export function ModelsPageView(props: ModelsPageViewProps): ReactNode {
         : null,
       state.detailOpen
         ? h(ModelDetailPane, {
+            snapshot,
             space,
             selectedRow,
             counts,
+            chain: props.chain,
+            copied: props.copied ?? 'idle',
+            remapTarget: state.remapTarget,
+            onCopyName: props.onCopyName,
+            onRetryChain: props.onRetryChain,
+            onRemapTarget: (name: string) => props.onState({ remapTarget: name }),
+            onRequestFocus: props.onRequestFocus,
             onClose: closeDetail,
           })
         : null,
@@ -372,13 +375,33 @@ function emptyCopy(reason: EmptyStateProps['reason'], noun: string): { readonly 
 }
 
 interface ModelDetailPaneProps {
+  readonly snapshot: ControlSnapshot
   readonly space: RegistrySpace
   readonly selectedRow: RegistryRow | null
   readonly counts: LayerCounts
+  readonly chain: AliasChainState | undefined
+  readonly copied: AliasCopyStatus
+  readonly remapTarget: string | null
+  readonly onCopyName?: (() => void) | undefined
+  readonly onRetryChain?: (() => void) | undefined
+  readonly onRemapTarget?: ((name: string) => void) | undefined
+  readonly onRequestFocus?: ((focus: PanelFocus, destination?: RegistryDestination) => void) | undefined
   readonly onClose: () => void
 }
 
-/** 详情壳（票 63）：只显示行上已有的身份与层事实；详情内容归票 64/66。 */
+const IDLE_CHAIN: AliasChainState = { status: 'idle' }
+
+/** 复制按钮的反馈文案。 */
+function copyLabel(status: AliasCopyStatus): string {
+  if (status === 'copied') return '已复制'
+  if (status === 'failed') return '复制失败'
+  return '复制名称'
+}
+
+/**
+ * 详情壳：身份与层事实（票 63）；别名正文（池 / 链诊断 / fan-in / 影响预览，
+ * 票 64）；模型条目的字段编辑归票 66。链报告缺席时正文按「未读取」渲染。
+ */
 function ModelDetailPane(props: ModelDetailPaneProps): ReactNode {
   const row = props.selectedRow
   const relationClass = row === null ? null : relationTagClass(row.layer.kind)
@@ -395,8 +418,21 @@ function ModelDetailPane(props: ModelDetailPaneProps): ReactNode {
             null,
             h('span', { className: 'tag tag-scope' }, kindNoun(row.kind)),
             h('span', { className: 'model-detail-name', title: row.name }, row.name),
-            h('span', { className: `tag ${sourceTagClass(row.source)}` }, registryLayerLabel(row.source)),
-            relationClass === null ? null : h('span', { className: `tag ${relationClass}` }, row.layer.label),
+            h('span', { className: 'tag ' + sourceTagClass(row.source) }, registryLayerLabel(row.source)),
+            relationClass === null ? null : h('span', { className: 'tag ' + relationClass }, row.layer.label),
+            row.kind === 'alias'
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'btn btn-sm model-detail-copy',
+                    'data-copy': 'alias',
+                    'aria-label': '复制别名 ' + row.name,
+                    onClick: props.onCopyName,
+                  },
+                  copyLabel(props.copied),
+                )
+              : null,
           ),
       h('span', { className: 'model-detail-fill' }),
       h(
@@ -421,44 +457,35 @@ function ModelDetailPane(props: ModelDetailPaneProps): ReactNode {
             h('div', { className: 'model-empty-title' }, '未选择条目'),
             h('p', { className: 'dim' }, '在左侧选择别名或模型条目，查看层与关联摘要。'),
           )
-        : h(
-            Fragment,
-            null,
-            h(
+        : row.kind === 'alias'
+          ? h(AliasDetailBody, {
+              snapshot: props.snapshot,
+              row,
+              space: props.space,
+              chain: props.chain ?? IDLE_CHAIN,
+              remapTarget: props.remapTarget,
+              onRetryChain: props.onRetryChain,
+              onRemapTarget: props.onRemapTarget,
+              onRequestFocus: props.onRequestFocus,
+            })
+          : h(
               'dl',
               { className: 'model-facts' },
-              h(Fact, { label: '空间' }, `${spaceLabel(props.space)} · ${registryLayerLabel(row.source)}`),
+              h(Fact, { label: '空间' }, spaceLabel(props.space) + ' · ' + registryLayerLabel(row.source)),
               h(Fact, { label: '文件' }, h('code', null, rowPathLabel(row))),
-              row.kind === 'alias'
-                ? h(Fact, { label: '目标' }, aliasTargetLabel(row), rowRoute(row) === undefined ? null : h('span', { className: 'dim' }, ` · ${rowRoute(row)}`))
-                : h(Fact, { label: '路线' }, h('code', null, rowRoute(row) ?? '未声明')),
+              h(Fact, { label: '路线' }, h('code', null, rowRoute(row) ?? '未声明')),
               h(Fact, { label: '层关系' }, row.layer.label === '' ? '无同名冲突' : row.layer.label),
             ),
-          ),
       row === null
         ? h(
             'div',
             { className: 'model-empty-summary' },
-            `合并后 ${props.counts.mergedModels} 个模型 / ${props.counts.mergedAliases} 个别名 · `,
-            `工作区 ${props.counts.projectAvailable ? `${props.counts.projectModels} / ${props.counts.projectAliases}` : '不可用'} · `,
-            `用户 ${props.counts.userModels} / ${props.counts.userAliases}`,
+            '合并后 ' + props.counts.mergedModels + ' 个模型 / ' + props.counts.mergedAliases + ' 个别名 · ',
+            '工作区 ' + (props.counts.projectAvailable ? props.counts.projectModels + ' / ' + props.counts.projectAliases : '不可用') + ' · ',
+            '用户 ' + props.counts.userModels + ' / ' + props.counts.userAliases,
           )
         : null,
     ),
-  )
-}
-
-interface FactProps {
-  readonly label: string
-  readonly children?: ReactNode
-}
-
-function Fact(props: FactProps): ReactNode {
-  return h(
-    'div',
-    { className: 'model-fact' },
-    h('dt', null, props.label),
-    h('dd', null, props.children),
   )
 }
 
@@ -483,7 +510,58 @@ export function ModelRegistryView(props: RegistryViewProps): ReactNode {
     ...previous,
     selected: selection,
     detailOpen: true,
+    remapTarget: null,
   }))
+
+  const page = useMemo(() => modelsRowsOf(props.snapshot, state), [props.snapshot, state])
+  const aliasName = page.selectedRow?.kind === 'alias' ? page.selectedRow.name : null
+  const chainAgent = page.selectedRow?.kind === 'alias' ? page.selectedRow.users[0] : undefined
+
+  // 按需读面：别名详情按「第一个使用方」读一次解析报告；切选中 / 回读会中止
+  // 上一请求。切换瞬间仍拿到旧报告时，视图按 chainForAlias 当未读取处理。
+  const [chain, setChain] = useState<AliasChainState>({ status: 'idle' })
+  const [chainAttempt, setChainAttempt] = useState(0)
+  const chainHandler = props.onChainReport
+  useEffect(() => {
+    if (chainHandler === undefined || aliasName === null || chainAgent === undefined) {
+      setChain({ status: 'idle' })
+      return
+    }
+    const controller = new AbortController()
+    setChain({ status: 'loading', alias: aliasName, agent: chainAgent })
+    chainHandler(chainAgent, controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted) return
+        setChain({
+          status: 'ready',
+          alias: aliasName,
+          agent: chainAgent,
+          report: result.report,
+          exhausted: result.exhausted,
+        })
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted || isAbortError(error)) return
+        setChain({ status: 'error', alias: aliasName, agent: chainAgent, message: errorMessage(error) })
+      })
+    return () => controller.abort()
+  }, [chainHandler, aliasName, chainAgent, chainAttempt, props.snapshot])
+
+  // 复制名称：浏览器剪贴板缺失时给失败反馈，不静默。
+  const [copy, setCopy] = useState<{ readonly name: string; readonly status: AliasCopyStatus } | null>(null)
+  const copyName = (): void => {
+    if (aliasName === null) return
+    const clipboard = globalThis.navigator?.clipboard
+    if (clipboard === undefined) {
+      setCopy({ name: aliasName, status: 'failed' })
+      return
+    }
+    void clipboard.writeText(aliasName)
+      .then(() => setCopy({ name: aliasName, status: 'copied' }))
+      .catch(() => setCopy({ name: aliasName, status: 'failed' }))
+  }
+  const copied: AliasCopyStatus =
+    copy !== null && aliasName !== null && copy.name === aliasName ? copy.status : 'idle'
 
   // 跨页聚焦：目标在当前空间找不到时切合并空间（票 60 的裁决），找到才消费；
   // 目标还没进快照就不消费，等下一份快照再试。
@@ -500,6 +578,7 @@ export function ModelRegistryView(props: RegistryViewProps): ReactNode {
       onlyIssues: false,
       selected: { kind: target.kind, name: target.name },
       detailOpen: true,
+      remapTarget: null,
     }))
     props.onFocusConsumed?.()
   }, [props.focus, props.snapshot, state.space, props.onFocusConsumed])
@@ -509,5 +588,18 @@ export function ModelRegistryView(props: RegistryViewProps): ReactNode {
     state,
     onState: applyState,
     onSelect: select,
+    chain,
+    copied,
+    onCopyName: copyName,
+    onRetryChain: () => setChainAttempt((attempt) => attempt + 1),
+    onRequestFocus: props.onRequestFocus,
   })
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }

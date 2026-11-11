@@ -211,6 +211,47 @@ export function registryListOf(
   return { allRows, rows: evaluateRegistryQuery(allRows, query) }
 }
 
+/** 页面一次求值需要的输入（与 ModelsPageState 的前八个字段同构）。 */
+export interface ModelsRowsInput {
+  readonly space: RegistrySpace
+  readonly kind: RegistryKind
+  readonly text: string
+  readonly sort: NonNullable<RegistryListQuery['sort']>
+  readonly direction: 'asc' | 'desc'
+  readonly onlyIssues: boolean
+  readonly selected: RegistrySelection | null
+}
+
+/** 一次页面求值的结果：工作区不可用时已回退合并，选中已按规则落地。 */
+export interface ModelsRows extends RegistryListState {
+  /** 实际显示的空间（用户全局时 project 已回退 merged）。 */
+  readonly space: RegistrySpace
+  readonly query: RegistryListQuery
+  readonly selection: RegistrySelection | null
+  readonly selectedRow: RegistryRow | null
+}
+
+/**
+ * 页面与 chunk 入口共用的唯一求值入口：空间回退、查询、行、选中与选中行
+ * 一次算完，避免「详情拿到的行」与「列表显示的选中」分叉。
+ */
+export function modelsRowsOf(snapshot: ControlSnapshot, input: ModelsRowsInput): ModelsRows {
+  const space: RegistrySpace =
+    input.space === 'project' && snapshot.scope.projectRoot === null ? 'merged' : input.space
+  const query = registryQueryOf({
+    text: input.text,
+    sort: input.sort,
+    direction: input.direction,
+    onlyIssues: input.onlyIssues,
+  })
+  const list = registryListOf(snapshot, space, input.kind, query)
+  const selection = effectiveSelection(input.selected, list.allRows, list.rows, input.kind)
+  const selectedRow = selection === null
+    ? null
+    : list.allRows.find((row) => row.key === selectionKey(selection, space)) ?? null
+  return { space, query, allRows: list.allRows, rows: list.rows, selection, selectedRow }
+}
+
 /* ── 行展示词 ───────────────────────────────────────────────────── */
 
 /** 层标签的 CSS 类（样式表里的 .tag-workspace / .tag-user / .tag-bundled）。 */

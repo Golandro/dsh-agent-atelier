@@ -22,7 +22,7 @@
  */
 
 import type { AliasRegistrySource } from '../../contract/index.ts'
-import type { ControlSnapshot, RegistryEdit, WriteFailureCode, WriteResult } from '../../control/index.ts'
+import type { AgentChainReport, ControlSnapshot, RegistryEdit, WriteFailureCode, WriteResult } from '../../control/index.ts'
 
 /** Specifiers the on-demand chunk loader accepts for this package. */
 export type ChunkSpecifier = './client.editor.js' | './client.list.js' | './client.registry.js'
@@ -165,6 +165,18 @@ export interface RegistryWriteOutcome {
 export type RegistryWriteHandler = (edits: readonly RegistryEdit[]) => Promise<RegistryWriteOutcome>
 
 /**
+ * One on-demand chain report (ticket 64): the page asks the shell for the
+ * existing `POST /agent-atelier/chain` answer for one agent (ticket 58). The
+ * page never re-runs the resolution engine; the shell wires this to the
+ * control client, so `/state` stays health-free. Absent means chain
+ * diagnostics stay unread and the pool renders `未判定`.
+ */
+export type RegistryChainHandler = (
+  agentName: string,
+  signal?: AbortSignal,
+) => Promise<AgentChainReport>
+
+/**
  * Props the lazy registry views render from (ticket 59). The seam carries
  * **pure data plus `on*` callbacks only**: the host-resolved snapshot, never a
  * client/service object, and never a re-merge (the host already resolved
@@ -197,6 +209,12 @@ export interface RegistryViewProps {
   readonly onRegistryWrite?: RegistryWriteHandler | undefined
   /** True while a registry write batch is in flight; views disable write affordances. */
   readonly registryWriteBusy?: boolean | undefined
+  /**
+   * On-demand chain diagnostics (ticket 64): the existing `/agent-atelier/chain`
+   * read face for one agent. Only the alias detail calls it, once per selection;
+   * there is no eager preload and no second resolution path.
+   */
+  readonly onChainReport?: RegistryChainHandler | undefined
 }
 
 /**
