@@ -23,7 +23,9 @@ import {
   deleteGateOf,
   deleteModelEditOf,
   fanInOthersOf,
+  groupTogglePlanOf,
   groupTriggerNamesOf,
+  modelGroupFactsOf,
   modelPromptOf,
   setAvailableEditOf,
   writeHeadlineOf,
@@ -179,6 +181,10 @@ function fixture(projectRoot: string | null = '/work'): ControlSnapshot {
           rawModel('idle', 'acme', 'idle', { available: false }),
           rawModel('gpu-a', 'acme', 'gpu', { modelGroup: 'gpu', available: false }),
           rawModel('gpu-b', 'acme', 'gpu2', { modelGroup: 'gpu' }),
+          rawModel('cross-a', 'acme', 'cross', { modelGroup: 'cross' }),
+          rawModel('guard-a', 'acme', 'guard', { modelGroup: 'guarded', available: false }),
+          rawModel('dup-a', 'acme', 'dup', { modelGroup: 'dup' }),
+          rawModel('dup-b', 'acme', 'dup2', { modelGroup: 'dup' }),
         ],
         [
           rawAlias('smart', ['fast']),
@@ -189,7 +195,14 @@ function fixture(projectRoot: string | null = '/work'): ControlSnapshot {
       ),
       layer(
         'user-dsh',
-        [rawModel('fast', 'acme', 'chat-user'), rawModel('orphan', 'acme', 'orphan')],
+        [
+          rawModel('fast', 'acme', 'chat-user'),
+          rawModel('orphan', 'acme', 'orphan'),
+          rawModel('cross-b', 'acme', 'cross2', { modelGroup: 'cross' }),
+          rawModel('guard-b', 'acme', 'guard2', { modelGroup: 'guarded' }),
+          rawModel('dup-a', 'acme', 'dup-user', { modelGroup: 'dup', available: false }),
+          rawModel('gpu-b', 'acme', 'gpu2', { modelGroup: 'gpu-old' }),
+        ],
         [rawAlias('legacy', ['orphan'])],
       ),
     ],
@@ -199,6 +212,12 @@ function fixture(projectRoot: string | null = '/work'): ControlSnapshot {
       modelDefinition('idle', 'acme', 'idle', { available: false }),
       modelDefinition('gpu-a', 'acme', 'gpu', { available: false, modelGroup: 'gpu' }),
       modelDefinition('gpu-b', 'acme', 'gpu2', { available: false, modelGroup: 'gpu' }),
+      modelDefinition('cross-a', 'acme', 'cross', { modelGroup: 'cross' }),
+      modelDefinition('cross-b', 'acme', 'cross2', { modelGroup: 'cross', source: 'user-dsh' }),
+      modelDefinition('guard-a', 'acme', 'guard', { available: false, modelGroup: 'guarded' }),
+      modelDefinition('guard-b', 'acme', 'guard2', { available: false, modelGroup: 'guarded', source: 'user-dsh' }),
+      modelDefinition('dup-a', 'acme', 'dup', { modelGroup: 'dup' }),
+      modelDefinition('dup-b', 'acme', 'dup2', { modelGroup: 'dup' }),
       modelDefinition('orphan', 'acme', 'orphan', { source: 'user-dsh' }),
       modelDefinition('dsh-default', 'deepseek', 'chat', { source: 'built-in', synthesized: true }),
     ],
@@ -259,6 +278,7 @@ function tagAround(html: string, marker: string): string {
 
 const WRITE_EXTRAS: Partial<ModelsPageViewProps> = {
   onToggleAvailable: () => {},
+  onToggleGroup: () => {},
   onDeleteModel: () => {},
   onAddModel: () => {},
 }
@@ -310,6 +330,91 @@ describe('可用性事实与组折叠', () => {
 
     const idle = modelRow(snapshot, 'merged', 'idle')
     expect(availabilityFactsOf(snapshot, idle).declared).toBe(false)
+  })
+})
+
+describe('组成员与整组开关', () => {
+  const snapshot = fixture()
+
+  it('组员按合并生效面列出，折叠触发者与被动组员分开', () => {
+    const group = modelGroupFactsOf(snapshot, 'merged', modelRow(snapshot, 'merged', 'gpu-b'))
+    expect(group.name).toBe('gpu')
+    expect(group.available).toBe(false)
+    expect(group.members.map((member) => member.name)).toEqual(['gpu-a', 'gpu-b'])
+    expect(group.triggers).toEqual(['gpu-a'])
+    const trigger = group.members.find((member) => member.name === 'gpu-a')
+    const folded = group.members.find((member) => member.name === 'gpu-b')
+    expect(trigger).toMatchObject({ declared: false, effective: false, trigger: true, editable: true })
+    expect(folded).toMatchObject({ declared: true, effective: false, trigger: false })
+  })
+
+  it('跨层同名声明按层标注；被覆盖层的 false 不折叠整组', () => {
+    const group = modelGroupFactsOf(snapshot, 'merged', modelRow(snapshot, 'merged', 'dup-a'))
+    const member = group.members.find((entry) => entry.name === 'dup-a')
+    expect(member?.declared).toBe(true)
+    expect(member?.effective).toBe(true)
+    expect(member?.layers.map((layer) => [layer.source, layer.available, layer.winner])).toEqual([
+      ['project-dsh', true, true],
+      ['user-dsh', false, false],
+    ])
+    expect(group.triggers).toEqual([])
+    expect(group.available).toBe(true)
+  })
+
+  it('层空间的 raw 组被覆盖时，组员按生效组展示', () => {
+    const group = modelGroupFactsOf(snapshot, 'user', modelRow(snapshot, 'user', 'gpu-b'))
+    expect(group.name).toBe('gpu')
+    expect(group.declaredGroup).toBe('gpu-old')
+    expect(group.members.map((member) => member.name)).toEqual(['gpu-a', 'gpu-b'])
+  })
+
+  it('整组关闭写组内所有可写且可用的条目（多笔）', () => {
+    const group = modelGroupFactsOf(snapshot, 'merged', modelRow(snapshot, 'merged', 'cross-a'))
+    const plan = groupTogglePlanOf(group, false)
+    expect(plan.action).toBe('close')
+    expect(plan.edits).toEqual([
+      { kind: 'setAvailable', modelName: 'cross-a', available: false },
+      { kind: 'setAvailable', modelName: 'cross-b', available: false },
+    ])
+    expect(plan.blocked).toBeUndefined()
+  })
+
+  it('层空间整组关闭只写本层可写组成员，其余注明不可写', () => {
+    const group = modelGroupFactsOf(snapshot, 'user', modelRow(snapshot, 'user', 'cross-b'))
+    expect(group.members.map((member) => [member.name, member.editable])).toEqual([
+      ['cross-a', false],
+      ['cross-b', true],
+    ])
+    const plan = groupTogglePlanOf(group, false)
+    expect(plan.edits).toEqual([{ kind: 'setAvailable', modelName: 'cross-b', available: false }])
+    expect(plan.note).toContain('1 条组员')
+    expect(plan.note).toContain('cross-a')
+  })
+
+  it('组员全在更高层时整组关闭被拦下并说明', () => {
+    const group = modelGroupFactsOf(snapshot, 'user', modelRow(snapshot, 'user', 'dup-a'))
+    const plan = groupTogglePlanOf(group, false)
+    expect(plan.edits).toEqual([])
+    expect(plan.blocked).toContain('dup-a')
+  })
+
+  it('整组开启要清掉全部 false 声明；有不可写触发器时直接拦下', () => {
+    const gpu = modelGroupFactsOf(snapshot, 'merged', modelRow(snapshot, 'merged', 'gpu-a'))
+    expect(groupTogglePlanOf(gpu, true).edits).toEqual([
+      { kind: 'setAvailable', modelName: 'gpu-a', available: true },
+    ])
+
+    const userGroup = modelGroupFactsOf(snapshot, 'user', modelRow(snapshot, 'user', 'guard-b'))
+    const userPlan = groupTogglePlanOf(userGroup, true)
+    expect(userPlan.edits).toEqual([])
+    expect(userPlan.blocked).toContain('guard-a')
+    expect(userPlan.blocked).toContain('合并视图')
+
+    const mergedGroup = modelGroupFactsOf(snapshot, 'merged', modelRow(snapshot, 'merged', 'guard-b'))
+    const mergedPlan = groupTogglePlanOf(mergedGroup, true)
+    expect(mergedPlan.available).toBe(true)
+    expect(mergedPlan.edits).toEqual([{ kind: 'setAvailable', modelName: 'guard-a', available: true }])
+    expect(mergedPlan.note).toContain('全部 1 条')
   })
 })
 
@@ -489,13 +594,50 @@ describe('模型详情静态输出', () => {
     expect(detail).not.toContain('解析链诊断')
   })
 
-  it('组折叠时注明触发条目，并说明整组开关归票 67', () => {
+  it('组折叠时列出组员、触发者与整组开启动作', () => {
     const detail = detailOf(render(snapshot, { kind: 'model', selected: { kind: 'model', name: 'gpu-b' } }, WRITE_EXTRAS))
     expect(detail).toContain('组级停用')
-    expect(detail).toContain('gpu-a')
-    expect(detail).toContain('整组开关归票 67')
+    expect(detail).toContain('组成员（×2）')
+    expect(detail).toContain('data-model-group="gpu"')
+    expect(detail).toContain('data-group-member="gpu-a"')
+    expect(detail).toContain('data-group-trigger="gpu-a"')
+    expect(detail).toContain('折叠触发')
+    expect(detail).toContain('被组折叠')
+    expect(detail).toContain('data-model-group-action="open"')
+    expect(detail).toContain('整组开启')
+    expect(detail).toContain('pool-mixed-groups')
     expect(detail).toContain('声明值')
     expect(detail).toContain('生效值')
+    expect(detail).not.toContain('整组开关归票 67')
+  })
+
+  it('层空间整组关闭只计可写组员，并标注跨层组员', () => {
+    const detail = detailOf(render(snapshot, {
+      space: 'user',
+      kind: 'model',
+      selected: { kind: 'model', name: 'cross-b' },
+    }, WRITE_EXTRAS))
+    expect(detail).toContain('组成员（×2）')
+    expect(detail).toContain('data-model-group-action="close"')
+    expect(detail).toContain('整组关闭（写 1 条）')
+    expect(detail).toContain('data-group-member="cross-a"')
+    expect(detail).toContain('本空间不可写')
+    expect(detail).toContain('1 条组员')
+  })
+
+  it('同名声明跨层时按层标注赢家与被覆盖层', () => {
+    const detail = detailOf(render(snapshot, { kind: 'model', selected: { kind: 'model', name: 'dup-a' } }, WRITE_EXTRAS))
+    expect(detail).toContain('同名层：project · .dsh（赢家） · 可用 / user · ~/.dsh（被覆盖） · 停用')
+  })
+
+  it('本空间没有可写组员时整组动作禁用并给原因', () => {
+    const detail = detailOf(render(snapshot, {
+      space: 'user',
+      kind: 'model',
+      selected: { kind: 'model', name: 'dup-a' },
+    }, WRITE_EXTRAS))
+    expect(tagAround(detail, 'data-model-group-toggle="dup"')).toContain('disabled')
+    expect(detail).toContain('的声明在本空间不可写')
   })
 
   it('被覆盖的层行开关禁用，并说明去合并视图编辑', () => {
@@ -588,5 +730,26 @@ describe('模型详情静态输出', () => {
     expect(failed).toContain('data-model-write="err"')
     expect(failed).toContain('（read-only）：nope')
     expect(failed).toContain('role="alert"')
+  })
+
+  it('整组批量写的部分失败按结果行聚合显示', () => {
+    const detail = detailOf(render(snapshot, { kind: 'model', selected: { kind: 'model', name: 'cross-a' } }, {
+      ...WRITE_EXTRAS,
+      write: {
+        status: 'done',
+        outcome: {
+          status: 'partial',
+          rows: [
+            { ok: true, file: PROJECT_PATH, editIndex: 0 },
+            { ok: false, file: undefined, code: 'read-only', message: 'nope', editIndex: 1 },
+          ],
+          changedCount: 1,
+        },
+      },
+    }))
+    expect(detail).toContain('部分写入（1 笔成功）')
+    expect(detail).toContain('data-model-write="warn"')
+    expect(detail).toContain('已写入 ' + PROJECT_PATH)
+    expect(detail).toContain('（read-only）：nope')
   })
 })

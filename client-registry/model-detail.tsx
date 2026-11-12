@@ -1,6 +1,6 @@
 /**
- * 模型条目详情正文（票 66）：可用开关、被别名指向 / fan-in、触达 agent、
- * sysPrompt 预览、删除门禁与新增表单。
+ * 模型条目详情正文（票 66 / 67）：可用开关、组成员与整组动作、被别名指向 /
+ * fan-in、触达 agent、sysPrompt 预览、删除门禁与新增表单。
  *
  * 只渲染宿主已解析的快照与页面传入的写状态；所有判定走 model-detail.ts 的
  * 纯函数，所有落盘走页面的单一写通道（票 62）。本文件不建样式，类名由主
@@ -12,12 +12,14 @@ import type { PanelFocus, RegistryDestination } from '../src/dsh/client/chunk-co
 import type { ControlSnapshot } from '../src/control/index.ts'
 import type { ModelRow, RegistrySpace } from './registry-model.ts'
 import { registryLayerLabel } from './registry-model.ts'
-import { rowPathLabel } from './model-links.ts'
+import { rowPathLabel, sourceTagClass } from './model-links.ts'
 import { Fact } from './alias-detail.tsx'
 import {
   availabilityFactsOf,
   deleteGateOf,
   fanInOthersOf,
+  groupTogglePlanOf,
+  modelGroupFactsOf,
   modelPromptOf,
   writeHeadlineOf,
   writeLinesOf,
@@ -28,8 +30,10 @@ import type {
   AddModelCheck,
   AddModelDraft,
   AddModelProblem,
+  GroupMemberFacts,
   ModelAvailabilityFacts,
   ModelDeleteGate,
+  ModelGroupFacts,
   ModelWriteUi,
 } from './model-detail.ts'
 
@@ -43,6 +47,8 @@ export interface ModelDetailBodyProps {
   readonly writeBusy?: boolean | undefined
   readonly deleteConfirm: boolean
   readonly onToggleAvailable?: ((available: boolean) => void) | undefined
+  /** 整组关闭 / 开启；available 是目标整组值（false = 关闭）。 */
+  readonly onToggleGroup?: ((available: boolean) => void) | undefined
   readonly onRequestDelete?: (() => void) | undefined
   readonly onConfirmDelete?: (() => void) | undefined
   readonly onCancelDelete?: (() => void) | undefined
@@ -53,6 +59,7 @@ export interface ModelDetailBodyProps {
 export function ModelDetailBody(props: ModelDetailBodyProps): ReactNode {
   const row = props.row
   const facts = availabilityFactsOf(props.snapshot, row)
+  const group = modelGroupFactsOf(props.snapshot, props.space, row)
   const gate = deleteGateOf(row)
   return h(
     'div',
@@ -66,7 +73,13 @@ export function ModelDetailBody(props: ModelDetailBodyProps): ReactNode {
       h(Fact, { label: '层关系' }, row.layer.label === '' ? '无同名冲突' : row.layer.label),
       h(Fact, { label: '声明值' }, h('span', { className: 'tag ' + (facts.declared ? 'tag-ok' : 'tag-warn') }, facts.declared ? '可用' : '停用'), h('span', { className: 'dim' }, ' · ' + registryLayerLabel(facts.declaredLayer) + (facts.declaredPath === undefined ? '' : ' · ' + facts.declaredPath))),
       h(Fact, { label: '生效值' }, h('span', { className: 'tag ' + (facts.effective ? 'tag-ok' : 'tag-warn') }, facts.effective ? '可用' : '停用'), h('span', { className: 'dim' }, ' · 合并后 · ' + registryLayerLabel(facts.effectiveLayer))),
-      h(Fact, { label: '组' }, h('code', null, facts.group), facts.group === row.name ? h('span', { className: 'dim' }, '（默认：自身条目名）') : null, facts.folded ? h('span', { className: 'tag tag-warn' }, '组级停用') : null),
+      h(Fact, { label: '组' },
+        h('code', null, facts.group),
+        facts.declaredGroup === facts.group
+          ? (facts.group === row.name ? h('span', { className: 'dim' }, '（默认：自身条目名）') : null)
+          : h('span', { className: 'dim' }, '（本条声明：' + facts.declaredGroup + '，被合并赢家覆盖）'),
+        facts.folded ? h('span', { className: 'tag tag-warn' }, '组级停用') : null,
+      ),
     ),
     h(WriteFeedback, { write: props.write }),
     h(AvailabilitySection, {
@@ -74,6 +87,12 @@ export function ModelDetailBody(props: ModelDetailBodyProps): ReactNode {
       facts,
       writeBusy: props.writeBusy,
       onToggleAvailable: props.onToggleAvailable,
+    }),
+    h(GroupSection, {
+      group,
+      rowName: row.name,
+      writeBusy: props.writeBusy,
+      onToggleGroup: props.onToggleGroup,
     }),
     h(AliasesSection, { row, onRequestFocus: props.onRequestFocus }),
     h(FanInSection, { row, onRequestFocus: props.onRequestFocus }),
@@ -145,7 +164,7 @@ function availabilityNotes(props: AvailabilitySectionProps): ReactNode {
           { key: 'folded', className: 'model-avail-warn', role: 'alert' },
           '组级停用：' + facts.group + ' 组内 ' +
             (facts.triggers.length === 0 ? '条目' : facts.triggers.join(' / ')) +
-            ' 声明 available:false，宿主已把整组折成停用；本条开关只改自己的声明，整组开关归票 67。',
+            ' 声明 available:false，宿主已把整组折成停用；本条开关只改自己的声明，整组动作见下方组成员区。',
         )
       : null,
     facts.readOnly
@@ -163,6 +182,119 @@ function availabilityNotes(props: AvailabilitySectionProps): ReactNode {
       : null,
   ]
   return h(Fragment, null, ...switches.filter((entry) => entry !== null))
+}
+
+/* ── 组成员与整组开关 ─────────────────────────────────────────────── */
+
+interface GroupSectionProps {
+  readonly group: ModelGroupFacts
+  readonly rowName: string
+  readonly writeBusy?: boolean | undefined
+  readonly onToggleGroup?: ((available: boolean) => void) | undefined
+}
+
+/**
+ * 组成员与整组动作。折叠归宿主；这里只展示成员、层级与触发者，并把整组
+ * 关闭 / 开启落成一批 setAvailable（可写范围按当前空间收敛）。
+ */
+function GroupSection(props: GroupSectionProps): ReactNode {
+  const group = props.group
+  if (group.members.length <= 1) return null
+  const plan = groupTogglePlanOf(group, !group.available)
+  const disabled = plan.blocked !== undefined || props.writeBusy === true || props.onToggleGroup === undefined
+  const count = plan.edits.length
+  const label = plan.action === 'close'
+    ? (count === 0 ? '整组关闭' : '整组关闭（写 ' + String(count) + ' 条）')
+    : (count === 0 ? '整组开启' : '整组开启（写 ' + String(count) + ' 条）')
+  return h(
+    'section',
+    { className: 'detail-sec model-group', 'data-model-group': group.name },
+    h('h5', { className: 'detail-sec-title' }, '组成员（×' + String(group.members.length) + '）'),
+    h(
+      'p',
+      { className: 'dim model-avail-note' },
+      '同一 modelGroup 任一条目声明 available:false ⇒ 整组停用；折叠由宿主在装载期完成，本页只展示，不再判一遍。',
+    ),
+    group.declaredGroup === group.name
+      ? null
+      : h('p', { className: 'dim model-avail-note' }, '本条 raw 声明的组是「' + group.declaredGroup + '」；整组按生效组「' + group.name + '」展示。'),
+    h(
+      'div',
+      { className: 'model-group-list' },
+      group.members.map((member) => h(GroupMemberRow, {
+        key: member.name,
+        member,
+        current: member.name === props.rowName,
+      })),
+    ),
+    h(
+      'div',
+      { className: 'model-group-action-row' },
+      h('span', { className: 'tag ' + (group.available ? 'tag-ok' : 'tag-warn') }, '整组' + (group.available ? '可用' : '停用')),
+      h(
+        'button',
+        {
+          type: 'button',
+          className: 'btn btn-sm',
+          'data-model-group-toggle': group.name,
+          'data-model-group-action': plan.action,
+          disabled,
+          onClick: () => props.onToggleGroup?.(plan.available),
+        },
+        label,
+      ),
+    ),
+    props.writeBusy === true ? h('p', { className: 'dim model-avail-note' }, '写通道在途：等这一批结束再试。') : null,
+    plan.blocked === undefined ? null : h('p', { className: 'model-avail-warn', role: 'alert' }, plan.blocked),
+    plan.note === undefined ? null : h('p', { className: 'dim model-avail-note' }, plan.note),
+    h('p', { className: 'dim model-avail-note' }, '整组动作是一批写入（逐笔串行）：关闭改写组内可写且可用的条目，开启清掉全部 false 声明；只改本条请用上方单条开关。'),
+    props.onToggleGroup === undefined
+      ? h('p', { className: 'dim model-avail-note' }, '当前没有接入写通道，整组动作只读。')
+      : null,
+    h('p', { className: 'dim model-avail-note' }, '池内混用不同 modelGroup 的提示（pool-mixed-groups）归别名诊断；本区只按 modelGroup 归组，不重复告警。'),
+  )
+}
+
+interface GroupMemberRowProps {
+  readonly member: GroupMemberFacts
+  readonly current: boolean
+}
+
+function GroupMemberRow(props: GroupMemberRowProps): ReactNode {
+  const member = props.member
+  const foldTag = member.trigger
+    ? h('span', { className: 'tag tag-warn', 'data-group-trigger': member.name }, '折叠触发')
+    : member.declared && !member.effective
+      ? h('span', { className: 'tag tag-warn' }, '被组折叠')
+      : null
+  return h(
+    'div',
+    { className: 'model-group-row', 'data-group-member': member.name },
+    h(
+      'span',
+      { className: 'model-group-name' },
+      h('code', null, member.name),
+      props.current ? h('span', { className: 'dim' }, ' · 本条') : null,
+    ),
+    h('code', { className: 'model-group-route' }, member.route),
+    h('span', { className: 'tag ' + sourceTagClass(member.declaredLayer) }, registryLayerLabel(member.declaredLayer)),
+    h('span', { className: 'tag ' + (member.declared ? 'tag-ok' : 'tag-warn') }, '声明 ' + (member.declared ? '可用' : '停用')),
+    h('span', { className: 'tag ' + (member.effective ? 'tag-ok' : 'tag-warn') }, '生效 ' + (member.effective ? '可用' : '停用')),
+    foldTag,
+    h('span', { className: 'tag tag-dim' }, member.readOnly ? '只读' : member.editable ? '本空间可写' : '本空间不可写'),
+    member.layers.length <= 1
+      ? null
+      : h(
+          'span',
+          { className: 'dim model-group-layers' },
+          '同名层：' + member.layers
+            .map((layer) => registryLayerLabel(layer.source) + (layer.winner ? '（赢家）' : '（被覆盖）') + ' · ' + (layer.available ? '可用' : '停用'))
+            .join(' / '),
+        ),
+    member.declaredPath === undefined
+      ? null
+      : h('span', { className: 'dim model-group-path' }, member.declaredPath),
+  )
 }
 
 /* ── 别名引用 / fan-in / 触达 ────────────────────────────────────── */

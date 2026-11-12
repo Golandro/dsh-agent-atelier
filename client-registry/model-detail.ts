@@ -1,6 +1,7 @@
 /**
- * 模型条目详情的纯投影（票 66）：可用性事实、引用 / 可达、删除门禁、新增
- * 校验与写结果词表。无 React、无 IO；宿主已解析的快照是唯一输入。
+ * 模型条目详情的纯投影（票 66 / 67）：可用性事实、组成员与整组开关计划、
+ * 引用 / 可达、删除门禁、新增校验与写结果词表。无 React、无 IO；宿主已解析
+ * 的快照是唯一输入。
  *
  * 这里的「组折叠」只读现有声明，用于注明触发条目；折叠本身已由装载期完成
  * （#35），本模块不再判一遍可用性。删除 / 新增只产出 RegistryEdit，真正落盘
@@ -8,7 +9,7 @@
  */
 import type { ControlSnapshot, RegistryEdit } from '../src/control/index.ts'
 import type { RegistryWriteOutcome } from '../src/dsh/client/chunk-contracts.ts'
-import { registryLayerLabel } from './registry-model.ts'
+import { registryLayerLabel, routeKey } from './registry-model.ts'
 
 import type { LayerRef, ModelRow, RegistrySource, RegistrySpace } from './registry-model.ts'
 
@@ -32,7 +33,10 @@ export interface ModelAvailabilityFacts {
   readonly readOnly: boolean
   /** 生效值为 false、但本条声明是 true：被组级开关折叠。 */
   readonly folded: boolean
+  /** 生效组键（合并赢家的 modelGroup ?? modelName）；折叠按这一组求值。 */
   readonly group: string
+  /** 本条 raw 声明写的组键；层空间被覆盖时可能与生效组不同。 */
+  readonly declaredGroup: string
   /** 把整组折成停用的条目名（按合并快照里的声明值求值）。 */
   readonly triggers: readonly string[]
 }
@@ -47,12 +51,21 @@ function declaredAvailableOf(snapshot: ControlSnapshot, modelName: string, fallb
 }
 
 /**
+ * 详情里的生效组键：合并赢家声明的 modelGroup ?? modelName。层空间的 raw
+ * 声明可能被覆盖，组折叠必须按生效组求值。
+ */
+export function effectiveGroupOf(row: ModelRow): string {
+  return row.effective.modelGroup ?? row.effective.modelName
+}
+
+/**
  * 同一 modelGroup 里声明 available:false 的条目。只在组折叠时调用；它解释
  * 「由哪条触发」，不参与是否可用的判定（宿主已经折叠）。
  */
 export function groupTriggerNamesOf(snapshot: ControlSnapshot, row: ModelRow): readonly string[] {
   if (!row.groupFolded) return []
-  const members = snapshot.models.filter((model) => (model.modelGroup ?? model.modelName) === row.group)
+  const group = effectiveGroupOf(row)
+  const members = snapshot.models.filter((model) => (model.modelGroup ?? model.modelName) === group)
   return members
     .filter((model) => !declaredAvailableOf(snapshot, model.modelName, model.available))
     .map((model) => model.modelName)
@@ -71,7 +84,8 @@ export function availabilityFactsOf(snapshot: ControlSnapshot, row: ModelRow): M
     editable: !row.readOnly && row.source === row.effective.source,
     readOnly: row.readOnly,
     folded: row.groupFolded,
-    group: row.group,
+    group: effectiveGroupOf(row),
+    declaredGroup: row.group,
     triggers: groupTriggerNamesOf(snapshot, row),
   }
 }
@@ -84,6 +98,197 @@ export function fanInOthersOf(row: ModelRow): readonly ModelFanInRef[] {
 /** 生效的系统提示词：模型详情预览的是运行时生效值，不重放层合并。 */
 export function modelPromptOf(row: ModelRow): string | undefined {
   return row.effective.sysPrompt
+}
+
+/* ── 组成员与整组开关 ────────────────────────────────────────────── */
+
+/** 一条组员的同名层声明；registryLayers 已是最高优先级在前。 */
+export interface GroupMemberLayerFact {
+  readonly source: RegistrySource
+  readonly path?: string | undefined
+  readonly available: boolean
+  readonly winner: boolean
+}
+
+/**
+ * 组员事实（按合并生效面求值）。`declared` 取合并赢家的声明值；被覆盖的
+ * 低层声明只进 `layers` 注释，不参与整组可用性的判定。
+ */
+export interface GroupMemberFacts {
+  readonly name: string
+  readonly route: string
+  readonly declared: boolean
+  readonly effective: boolean
+  readonly declaredLayer: RegistrySource
+  readonly declaredPath?: string | undefined
+  readonly readOnly: boolean
+  /** 本空间写入这一条会落在生效声明所在文件。 */
+  readonly editable: boolean
+  /** 本条声明 available:false，是整组停用的触发者。 */
+  readonly trigger: boolean
+  readonly layers: readonly GroupMemberLayerFact[]
+}
+
+/** 组成员与整组可用性；折叠已由宿主完成，这里只做投影。 */
+export interface ModelGroupFacts {
+  readonly name: string
+  /** 当前行 raw 声明里的组名；层空间可能与生效组不同。 */
+  readonly declaredGroup: string
+  /** 合并快照里的整组可用值（任一条目 false ⇒ false）。 */
+  readonly available: boolean
+  readonly triggers: readonly string[]
+  readonly members: readonly GroupMemberFacts[]
+}
+
+function groupMemberOf(
+  snapshot: ControlSnapshot,
+  spaceSource: RegistrySource | null,
+  model: ControlSnapshot['models'][number],
+): GroupMemberFacts {
+  const declared = declaredAvailableOf(snapshot, model.modelName, model.available)
+  const readOnly = model.source === 'built-in' || model.synthesized === true
+  const layers = snapshot.registryLayers
+    .map((layer): GroupMemberLayerFact | null => {
+      const declaration = layer.models.find((entry) => entry.modelName === model.modelName)
+      if (declaration === undefined) return null
+      return {
+        source: layer.source,
+        ...(layer.path === undefined ? {} : { path: layer.path }),
+        available: declaration.available,
+        winner: layer.source === model.source,
+      }
+    })
+    .filter((entry) => entry !== null)
+  return {
+    name: model.modelName,
+    route: routeKey(model),
+    declared,
+    effective: model.available,
+    declaredLayer: model.source,
+    ...(model.path === undefined ? {} : { declaredPath: model.path }),
+    readOnly,
+    editable: !readOnly && (spaceSource === null || model.source === spaceSource),
+    trigger: !declared,
+    layers,
+  }
+}
+
+/**
+ * 同组成员的完整投影。合并空间所有非只读条目都可写；工作区 / 用户空间只
+ * 能写生效声明落在本层的那一条（与单条开关的 editable 口径一致）。
+ */
+export function modelGroupFactsOf(
+  snapshot: ControlSnapshot,
+  space: RegistrySpace,
+  row: ModelRow,
+): ModelGroupFacts {
+  const name = effectiveGroupOf(row)
+  const spaceSource: RegistrySource | null =
+    space === 'merged' ? null : space === 'project' ? 'project-dsh' : 'user-dsh'
+  const members = snapshot.models
+    .filter((model) => (model.modelGroup ?? model.modelName) === name)
+    .map((model) => groupMemberOf(snapshot, spaceSource, model))
+    .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'))
+  const triggers = members.filter((member) => member.trigger).map((member) => member.name)
+  return {
+    name,
+    declaredGroup: row.group,
+    available: row.available,
+    triggers,
+    members,
+  }
+}
+
+export type ModelGroupAction = 'close' | 'open'
+
+/** 整组动作的计划：多笔 setAvailable，串行交给页面写通道。 */
+export interface ModelGroupTogglePlan {
+  readonly action: ModelGroupAction
+  /** 目标整组可用值。 */
+  readonly available: boolean
+  readonly group: string
+  readonly edits: readonly RegistryEdit[]
+  readonly names: readonly string[]
+  readonly blocked?: string | undefined
+  readonly note?: string | undefined
+}
+
+/**
+ * 整组关闭 / 开启的第一性原理计划。
+ *
+ * 折叠规则是「任一 false ⇒ 整组 false」，所以：
+ * - 关闭：写组内所有可写且声明 true 的条目（关闭一条线只改一条；整组关闭是
+ *   一批写入，配置上每条线都读停用）。
+ * - 开启：必须清掉全部声明 false 的条目；只要有一条不可写，本空间就无法让
+ *   整组真正可用，直接拦下而不是写一半。
+ */
+export function groupTogglePlanOf(facts: ModelGroupFacts, available: boolean): ModelGroupTogglePlan {
+  const action: ModelGroupAction = available ? 'open' : 'close'
+  if (available) {
+    const triggers = facts.members.filter((member) => !member.declared)
+    if (triggers.length === 0) {
+      return {
+        action,
+        available,
+        group: facts.name,
+        edits: [],
+        names: [],
+        blocked: '组内没有声明 available:false 的条目，整组已经可用。',
+      }
+    }
+    const locked = triggers.filter((member) => !member.editable)
+    if (locked.length > 0) {
+      return {
+        action,
+        available,
+        group: facts.name,
+        edits: [],
+        names: locked.map((member) => member.name),
+        blocked: '组内 ' + locked.map((member) => member.name).join(' / ') +
+          ' 的停用声明在本空间不可写；整组无法在本空间开启，请切到合并视图。',
+      }
+    }
+    return {
+      action,
+      available,
+      group: facts.name,
+      edits: triggers.map((member) => ({
+        kind: 'setAvailable',
+        modelName: member.name,
+        available: true,
+      })),
+      names: triggers.map((member) => member.name),
+      note: '开启要清掉全部 ' + String(triggers.length) + ' 条 false 声明；任一条残留都会把整组折成停用。',
+    }
+  }
+  const targets = facts.members.filter((member) => member.editable && member.declared)
+  const skipped = facts.members.filter((member) => !member.editable && member.declared)
+  if (targets.length === 0) {
+    return {
+      action,
+      available,
+      group: facts.name,
+      edits: [],
+      names: [],
+      blocked: skipped.length === 0
+        ? '组内没有声明可用的条目，整组已经停用。'
+        : '组内 ' + skipped.map((member) => member.name).join(' / ') +
+          ' 的声明在本空间不可写；请切到合并视图再关整组。',
+    }
+  }
+  return {
+    action,
+    available,
+    group: facts.name,
+    edits: targets.map((member) => ({ kind: 'setAvailable', modelName: member.name, available: false })),
+    names: targets.map((member) => member.name),
+    ...(skipped.length === 0
+      ? {}
+      : {
+          note: '另有 ' + String(skipped.length) + ' 条组员（' + skipped.map((member) => member.name).join(' / ') +
+            '）在本空间不可写；本次写入仍会让整组停用，但这些声明保持可用。',
+        }),
+  }
 }
 
 /* ── 删除门禁 ─────────────────────────────────────────────────────── */

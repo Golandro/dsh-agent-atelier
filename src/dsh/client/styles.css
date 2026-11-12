@@ -816,7 +816,25 @@ body:not([data-ds-dark-theme]) .agent-atelier-page .doc-editor .cm-editor.cm-foc
 .agent-atelier-page .model-write-lines { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0 0 0 1.1em; }
 .agent-atelier-page .model-write-line-ok { color: var(--dsw-alias-label-secondary); }
 
-
+/* 组成员与整组开关（票 67）：组员按层标注，动作是批量 available 写入。 */
+.agent-atelier-page .model-group { padding: 8px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-sm); }
+.agent-atelier-page .model-group-list { display: flex; flex-direction: column; }
+.agent-atelier-page .model-group-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--dsw-alias-border-l2);
+  font-size: 12px;
+  line-height: 18px;
+}
+.agent-atelier-page .model-group-row:last-child { border-bottom: 0; }
+.agent-atelier-page .model-group-name { display: inline-flex; align-items: baseline; gap: 4px; color: var(--dsw-alias-label-primary); }
+.agent-atelier-page .model-group-route { color: var(--dsw-alias-label-secondary); }
+.agent-atelier-page .model-group-layers,
+.agent-atelier-page .model-group-path { flex-basis: 100%; font-size: 11px; line-height: 16px; }
+.agent-atelier-page .model-group-action-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 
 /* 放不下「列表 20rem + 分隔条 0.375rem + 详情 40rem」时单栏显示列表；
  * 详情在窄容器的浮层/返回路径归票 69，不与主 bundle 的单栏决策打架。 */
