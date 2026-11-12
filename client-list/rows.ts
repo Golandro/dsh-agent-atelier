@@ -8,6 +8,7 @@
  * 11 冻结求值器的 AgentRow 只有 errors / hints 两档，原型的 error / hint
  * 语义直接落进去；原型 Finding 的 warning 档在冻结形状里不存在，不臆测。
  */
+import { layerRankOf } from '../src/control/index.ts'
 import type { AgentRow, ControlSnapshot } from '../src/control/index.ts'
 
 /** Agent 定义的冻结形状：从 ControlSnapshot 投影出来，不直接依赖 src/contract。 */
@@ -82,11 +83,9 @@ export function layerLabel(source: AgentDefinition['source']): string {
   }
 }
 
-const LAYER_ORDER: Readonly<Record<LayerTag, number>> = { workspace: 0, user: 1, bundled: 2 }
-
-/** 层排序秩，仅作为逻辑列取值；行序由冻结求值器按 source 的层序执行。 */
+/** 层排序秩，取冻结求值器自己的 layer 轴（簇 F）；表在 contract，chunk 不另存一份。 */
 export function layerRank(source: AgentDefinition['source']): number {
-  return LAYER_ORDER[layerTag(source)]
+  return layerRankOf(source)
 }
 
 /** 显示名：冻结 AgentDefinition.name 已回退到 agentName，无需再兜底。 */

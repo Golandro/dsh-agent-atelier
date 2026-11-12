@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 
 import type { Context } from '@deepseek-ai/cordis'
 
-import { AGENT_PROVIDERS_SERVICE, SERVICE_API_VERSION } from '../../contract/index.ts'
+import { AGENT_PROVIDERS_SERVICE, AGENT_SOURCE_RANK, SERVICE_API_VERSION } from '../../contract/index.ts'
 import { resolveAgentsHome, resolveDshHome } from '../../catalog/index.ts'
 import { createFileSystemAgentProvider, createNodeFileSystem } from '../../providers/fs/index.ts'
 import { optionalFileSystem } from './fs.ts'
@@ -24,17 +24,21 @@ import { optionalFileSystem } from './fs.ts'
 import type { AgentProviders } from '../../contract/index.ts'
 
 /** Project-level root inside the workspace's `.dsh` directory. */
-export const PROJECT_DSH_RANK = 100
+export const PROJECT_DSH_RANK = AGENT_SOURCE_RANK['project-dsh']
 /** Project-level root inside the workspace's `.agents` directory. */
-export const PROJECT_AGENTS_RANK = 200
-/** Reserved for v2 custom agent directories; nothing registers here in v1. */
+export const PROJECT_AGENTS_RANK = AGENT_SOURCE_RANK['project-agents']
+/**
+ * Reserved slot between `project-agents` (200) and `user-dsh` (400) in the
+ * contract's rank table: v2 custom agent directories, which have no
+ * `AgentSource` yet and so no row of their own.
+ */
 export const CUSTOM_RANK = 300
 /** User-level root under `$DSH_HOME`. */
-export const USER_DSH_RANK = 400
+export const USER_DSH_RANK = AGENT_SOURCE_RANK['user-dsh']
 /** User-level root under `$DSH_AGENTS_HOME` (default `~/.agents`). */
-export const USER_AGENTS_RANK = 500
+export const USER_AGENTS_RANK = AGENT_SOURCE_RANK['user-agents']
 /** The bundled root, searched last and trusted. */
-export const BUNDLED_AGENT_RANK = 600
+export const BUNDLED_AGENT_RANK = AGENT_SOURCE_RANK['bundled']
 
 /**
  * The bundled agents shipped with this bundle (rank 600, trusted):

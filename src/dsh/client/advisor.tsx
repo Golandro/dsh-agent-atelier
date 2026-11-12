@@ -3,20 +3,16 @@
  * ① snapshot.findings 按家族分组呈现（分组映射写死，不做二次合并）
  * ② 通道表与断点推演改为渲染 `snapshot.assemblies` 的规划器输出（票 04）：
  *    节序、变维度、断点与 lint 全部来自服务端规划，客户端不做第二次推导
- * ③ S5 别名重映射即时影响预览（纯客户端按快照推导；注册表写属票 14，此处不做任何写操作）
+ * ③ S5 别名重映射即时影响预览：合并快照即生效面（按层首次出现即胜，同名最多一份），面板不再按层重算；注册表写属票 14，此处不做任何写操作。
  * ④ fork 断点知识库 + 顺序反模式（静态条目）
  * ⑤ requiredTools/skills 声明清单（wire 契约没有已知工具/技能集，不自行核验）
  *
  * 诊断非阻挡：发现是解读与建议，不是门禁。这里只做「对快照数据的视图级派生」，
- * 不重新实现 compose/resolve/写路径（别名→条目的生效查找仅为预览所需的最小投影）。
+ * 不重新实现 compose/resolve/写路径（别名→条目的命中直接取合并快照的首次出现条目）。
  */
 import { createElement as h, useState } from 'react'
 import type { ChangeEvent as ReactChangeEvent, ReactNode } from 'react'
 import type { ControlFinding, ControlSnapshot } from '../../control/index.ts'
-
-/** 快照携带的别名 / 模型条目形状（经索引访问取得，不越层引 contract）。 */
-type SnapshotAlias = ControlSnapshot['aliases'][number]
-type SnapshotModel = ControlSnapshot['models'][number]
 
 /** cross-layer 家族的发现形状（判别联合收窄）。 */
 type CrossLayerItem = Extract<ControlFinding, { readonly origin: 'cross-layer' }>
@@ -31,32 +27,6 @@ export interface AdvisorPanelProps {
   readonly workspaceTitle?: string | undefined
   /** 跳转选中某个 agent。 */
   onSelectAgent(agentName: string): void
-}
-
-/* ── 生效条目查找（视图级最小投影：同名按层取低 rank） ─────────────── */
-
-const REGISTRY_RANK: Record<SnapshotAlias['source'], number> = {
-  'project-dsh': 0,
-  'user-dsh': 1,
-  'built-in': 2,
-}
-
-/** 同名别名取低 rank 层的生效版本（注入名不变，命中随层变化）。 */
-function resolveEffectiveAlias(name: string, aliases: readonly SnapshotAlias[]): SnapshotAlias | undefined {
-  let best: SnapshotAlias | undefined
-  for (const a of aliases) {
-    if (a.alias === name && (best === undefined || REGISTRY_RANK[a.source] < REGISTRY_RANK[best.source])) best = a
-  }
-  return best
-}
-
-/** 同名模型条目取低 rank 层的生效版本。 */
-function resolveEffectiveModel(name: string, models: readonly SnapshotModel[]): SnapshotModel | undefined {
-  let best: SnapshotModel | undefined
-  for (const m of models) {
-    if (m.modelName === name && (best === undefined || REGISTRY_RANK[m.source] < REGISTRY_RANK[best.source])) best = m
-  }
-  return best
 }
 
 /* ── 组装规划视图（票 04：服务端计划是唯一来源） ───────────────── */
@@ -116,13 +86,9 @@ export function AdvisorPanel(props: AdvisorPanelProps): ReactNode {
   const crossErrors = crossLayer.filter((f) => f.finding.severity === 'error').length
   const crossHints = crossLayer.length - crossErrors
 
-  /* ── ③ S5 预览：生效别名 / 模型名单（不含内置指针） ── */
-  const userAliases = [...new Set(snapshot.aliases.map((a) => a.alias))]
-    .map((name) => resolveEffectiveAlias(name, snapshot.aliases))
-    .filter((a): a is SnapshotAlias => a !== undefined && a.source !== 'built-in')
-  const modelOptions = [...new Set(snapshot.models.map((m) => m.modelName))]
-    .map((name) => resolveEffectiveModel(name, snapshot.models))
-    .filter((m): m is SnapshotModel => m !== undefined)
+  /* ── ③ S5 预览：直接消费合并快照（按层首次出现即胜，同名最多一份） ── */
+  const userAliases = snapshot.aliases.filter((a) => a.source !== 'built-in')
+  const modelOptions = snapshot.models
 
   const aliasDef = userAliases.find((a) => a.alias === aliasDraft) ?? userAliases[0]
   const aliasName = aliasDef?.alias ?? ''
@@ -130,8 +96,8 @@ export function AdvisorPanel(props: AdvisorPanelProps): ReactNode {
   // 目标草案失效（快照刷新后不在名单里）时回落到当前目标。
   const targetName = modelOptions.some((m) => m.modelName === targetDraft) ? targetDraft : currentTarget
 
-  const before = aliasDef !== undefined ? resolveEffectiveModel(currentTarget, snapshot.models) : undefined
-  const after = resolveEffectiveModel(targetName, snapshot.models)
+  const before = aliasDef !== undefined ? snapshot.models.find((m) => m.modelName === currentTarget) : undefined
+  const after = snapshot.models.find((m) => m.modelName === targetName)
   const affectedAgents = aliasName === ''
     ? []
     : snapshot.agents

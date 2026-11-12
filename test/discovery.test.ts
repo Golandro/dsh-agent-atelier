@@ -12,6 +12,7 @@ import { findProjectRoot, resolveAgentsHome, resolveDshHome } from '../src/catal
 import { createAgentProviders } from '../src/providers/registry.ts'
 import { FRONTMATTER_FIELDS } from '../src/yaml/index.ts'
 import type { AgentFileSystem } from '../src/catalog/ports.ts'
+import { AGENT_SOURCE_RANK } from '../src/contract/index.ts'
 import { createFileSystemAgentProvider, createNodeFileSystem } from '../src/providers/fs/index.ts'
 import {
   BUNDLED_AGENT_RANK,
@@ -155,6 +156,15 @@ describe('agent discovery roots', () => {
       'user-agents',
       'bundled',
     ])
+    // The host row's five constants and the contract's one rank table must not
+    // drift (簇 F); the registry above sorts by exactly these numbers.
+    expect({
+      'project-dsh': PROJECT_DSH_RANK,
+      'project-agents': PROJECT_AGENTS_RANK,
+      'user-dsh': USER_DSH_RANK,
+      'user-agents': USER_AGENTS_RANK,
+      bundled: BUNDLED_AGENT_RANK,
+    }).toEqual(AGENT_SOURCE_RANK)
   })
 
   it('lets the workspace win a duplicate agent name, then the earlier user root', async () => {

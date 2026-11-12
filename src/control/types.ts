@@ -187,7 +187,9 @@ export interface ControlScope {
 
 export interface ControlSnapshot {
   readonly agents: readonly AgentDefinition[]
+  /** Merged effective models: one entry per name, the first layer to declare it wins. */
   readonly models: readonly ModelDefinition[]
+  /** Merged effective aliases: same order rule as {@link models}; the built-in pointer is last. */
   readonly aliases: readonly AliasDefinition[]
   /**
    * The layer projection behind {@link models}/{@link aliases} (ticket 57):

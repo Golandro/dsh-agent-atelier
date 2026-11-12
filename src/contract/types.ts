@@ -228,6 +228,12 @@ export interface AliasRegistryLayerSnapshot {
 /**
  * Everything the two layers declare, merged, plus the built-in pointer.
  *
+ * Merged to one entry per name: the first (highest-precedence) layer to
+ * declare it wins, both lists keep that layer order, and the built-in pointer
+ * (plus the model entry it synthesises, when needed) is appended last.
+ * Consumers read this order instead of re-ranking layers — the UI keeps no
+ * second layer table.
+ *
  * This is the pure data ticket 03's resolution engine consumes: no filesystem,
  * no host context, no laziness.
  */

@@ -50,7 +50,7 @@ export {
   throwIfAborted,
   UnknownAgentError,
 } from './client-errors.ts'
-export { evaluateAgentQuery } from './query.ts'
+export { evaluateAgentQuery, layerRankOf } from './query.ts'
 export type {
   AgentListQuery,
   AgentRow,

@@ -30,7 +30,7 @@
 | `src/dsh/client/editor-mount.tsx`、`src/dsh/client/registry-mount.tsx` | 懒加载 chunk 的 React 包装：loading / 失败 `role=alert` / 重试；chunk 只收纯数据与回调，不收 client / service 对象；样式仍由主 bundle 注入。 |
 | `src/dsh/client/workspace-scope.ts`、`src/dsh/client/use-workspace-list.ts` | 范围推导优先级：记住的显式选择 → 当前会话 cwd → 最近活跃工作区 → 用户全局；空值 / 坏值 / 服务缺失一律退化，不抛。 |
 | `src/dsh/client/panel-header.tsx`、`src/dsh/client/panel-types.ts`、`src/dsh/client/panel-focus.ts` | 四页签、页签键盘契约、跨页聚焦路由；头部只画页面算好的范围，不读服务。 |
-| `src/dsh/client/advisor.tsx`、`src/dsh/client/operation-history.tsx` | 顾问面板只渲染 snapshot 的 findings / assemblies；操作历史只呈现真实 commit 报告与待写 plan 预览。 |
+| `src/dsh/client/advisor.tsx`、`src/dsh/client/operation-history.tsx` | 顾问面板只渲染 snapshot 的 findings / assemblies；S5 预览直接读合并快照（按层首次出现即胜、同名最多一份），不按层重算；操作历史只呈现真实 commit 报告与待写 plan 预览。 |
 | `src/dsh/client/pane.tsx`、`src/dsh/client/class-names.ts`、`src/dsh/client/observable.ts` | 拖拽夹取、插件命名空间类、宿主可订阅快照的形状读取；均无 node / 宿主 import。 |
 | `src/dsh/client/registry-writes.ts` | 唯一客户端 registry 写通道：逐条 `applyRegistryEdit`，把 host report / wire failure 折成 UI 行，成功批次后只做一次 read-back，不自行调 `/invalidate`。 |
 
@@ -38,7 +38,7 @@
 
 - `test/client-build.test.ts`：主 bundle 轻壳与三个 chunk 的构建产物、外部依赖、chunk 自包含边界。
 - `test/panel-focus.test.ts`、`test/panel-header.test.ts`、`test/panel-shell.test.ts`：页签键盘、头部三态、跨页聚焦与四页签挂载。
-- `test/advisor-panel.test.ts`：顾问面板只消费规划输出。
+- `test/advisor-panel.test.ts`：顾问面板只消费规划输出与合并快照（S5 预览不重算层序）。
 - `test/registry-chunk.test.ts`：registry chunk 视图与挂载器的加载 / 失败 / 重试。
 - 写路径的行为由 `test/control-client.test.ts` 与 `test/host-wiring.test.ts` 在契约层覆盖，界面测试不复制协议。
 

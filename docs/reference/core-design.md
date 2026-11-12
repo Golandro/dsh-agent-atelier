@@ -174,7 +174,7 @@ interface AliasRegistry {          // ctx.aliasRegistry
 - 查询按解析出的 project root 记忆化（root 解析在 registry，每查询一次，票 18）；将来可用 provider 的 `workspaceKey` 优化；
 - 失败不缓存；并发查询共享 in-flight；无 watcher，`invalidate()` 是唯一刷新点；
 - provider 集合变化或 provider 调 `control.invalidate()` ⇒ 注册表通知 ⇒ catalogs 清缓存；
-- rank 低者胜；模型层整层合并 / 整层弃用，绝不半合并；
+- rank 低者胜（rank 只来自 contract 的 `src/contract/layers.ts`，宿主注册、查询求值器与列表翼共用一张表）；模型层整层合并 / 整层弃用，绝不半合并；
 - 受信 provider 的坏文档是硬错误，其余是软诊断；`diagnostics()` 与 `list()` 来自同一次扫描；
 - 条目与诊断都带 `providerId`（条目来自哪个 provider 即谁的 id；文档缺读沿用 `read.path` 的 provider 归因）；
 - 目录排序稳定（rank 升序，条目按名称）。

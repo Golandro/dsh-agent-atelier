@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { evaluateAgentQuery } from '../src/control/index.ts'
 import { createAgentDocPort } from '../src/control/core.ts'
 import { createInMemoryControlCore } from '../src/control/memory.ts'
+import { AGENT_SOURCE_RANK } from '../src/contract/index.ts'
 
 import type { AgentRow, DocumentEdit } from '../src/control/index.ts'
 import type { InMemoryControlCore } from '../src/control/memory.ts'
@@ -309,5 +310,26 @@ describe('control core over the in-memory adapter', () => {
     expect(evaluateAgentQuery(rows, { sort: 'issues', direction: 'desc' }).map((row) => row.agent.agentName)).toEqual(['beta', 'alpha'])
     expect(evaluateAgentQuery(rows, { sort: 'layer' }).map((row) => row.agent.agentName)).toEqual(['alpha', 'beta'])
     expect(evaluateAgentQuery(rows, {})).toHaveLength(2)
+
+    // The `layer` axis reads the contract's one rank table (簇 F): rows declared
+    // out of order come back in table order, lowest rank first.
+    const layeredSources = ['bundled', 'user-agents', 'user-dsh', 'project-agents', 'project-dsh'] as const
+    const layered: AgentRow[] = layeredSources.map((source) => ({
+      agent: {
+        agentName: source,
+        name: source,
+        description: '',
+        body: '',
+        source,
+        origin: source === 'bundled' ? 'built-in' : 'user',
+        providerId: source,
+        extra: {},
+        path: `/layers/${source}/${source}.agent.md`,
+      },
+      errors: 0,
+      hints: 0,
+    }))
+    const byRank = [...layeredSources].sort((left, right) => AGENT_SOURCE_RANK[left] - AGENT_SOURCE_RANK[right])
+    expect(evaluateAgentQuery(layered, { sort: 'layer' }).map((row) => row.agent.agentName)).toEqual(byRank)
   })
 })

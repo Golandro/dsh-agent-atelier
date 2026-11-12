@@ -87,6 +87,27 @@ describe('alias registry layers', () => {
     ])
   })
 
+  it('merges to one entry per name, the first layer to declare it winning', async () => {
+    const home = homeDir(USER_LAYER)
+    const workspace = workspaceDir('models:\n  ds-chat: { provider: deepseek, model: deepseek-v4 }\naliases:\n  fast: [ds-chat]\n')
+    const snapshot = await service(home, { readDefaultPair: () => ({ provider: 'deepseek', model: 'deepseek-chat' }) })
+      .snapshot({ cwd: workspace })
+
+    const modelNames = snapshot.models.map((entry) => entry.modelName)
+    const aliasNames = snapshot.aliases.map((entry) => entry.alias)
+    expect(new Set(modelNames).size).toBe(modelNames.length)
+    expect(new Set(aliasNames).size).toBe(aliasNames.length)
+
+    // The winner is the highest-precedence declaration, and it stays first in
+    // the merged order — consumers read that order instead of re-ranking layers.
+    expect(snapshot.models.find((entry) => entry.modelName === 'ds-chat')).toMatchObject({ model: 'deepseek-v4', source: 'project-dsh' })
+    expect(snapshot.aliases.find((entry) => entry.alias === 'fast')).toMatchObject({ targets: ['ds-chat'], source: 'project-dsh' })
+    // The built-in pointer and its synthesised entry are appended after every
+    // declared layer, never in front of one.
+    expect(snapshot.models.at(-1)).toMatchObject({ modelName: DEFAULT_ALIAS_NAME, source: 'built-in', synthesized: true })
+    expect(snapshot.aliases.at(-1)).toMatchObject({ alias: DEFAULT_ALIAS_NAME, source: 'built-in' })
+  })
+
   it('reads only the global layer when no cwd is given', async () => {
     const home = homeDir(USER_LAYER)
     const workspace = workspaceDir('models:\n  ds-chat: { provider: deepseek, model: deepseek-v4 }\naliases:\n  fast: [ds-reasoner]\n')

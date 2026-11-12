@@ -56,6 +56,7 @@
 - **缺席是数据**：根不存在、文件缺失、目录不是目录，都以 `undefined` / `false` 表达，不抛错；registry 缺层就是空层。
 - **一层全读或全丢**：registry.yaml 的语法错误汇总为 `unparseable-registry`，schema 错误各报一条 `invalid-registry`；坏层不半合并，诊断与层投影一起交给调用方。
 - **rank / trust 来自 provider 声明**：按 provider 的 `rank` 升序，第一个认领 agent 名的来源胜出；trusted 根上的硬错误抛 `AgentDocumentError`，非 trusted 的硬错误只是一条诊断，`unexpected-id` / `no-model-order` 是可见的软诊断。
+- **合并面即生效面**：两层按层序合并，首次出现的名字胜出，同名最多一条；`layers` 保存被遮蔽的声明只供 UI 展示层间阴影，任何消费方不得自己按层重算。
 - **built-in `dsh-default` 是加载期快照**：它跟随宿主提供的默认 provider/model 对；找不到匹配条目时合成一个 `dsh-default` 模型，保证指针永远指向一个 model entry。只有 `invalidate()` 会重读默认对。
 - **modelGroup 折叠**：某个 group 任一 entry 声明 `available: false`，合并后的整组读作 false；引擎仍是逐 entry 判断。
 - **没有 watcher**：首次查询按项目根记忆，provider 的 register / unregister / invalidate 会清缓存；并发查询共享在途加载，失败的加载不缓存。

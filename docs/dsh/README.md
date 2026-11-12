@@ -29,7 +29,7 @@
 | --- | --- |
 | `src/dsh/host/plugin.ts` | `apply`、`AgentManagerPluginConfig`。`role: 'all'` 依序挂 core / assembly / summon / providers；`role: 'ui-host'` 只挂控制路由；all-in-one 把 core 刚造的 `providers` 实例直接交给 provider 半，避开同 tick `ctx.get` 不可见。 |
 | `src/dsh/host/core.ts` | `applyCore`。provide `agentProviders`（plain object）、`agentRegistry` / `aliasRegistry` 与 `agentControl`；安装 pre-step catalog 监听器；`resolveFileSystem` 每次用时读 `optionalFileSystem(ctx)`，不捕获早期服务。 |
-| `src/dsh/host/providers.ts` | `applyProviders`。注册四个根 + bundled 根；rank 字面量：`PROJECT_DSH_RANK` 100 / `PROJECT_AGENTS_RANK` 200 / `CUSTOM_RANK` 300（v1 未用）/ `USER_DSH_RANK` 400 / `USER_AGENTS_RANK` 500 / `BUNDLED_AGENT_RANK` 600；根在本行解析，provider 不读环境。 |
+| `src/dsh/host/providers.ts` | `applyProviders`。注册四个根 + bundled 根；rank 由 contract 的 `AGENT_SOURCE_RANK` 派生：`PROJECT_DSH_RANK` 100 / `PROJECT_AGENTS_RANK` 200 / `CUSTOM_RANK` 300（v1 未用，200 与 400 之间的保留槽）/ `USER_DSH_RANK` 400 / `USER_AGENTS_RANK` 500 / `BUNDLED_AGENT_RANK` 600；根在本行解析，provider 不读环境。 |
 | `src/dsh/host/assembly.ts` | `applyAssembly`。把 `createAssemblyService` 的挂载登记为 `ctx.effect`，provide `agentAssembly`；`./assembly` 子路径与 `apply` 同义。 |
 | `src/dsh/host/summon.ts` | `applySummon`、`SUMMON_TOOL_NAME = 'summon_agent'`、`DEFAULT_NATIVE_SUBAGENT_TOOLS`。模型侧 summon 工具 + `agent/created` 子上下文装配钩子；用 `tools.restrict()` 隐藏原生委托入口；挂失败台账。 |
 | `src/dsh/host/failures.ts` | `mountFailureLedger`。腿 A（`agent/request-error`）先 `await next()` 再记录，返回原 action；腿 B（`llm/stream`）只记 attempt 级。路由从 `session.requestContext()` 读，绝不从下一次选择反推。 |

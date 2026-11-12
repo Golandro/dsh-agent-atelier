@@ -6,11 +6,12 @@
 
 ## 公共入口
 
-所有跨域读取只准落在 `src/contract/index.ts`。它按四个文件 re-export：
+所有跨域读取只准落在 `src/contract/index.ts`。它按五个文件 re-export：
 
 | 文件 | 承载 |
 | --- | --- |
 | `src/contract/types.ts` | 目录读面、alias / model 注册表、模型链解析与失败台账的 DTO |
+| `src/contract/layers.ts` | 发现根的层优先级：全仓唯一的 rank 表 |
 | `src/contract/assembly.ts` | 组装规划、注册 sink 的窄切片与 `AgentAssembly` 基础面 |
 | `src/contract/providers.ts` | provider 契约、`AgentProviders` 服务面与 `SERVICE_API_VERSION` |
 | `src/contract/service-keys.ts` | 四个服务 key 常量 |
@@ -39,6 +40,7 @@ key 是跨 bundle 的唯一集成面。宿主 patch 与测试都按字面量读�
 | 符号族 | 落点 | 代表符号 |
 | --- | --- | --- |
 | 目录读面 | `src/contract/types.ts` | `AgentDefinition`、`AgentRegistry`、`AgentDiagnostic`、`AgentSource`、`AgentLookupOptions` |
+| 层优先级 | `src/contract/layers.ts` | `AGENT_SOURCE_RANK`（宿主 provider 注册、查询求值器、列表层列共用） |
 | alias / model 读面 | `src/contract/types.ts` | `AliasRegistry`、`AliasRegistrySnapshot`、`ModelDefinition`、`AliasDefinition`、`AliasFinding` |
 | 模型链与台账 | `src/contract/types.ts` | `ChainResolutionInput`、`ChainResolutionReport`、`ChainResolution`、`ModelRoute`、`RouteObservation`、`RouteHealth` |
 | 组装面 | `src/contract/assembly.ts` | `AssemblyPlan`、`AssemblySection`、`AssemblySession`、`AgentAssembly`、`PromptSection`、`SystemPrompt` |
@@ -77,4 +79,4 @@ key 是跨 bundle 的唯一集成面。宿主 patch 与测试都按字面量读�
 - **不 import 宿主**：不出现 Cordis、DSH 类型、`node:*`；宿主事实只按结构化切片进入实现域。
 - **不重复定义 DTO**：实现域不得为同一协议保留第二份副本；需要扩展时在拥有该语义的域加字段，再决定是否提升为跨域契约。
 - **不改名兼容**：服务 key 与既有读面形状冻结；破坏性变更用新 key / 新 ADR，不做静默改名。
-- **不承载实现**：没有函数、没有环境读取；字面量常量仅限服务 key 与 apiVersion（数据，不是逻辑）。
+- **不承载实现**：没有函数、没有环境读取；字面量常量仅限服务 key、apiVersion 与 `AGENT_SOURCE_RANK` 这一张层优先级表（数据，不是逻辑）。

@@ -7,16 +7,16 @@
  * Issue weights follow the prototype's formula (`errors * 10 + hints`), which
  * used to be rewritten inline by the list it now serves.
  */
+import { AGENT_SOURCE_RANK } from '../contract/index.ts'
 import type { AgentDefinition, AgentSource } from '../contract/index.ts'
 import type { AgentListQuery, AgentRow } from './types.ts'
 
-/** Discovery-root precedence order, used by the `layer` sort. */
-const LAYER_ORDER: Readonly<Record<AgentSource, number>> = {
-  'project-dsh': 0,
-  'project-agents': 1,
-  'user-dsh': 2,
-  'user-agents': 3,
-  bundled: 4,
+/**
+ * The layer rank the `layer` axis sorts by: the one contract table (簇 F),
+ * exposed through the evaluator so the client list never carries its own copy.
+ */
+export function layerRankOf(source: AgentSource): number {
+  return AGENT_SOURCE_RANK[source]
 }
 
 /** Evaluate one query against the rows: filter first, then sort. Stable on ties. */
@@ -41,7 +41,7 @@ function compareBySort(sort: NonNullable<AgentListQuery['sort']>, left: AgentRow
     case 'name':
       return left.agent.agentName.localeCompare(right.agent.agentName)
     case 'layer':
-      return LAYER_ORDER[left.agent.source] - LAYER_ORDER[right.agent.source]
+      return layerRankOf(left.agent.source) - layerRankOf(right.agent.source)
     case 'issues':
       return issueWeight(left) - issueWeight(right)
     case 'models':

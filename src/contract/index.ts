@@ -5,6 +5,7 @@
  * layer every other layer reads from.
  */
 export * from './types.ts'
+export * from './layers.ts'
 export * from './service-keys.ts'
 export * from './providers.ts'
 export * from './assembly.ts'

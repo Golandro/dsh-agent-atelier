@@ -101,3 +101,18 @@ describe('顾问面板：组装规划', () => {
     expect(html).not.toContain('channel:tools')
   })
 })
+
+describe('顾问面板：S5 别名预览', () => {
+  it('renders the user-dsh alias from the merged snapshot and resolves the hit', () => {
+    const base = snapshot({ atlas: planAssembly(SESSION) })
+    const html = render({
+      ...base,
+      aliases: [{ alias: 'smart', targets: ['chat'], source: 'user-dsh' }],
+    }, 'atlas')
+
+    const s5 = html.slice(html.indexOf('S5 别名重映射'))
+    expect(s5).toContain('<option value="smart" selected="">smart</option>')
+    expect(s5).toContain('实际命中：deepseek/deepseek-chat')
+    expect(s5).toContain('<b>deepseek/deepseek-chat</b>')
+  })
+})

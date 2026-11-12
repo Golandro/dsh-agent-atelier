@@ -32,7 +32,7 @@ control 是写作核心域：把一份 agent 文档的原始字节组成编辑�
 | `src/control/registry-edit.ts` | `applyRegistryEdit` 先经 alias registry 解析生效模型定义再选层；built-in / synthesized 条目只读；写前用 `readRegistryLayer` 校验，坏层整体拒绝。 |
 | `src/control/session.ts`、`src/control/session-agent.ts` | 会话启动形状（`SessionStartParameters`、`ComposedAgentSession`、`AgentChainReport`）与 `ChainExhaustedError`、`chainInputOf`、`composeSessionOf`。chain 跑空是硬错误，message / report 原样透传。 |
 | `src/control/summon.ts` | `planSummonStart`、`readSummonArguments`、`summonRestriction`、`isDefaultBridge`、`missingRequiredTools`。纯决策，不碰宿主；默认桥不加 persona、不覆盖父路由（D4）。 |
-| `src/control/query.ts` | `evaluateAgentQuery`：列表筛选与排序的唯一解释者；问题权重与稳定并列由它决定，视图与测试不得各写一份。 |
+| `src/control/query.ts` | `evaluateAgentQuery`：列表筛选与排序的唯一解释者；层轴 `layerRankOf` 读 contract 的 `AGENT_SOURCE_RANK`（唯一 rank 表，本地不再维护），问题权重与稳定并列由它决定，视图与测试不得各写一份。 |
 | `src/control/failures.ts` | `classify`、`createFailureRecorder`。请求终态失败记 `failures`，attempt 级只更新展示字段；rate-limit 按 `(session, turn, step)` 去重；不读时钟，`observations(now)` 用注入时刻。 |
 | `src/control/resolve.ts` | `sessionChainContext`、`projectItemEffort`、`routeNotAllowed`。把文档与已读快照投影进纯链引擎，本身不重排、不改写失败。 |
 | `src/control/client.ts`、`src/control/memory.ts` | `ControlClient` / `createMemoryControlClient` 是两个适配器的共同端口；memory 用 `Map<string, string>` 跑真实的 provider、registry 与写算法，不复制 merge / serialization。 |
