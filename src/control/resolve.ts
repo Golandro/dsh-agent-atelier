@@ -24,7 +24,7 @@
  * routes behind its `active` ones (R2 §2.6), and no global re-sort across
  * aliases (R2 implementation ruling) — this file adds none.
  */
-import { resolveModelChain, type ChainItemEffort, type ChainResolutionContext, type SupportedEfforts } from '../core/index.ts'
+import { resolveModelChain, type ChainItemEffort, type ChainResolutionContext, type SupportedEfforts } from '../resolve/index.ts'
 
 import type {
   AliasRegistrySnapshot,

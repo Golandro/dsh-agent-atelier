@@ -17,7 +17,7 @@ export type AgentDefinition = ControlSnapshot['agents'][number]
 type ScanDiagnosticCode = ControlSnapshot['agentDiagnostics'][number]['code']
 
 /**
- * 「仍可用的标记」码集合：发现模块（src/core/catalog/discovery.ts）把
+ * 「仍可用的标记」码集合：发现模块（src/catalog/discovery.ts）把
  * unexpected-id / no-model-order 归为 ADVISORY_CODES——只标记不隐藏；
  * 其余码会让 agent 不可见（或受信根内的硬错误），计为 error。
  * AgentDiagnostic 没有 severity 字段，这里按发现模块自己的分类落档，

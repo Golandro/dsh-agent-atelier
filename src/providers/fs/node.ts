@@ -3,7 +3,7 @@ import { access, readFile, readdir } from 'node:fs/promises'
 
 import { absentAs, dirEntry, dirKind } from './absence.ts'
 
-import type { AgentFileSystem } from '../../core/ports.ts'
+import type { AgentFileSystem } from '../../catalog/ports.ts'
 
 export function createNodeFileSystem(): AgentFileSystem {
   return {

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { createFileSystemAgentProvider } from '../src/providers/fs/source.ts'
 import { createNodeFileSystem } from '../src/providers/fs/node.ts'
-import type { AgentFileSystem } from '../src/core/ports.ts'
+import type { AgentFileSystem } from '../src/catalog/ports.ts'
 
 let tmp = ''
 

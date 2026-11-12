@@ -10,8 +10,8 @@ import type {
   ModelSelectionPolicy,
   RouteObservation,
 } from '../src/contract/types.ts'
-import { resolveModelChain, routeKeyOf, type ChainResolutionContext } from '../src/core/resolve/model-chain.ts'
-import { withAvailability } from '../src/core/resolve/observations.ts'
+import { resolveModelChain, routeKeyOf, type ChainResolutionContext } from '../src/resolve/model-chain.ts'
+import { withAvailability } from '../src/resolve/observations.ts'
 
 /**
  * Entry names follow the spec's own example (`ds-chat` → `deepseek-chat`), so

@@ -1,12 +1,12 @@
 /**
  * Compat entry of the bundle. `package.json`'s `main` / `exports` point here,
  * so the install surface stays frozen while the source below it layers into
- * contract / core / providers / control / dsh (ticket 16). Everything is
+ * contract / yaml / catalog / resolve / providers / control / dsh (ticket 16). Everything is
  * re-exported from the public layer entries; no implementation lives in this
  * file.
  */
 export { AGENT_ASSEMBLY_SERVICE, AGENT_CONTROL_SERVICE, AGENT_PROVIDERS_SERVICE, AGENT_REGISTRY_SERVICE, ALIAS_REGISTRY_SERVICE } from './contract/index.ts'
-export { createAgentRegistry, createAgentRegistryService, createAliasRegistryService, inspectAliasRegistry } from './core/index.ts'
+export { createAgentRegistry, createAgentRegistryService, createAliasRegistryService, inspectAliasRegistry } from './catalog/index.ts'
 export {
   createAgentDocPort,
   createControlCore,

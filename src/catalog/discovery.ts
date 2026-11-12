@@ -15,8 +15,8 @@
  */
 import { resolve } from 'node:path'
 
-import type { AgentFileSystem, FileSystemDependencies } from '../ports.ts'
-import { FRONTMATTER_FIELDS } from '../../yaml/index.ts'
+import type { AgentFileSystem, FileSystemDependencies } from './ports.ts'
+import { FRONTMATTER_FIELDS } from '../yaml/index.ts'
 import { parseAgentDocument } from './frontmatter.ts'
 import type { AgentFrontmatter } from './frontmatter.ts'
 import { createLazyLoad } from './lazy-load.ts'
@@ -34,7 +34,7 @@ import type {
   ProviderLookupOptions,
   SourceDocument,
   SourceEntry,
-} from '../../contract/index.ts'
+} from '../contract/index.ts'
 
 /** Agent directories are lower-case kebab, exactly like native skill names. */
 export const AGENT_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/

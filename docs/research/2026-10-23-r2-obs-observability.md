@@ -65,7 +65,7 @@
 | F4 | `adapterStream`：适配器/迭代**任何 throw** 都被 `adapterFailureChunk(error, signal)` 转成 `{type:'finish', reason: signal.aborted ? {kind:'aborted',failure} : {kind:'error',failure}}` **yield 而不是抛**（两处：迭代器建立失败 :1119-1122、迭代中途失败 :1134-1137）；中间件/消费方错误仍按原样抛 | `packages/llm/llm/src/index.ts:1183-1191` |
 | F5 | ⇒ **包装 `llm/stream` 的监听者能在流里看见失败码**，且这是**唯一**能覆盖 E7「流已开始后失败」的运行时面 | 由 F3+F4+E7 推出 |
 | F6 | `AgentOptions` 不带 retry 策略；策略只能按 provider 路由配，并在注册时冻结 | ticket #10 findings F14；`packages/llm/llm/src/index.ts:450-451` |
-| F7 | 预检/解析期抛错（`UNSUPPORTED_REASONING_EFFORT` 等）是**请求前**的 `LlmError`，**不进** `agent/request-error` —— #33 已在 03 里前置跳过，runtime 台账不需要它 | ticket #10 F12；本仓 `src/core/resolve/model-chain.ts` 的 `unsupported-effort` |
+| F7 | 预检/解析期抛错（`UNSUPPORTED_REASONING_EFFORT` 等）是**请求前**的 `LlmError`，**不进** `agent/request-error` —— #33 已在 03 里前置跳过，runtime 台账不需要它 | ticket #10 F12；本仓 `src/resolve/model-chain.ts` 的 `unsupported-effort` |
 
 ### 1.4 包边界与运行期可达性
 
@@ -160,7 +160,7 @@ ctx.on('llm/stream', (options, next) => wrap(next(), (chunk) => {
 `agent/request-error` **每次尝试**派发一次（E6 在 `while(true)` 内）。一次请求 = `1 + maxRetries` 次尝试（默认 ≤ 6，ticket #10 F3/F4）。因此：
 
 - `RouteObservation.failures` 的口径应是「**本请求终局失败**记 1 次」，不是「每次派发」；中间重试不计入 `failures`（可选另记 `attempts`，不入 `health` 投影）。
-- 判定终局 = **`terminal: action === undefined`**（§3.1）。这就保住了 `DEGRADED_FAILURES = 2` 的原义（「同一路由两次**请求**失败」，见 `src/core/resolve/observations.ts:26-27`）。
+- 判定终局 = **`terminal: action === undefined`**（§3.1）。这就保住了 `DEGRADED_FAILURES = 2` 的原义（「同一路由两次**请求**失败」，见 `src/resolve/observations.ts:26-27`）。
 - **副作用与护栏**：若 observer 意外落在 llm-retry **内层**，`next()` 恒 `undefined`（cbs 为空 ⇒ inner 默认 `undefined`），每次重试都会被记成终局。护栏 = §2 残差 2 的运行时自检 + 「同 `(turn,step)` 只记一次终局」去抖。
 
 ### 3.3 `rateLimitStreak` 的退化口径（票面指标不可达）
@@ -168,11 +168,11 @@ ctx.on('llm/stream', (options, next) => wrap(next(), (chunk) => {
 §2.4 要求「同一路由 60s 内被限流 **3 次**」。llm-retry 对 `RATE_LIMIT` 只要 `Retry-After ≤ 10s`（或无头）就**立即** `{kind:'retry'}`（E4 的 :231 之外分支），所以**单请求就能产生 3+ 次 `RATE_LIMIT` 派发** —— 直接按派发计数会把「一次限流被重试 3 次」误判成「持续限流」。**建议**：
 
 - `rateLimitStreak` = 「按 `(turn, step)`（= 请求）去重后的**终局** `RATE_LIMIT` 次数」（与 §3.2 同一过滤）；
-- 或把它解释为「**不同请求**被限流」而非「不同尝试」—— 文档与测试写明，`src/core/resolve/observations.ts:81-95` 的分支逻辑**不用改**，只改喂入方。
+- 或把它解释为「**不同请求**被限流」而非「不同尝试」—— 文档与测试写明，`src/resolve/observations.ts:81-95` 的分支逻辑**不用改**，只改喂入方。
 
 ### 3.4 给 03（S1）的两条只读提醒
 
-1. `src/core/resolve/observations.ts` 的 `rateLimitStreak` 分支本身没错，但**注释与测试**要标明「这是请求级 streak，不是尝试级」——否则 07 一按派发计数喂就会把 `degraded` 提前触发。
+1. `src/resolve/observations.ts` 的 `rateLimitStreak` 分支本身没错，但**注释与测试**要标明「这是请求级 streak，不是尝试级」——否则 07 一按派发计数喂就会把 `degraded` 提前触发。
 2. `lastFailureCode: 'UNKNOWN'` 是**不可判定**，记录方**不入账**（不写 `failures`、不回写 `rateLimitStreak`）；03 无需改动（它只读计数）。
 
 ---

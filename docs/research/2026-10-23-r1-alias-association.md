@@ -25,22 +25,22 @@
 
 | # | 事实 | 位置 |
 |---|------|------|
-| W1 | 读器顶层只认 `models`/`aliases` 两键；`readFields`（流式映射 / **一层**块映射）与 `readItems`（流式数组 / **一层**块序列）两种形状，字段值只能是标量——`field "x" ... must hold an inline value` 是硬拒绝 | `src/core/catalog/registry-file.ts:95-98`、`:230-268`、`:259-262` |
-| W2 | 别名校验 = **恰好 1 个非空目标**；形状错误文案写死 `alias "x" must be an inline single-target array, e.g. x: [ds-chat]`；`[]` 与池 `[a, b]` 都按 `invalid-registry` **弃整层** | `src/core/catalog/registry-file.ts:216-225` |
-| W3 | 读器模块头自承「v1 is a single-target array, so the pool form is R1/R2 work, not a schema change」 | `src/core/catalog/registry-file.ts:1-23` |
-| W4 | `readItems` 的**块序列分支已存在**并接受多行 `- item`；流式分支用 `flowInner('[')` 取内层再 `splitTopLevel` ⇒ 池「≥1 个字符串」今天就可读 | `src/core/catalog/registry-file.ts:271-303` |
+| W1 | 读器顶层只认 `models`/`aliases` 两键；`readFields`（流式映射 / **一层**块映射）与 `readItems`（流式数组 / **一层**块序列）两种形状，字段值只能是标量——`field "x" ... must hold an inline value` 是硬拒绝 | `src/catalog/registry-file.ts:95-98`、`:230-268`、`:259-262` |
+| W2 | 别名校验 = **恰好 1 个非空目标**；形状错误文案写死 `alias "x" must be an inline single-target array, e.g. x: [ds-chat]`；`[]` 与池 `[a, b]` 都按 `invalid-registry` **弃整层** | `src/catalog/registry-file.ts:216-225` |
+| W3 | 读器模块头自承「v1 is a single-target array, so the pool form is R1/R2 work, not a schema change」 | `src/catalog/registry-file.ts:1-23` |
+| W4 | `readItems` 的**块序列分支已存在**并接受多行 `- item`；流式分支用 `flowInner('[')` 取内层再 `splitTopLevel` ⇒ 池「≥1 个字符串」今天就可读 | `src/catalog/registry-file.ts:271-303` |
 | W5 | `ModelDeclaration` = `{modelName, provider, model, sysPrompt?, available}`；**无 provider 分组概念、无 effort 列**；契约注释「Provider and model stay flat … consumers never walk a nested pair」 | `src/contract/types.ts:139-155` |
 | W6 | `AliasDeclaration.targets: readonly string[]`，注释「v1 holds exactly one model entry name; the pool form is R1/R2 work (D18)」——**契约形状已是数组** | `src/contract/types.ts:166-178` |
-| W7 | `AliasChainStep.modelName` 的选取是「`winner.orderIndex === step.orderIndex` 时取 winner」，池内先跳过后胜出时会**指向先出现但被跳过的那条** | `src/contract/types.ts:347-362`、`src/core/resolve/model-chain.ts:245-249` |
-| W8 | 引擎候选流水线：`available` 先于白名单；胜者 = **第一个无 skipped 的候选**（声明序） | `src/core/resolve/model-chain.ts:109-142`、`:238` |
-| W9 | effort：`itemEffort[winner.modelName] ?? agent.reasoningEffort`；`ChainItemEffort` 是**注入表**，注释承认「A `models:` entry has no effort column in spec §5.2, so the override table is injected」 | `src/core/resolve/model-chain.ts:49-55`、`:269-274` |
-| W10 | 内置 `dsh-default`：读默认对 → 找 `provider+model` 精确相等的已声明条目，找到则指向它，否则**合成隐式条目**（`synthesized: true`、`available: true`、无 sysPrompt）；别名侧恒 `targets: [一个名字]` | `src/core/catalog/alias-registry.ts:183-210` |
-| W11 | `dsh-default` 在 `models:` 与 `aliases:` **两处都是保留字**（用户写 = schema 错误） | `src/core/catalog/registry-file.ts:148-151`、`:207-210` |
-| W12 | `inspectAliasRegistry` 逐 target 校验存在性（`unknown-model-target`）；fan-in 按**每个 target** 计数 | `src/core/catalog/alias-registry.ts:230-257` |
+| W7 | `AliasChainStep.modelName` 的选取是「`winner.orderIndex === step.orderIndex` 时取 winner」，池内先跳过后胜出时会**指向先出现但被跳过的那条** | `src/contract/types.ts:347-362`、`src/resolve/model-chain.ts:245-249` |
+| W8 | 引擎候选流水线：`available` 先于白名单；胜者 = **第一个无 skipped 的候选**（声明序） | `src/resolve/model-chain.ts:109-142`、`:238` |
+| W9 | effort：`itemEffort[winner.modelName] ?? agent.reasoningEffort`；`ChainItemEffort` 是**注入表**，注释承认「A `models:` entry has no effort column in spec §5.2, so the override table is injected」 | `src/resolve/model-chain.ts:49-55`、`:269-274` |
+| W10 | 内置 `dsh-default`：读默认对 → 找 `provider+model` 精确相等的已声明条目，找到则指向它，否则**合成隐式条目**（`synthesized: true`、`available: true`、无 sysPrompt）；别名侧恒 `targets: [一个名字]` | `src/catalog/alias-registry.ts:183-210` |
+| W11 | `dsh-default` 在 `models:` 与 `aliases:` **两处都是保留字**（用户写 = schema 错误） | `src/catalog/registry-file.ts:148-151`、`:207-210` |
+| W12 | `inspectAliasRegistry` 逐 target 校验存在性（`unknown-model-target`）；fan-in 按**每个 target** 计数 | `src/catalog/alias-registry.ts:230-257` |
 | W13 | 写面：`remapAlias` 收**单个 target 字符串并整条重写**为 `alias: [target]`；`addAlias` 同样单目标；无池类编辑 | `src/control/types.ts:143-165`、`src/control/registry-edit.ts:186-198`、`:218-230` |
 | W14 | UI 只读 `targets[0]`：顾问面板 `currentTarget` / `setTargetDraft` | `src/dsh/client/advisor.tsx:114`、`:219` |
 | W15 | 读器单测把「池」写死为**拒绝**：`smart: [ds-reasoner, ds-chat]` 的错误里必须含 `single` | `test/registry-file.test.ts:122-128` |
-| W16 | 层语义 = 层内同名先声明生效、层间 workspace 胜；**本名粒度、不崩溃合并** | `src/core/catalog/alias-registry.ts:120-152` |
+| W16 | 层语义 = 层内同名先声明生效、层间 workspace 胜；**本名粒度、不崩溃合并** | `src/catalog/alias-registry.ts:120-152` |
 | W17 | frontmatter 字段编译器只认字符串数组（`ARRAY_FIELDS`），`modelOrder` 无法携带对象（影响 §5 的 effort 落点论证） | `src/control/frontmatter-edit.ts:18` |
 
 ### 1.2 DSH 宿主侧（源码树直读）
@@ -180,11 +180,11 @@ aliases:                                   # 有序池：模型条目名，顺�
 
 | 文件 | 改动 |
 |------|------|
-| `src/core/catalog/registry-file.ts:216-225` | 「必须恰好 1 个」→「≥ 1 个、无重复、无空串」；`shapeProblem` 文案改为「a list of model entry names」 |
-| `src/core/catalog/registry-file.ts:96` `MODEL_FIELDS` + `mapModelEntry` | 加 `modelGroup`（+ 可选 `effort`）读取 |
+| `src/catalog/registry-file.ts:216-225` | 「必须恰好 1 个」→「≥ 1 个、无重复、无空串」；`shapeProblem` 文案改为「a list of model entry names」 |
+| `src/catalog/registry-file.ts:96` `MODEL_FIELDS` + `mapModelEntry` | 加 `modelGroup`（+ 可选 `effort`）读取 |
 | `src/contract/types.ts:146-155` | `ModelDeclaration` 加 `modelGroup?: string`（+ 可选 `effort?: string`）；`AliasDeclaration.targets` **类型不变** |
-| `src/core/catalog/alias-registry.ts:191-210` | 装载时做组级可用性汇总；`withBuiltInAlias` 的单目标结论不变 |
-| `src/core/resolve/model-chain.ts:245-249` | `AliasChainStep.modelName` 改取「本 step **胜出**的候选」而非第一个同 `orderIndex` 的候选（W7 的既有小 bug，池 >1 时才暴露） |
+| `src/catalog/alias-registry.ts:191-210` | 装载时做组级可用性汇总；`withBuiltInAlias` 的单目标结论不变 |
+| `src/resolve/model-chain.ts:245-249` | `AliasChainStep.modelName` 改取「本 step **胜出**的候选」而非第一个同 `orderIndex` 的候选（W7 的既有小 bug，池 >1 时才暴露） |
 | `src/control/registry-edit.ts:186-198`、`:218-230` | `remapAlias` / `addAlias` 放开为多目标，或新增 `setAliasTargets`；避免「整条重写」静默清空池 |
 | `src/dsh/client/advisor.tsx:114`、`:219` | `targets[0]` → 渲染整个池 |
 | `test/registry-file.test.ts:122-128` | 「拒绝池」翻转为「接受池、拒绝空数组/重复」 |

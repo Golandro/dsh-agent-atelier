@@ -4,9 +4,9 @@ import { dirname, join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { createAliasRegistryService, inspectAliasRegistry, type AliasRegistryDependencies } from '../src/core/catalog/alias-registry.ts'
+import { createAliasRegistryService, inspectAliasRegistry, type AliasRegistryDependencies } from '../src/catalog/alias-registry.ts'
 import { createNodeFileSystem } from '../src/providers/fs/index.ts'
-import { DEFAULT_ALIAS_NAME } from '../src/core/catalog/registry-file.ts'
+import { DEFAULT_ALIAS_NAME } from '../src/catalog/registry-file.ts'
 import type { AgentModelTarget, AliasDefinition, AliasRegistrySnapshot, ModelDefinition } from '../src/contract/types.ts'
 
 const tempDirs: string[] = []

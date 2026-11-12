@@ -16,7 +16,7 @@ import { join } from 'node:path'
 
 import { absentAs } from './absence.ts'
 
-import type { ControlFileSystem } from '../../core/ports.ts'
+import type { ControlFileSystem } from '../../catalog/ports.ts'
 
 export function createNodeControlFileSystem(): ControlFileSystem {
   return {

@@ -1,7 +1,7 @@
 /** Host-`fs`-backed port, mirroring the native read path's absence handling. */
 import { absentAs, dirEntry, dirKind } from './absence.ts'
 
-import type { AgentFileSystem } from '../../core/ports.ts'
+import type { AgentFileSystem } from '../../catalog/ports.ts'
 
 /** The slice of the host `fs` service this port uses. */
 export interface HostFileSystem {

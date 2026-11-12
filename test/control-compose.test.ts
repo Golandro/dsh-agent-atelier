@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseAgentDocument, splitAgentFence } from '../src/core/index.ts'
+import { parseAgentDocument, splitAgentFence } from '../src/catalog/index.ts'
 import { assembleAgentDocument, composeAgentDocument } from '../src/control/compose.ts'
 
 import type { AgentDefinition } from '../src/contract/index.ts'

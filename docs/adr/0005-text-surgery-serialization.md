@@ -11,5 +11,5 @@
 ## Consequences
 
 - 手术只动目标行：单字段编辑 O(行数)，不重排任何其他字节；代价是不理解完整 YAML——锚点、多文档等构造本就不是 agent 文档的合法输入（读器已拒）。
-- 写面永远与既有读者配对：`src/control` 依赖 `src/core` 的 `parseAgentDocument` / `readRegistryLayer` 做写前写后验证，不许独立演化出第二份解析语义。
-- 原子性归 core 一处（`src/control/writes.ts` 的 `atomicWriteFile`：`ensureDirectory` → `writeNewFile`（wx、`0600`）→ `renameFile` → 写后重读），in-memory 与 Node 两个写适配器同走 `ControlFileSystem` 端口，temp 名的唯一性是适配器的业务。
+- 写面永远与既有读者配对：`src/control` 依赖 `src/catalog` 的 `parseAgentDocument` / `readRegistryLayer` 做写前写后验证，不许独立演化出第二份解析语义。
+- 原子性归 `control` 一处（`src/control/writes.ts` 的 `atomicWriteFile`：`ensureDirectory` → `writeNewFile`（wx、`0600`）→ `renameFile` → 写后重读），in-memory 与 Node 两个写适配器同走 `ControlFileSystem` 端口，temp 名的唯一性是适配器的业务。

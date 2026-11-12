@@ -6,10 +6,10 @@
  * scalar or a string array — plus the one field order. Four consumers derive
  * from it instead of spelling their own list:
  *
- *   - the reader's known-key / value-shape table (`core/catalog/frontmatter.ts`)
+ *   - the reader's known-key / value-shape table (`src/catalog/frontmatter.ts`)
  *   - the writer's scalar-vs-array compiler (`control/frontmatter-edit.ts`)
  *   - the wire's field whitelist (`dsh/host/wire.ts`)
- *   - discovery's projection into `AgentDefinition` (`core/catalog/discovery.ts`)
+ *   - discovery's projection into `AgentDefinition` (`src/catalog/discovery.ts`)
  *
  * Adding one editable field means adding it to the contract union and to this
  * table; every consumer follows without another list to update.

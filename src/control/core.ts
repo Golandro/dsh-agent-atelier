@@ -16,7 +16,8 @@
  * member, never a change to an existing one, so every consumer keeps the exact
  * shapes it froze.
  */
-import { inspectAliasRegistry, resolveModelChain } from '../core/index.ts'
+import { inspectAliasRegistry } from '../catalog/index.ts'
+import { resolveModelChain } from '../resolve/index.ts'
 
 import type {
   AgentAssembly,
@@ -28,7 +29,7 @@ import type {
   ChainResolution,
   ModelSelectionPolicy,
 } from '../contract/index.ts'
-import type { ControlFileSystem } from '../core/ports.ts'
+import type { ControlFileSystem } from '../catalog/ports.ts'
 import { errorMessage, UnknownAgentError } from './client-errors.ts'
 import { composeAgentDocument } from './compose.ts'
 import { applyRegistryEdit, type RegistryEditContext } from './registry-edit.ts'

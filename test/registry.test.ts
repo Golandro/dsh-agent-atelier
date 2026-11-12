@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { createAgentRegistry } from '../src/core/catalog/registry.ts'
+import { createAgentRegistry } from '../src/catalog/registry.ts'
 import type { AgentDefinition } from '../src/contract/types.ts'
 
 function definition(agentName: string, overrides: Partial<AgentDefinition> = {}): AgentDefinition {

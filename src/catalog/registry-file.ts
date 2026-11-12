@@ -13,7 +13,7 @@
  * This is a *second* minimal reader next to `./frontmatter.ts`, not a reuse of
  * it: registry.yaml needs booleans, a two-level block mapping and multi-field
  * flow mappings, none of which the agent-document subset can express. Both
- * readers sit on the line and scalar rules in `../../yaml/index.ts`, and
+ * readers sit on the line and scalar rules in `../yaml/index.ts`, and
  * neither imports a YAML library — `js-yaml` and `zod` stay declared in
  * `package.json` as reserved for the settings-UI work (2026-10-17 dependency
  * ruling) — so the bundle keeps exactly one YAML implementation.
@@ -31,9 +31,9 @@ import {
   splitTopLevel,
   stripComment,
   unquote,
-} from '../../yaml/index.ts'
+} from '../yaml/index.ts'
 
-import type { AliasDeclaration, AliasDiagnosticCode, ModelDeclaration } from '../../contract/index.ts'
+import type { AliasDeclaration, AliasDiagnosticCode, ModelDeclaration } from '../contract/index.ts'
 
 /**
  * Name of the built-in alias that follows the DSH sub-agent default pair.

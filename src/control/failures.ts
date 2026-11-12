@@ -27,7 +27,7 @@
  * injects it), and `observations(now)` judges the rate-limit window against
  * the injected `now`, so the whole fold stays deterministic and testable.
  */
-import { RATE_LIMIT_WINDOW_MS, routeKey } from '../core/index.ts'
+import { RATE_LIMIT_WINDOW_MS, routeKey } from '../resolve/index.ts'
 
 import type { ChainObservations, ModelRoute, RouteObservation } from '../contract/index.ts'
 

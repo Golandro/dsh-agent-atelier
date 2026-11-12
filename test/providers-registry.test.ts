@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { createAgentProviders } from '../src/core/providers-registry.ts'
+import { createAgentProviders } from '../src/providers/registry.ts'
 import { SERVICE_API_VERSION } from '../src/contract/index.ts'
 import type { AgentSource, AgentSourceProvider, ProviderControl } from '../src/contract/index.ts'
 

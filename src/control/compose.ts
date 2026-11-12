@@ -12,7 +12,7 @@
  * later needs frontmatter, {@link assembleAgentDocument} synthesizes the fence
  * around the compiled text.
  */
-import { splitAgentFence } from '../core/index.ts'
+import { splitAgentFence } from '../catalog/index.ts'
 
 import type { AgentDefinition } from '../contract/index.ts'
 import type { ComposedAgentDocument } from './types.ts'

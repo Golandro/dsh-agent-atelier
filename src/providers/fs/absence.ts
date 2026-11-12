@@ -3,7 +3,7 @@
  * path is reported as `undefined` instead of an error, so a root that does not
  * exist yet is simply empty (the native read path's behaviour).
  */
-import type { AgentDirEntry } from '../../core/ports.ts'
+import type { AgentDirEntry } from '../../catalog/ports.ts'
 
 /** Run one read, reporting a missing path as absence instead of an error. */
 export async function absentAs<T>(read: () => Promise<T>, alsoAbsentCode?: string): Promise<T | undefined> {

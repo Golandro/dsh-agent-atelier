@@ -2,7 +2,7 @@
  * YAML line-level text surgery shared by every reader and writer.
  *
  * One key-name charset, one top-level key splitter, one indentation measure.
- * The readers (`core/catalog/frontmatter.ts`, `core/catalog/registry-file.ts`)
+ * The readers (`src/catalog/frontmatter.ts`, `src/catalog/registry-file.ts`)
  * and the writers (`control/frontmatter-edit.ts`, `control/registry-edit.ts`)
  * call these instead of spelling the same regex and whitespace rules again.
  * The wire pre-check stays its own defense-in-depth layer but uses the same

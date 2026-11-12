@@ -11,7 +11,7 @@ export const HINTS = {
   scratch: '删除残留探针目录（例如 `.probe/`，它被 .gitignore 隐藏）。',
   bundle: '把 `@deepseek-ai/*` 从 `dependencies` 移到 `peerDependencies` + `devDependencies`（ADR-0001）。',
   deps: '安装缺失的 devDependency：`pnpm install --store-dir "$PWD/.pnpm-store"`（沙箱内，见 docs/agents/harness-facts.md）。',
-  matrix: '跨层 import 只走公共入口：`src/contract/index.ts`、`src/core/index.ts`、`src/core/ports.ts`、`src/providers/fs/index.ts`、`src/control/index.ts`、`src/control/client-errors.ts`、`src/control/http-client.ts`、`src/dsh/host/index.ts`；chunk（`client-editor/`、`client-list/`）只准 `src/control/index.ts` 与 `src/dsh/client/chunk-contracts.ts`。',
+  matrix: '跨层 import 只走公共入口：`src/contract/index.ts`、`src/yaml/index.ts`、`src/catalog/index.ts`、`src/catalog/ports.ts`、`src/resolve/index.ts`、`src/providers/index.ts`、`src/providers/fs/index.ts`、`src/control/index.ts`、`src/control/client-errors.ts`、`src/control/http-client.ts`、`src/dsh/host/index.ts`；chunk（`client-editor/`、`client-list/`、`client-registry/`）只准 `src/control/index.ts` 与 `src/dsh/client/chunk-contracts.ts`。',
   anchors: '修正票面/文档里的 `path:line` 或裸 `src/...` 路径，或先跑 `pnpm run check:static` 看解析详情。',
 }
 

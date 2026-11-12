@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 
 import { AGENT_PROVIDERS_SERVICE, SERVICE_API_VERSION } from '../../contract/index.ts'
-import { resolveAgentsHome, resolveDshHome } from '../../core/index.ts'
+import { resolveAgentsHome, resolveDshHome } from '../../catalog/index.ts'
 import { createFileSystemAgentProvider, createNodeFileSystem } from '../../providers/fs/index.ts'
 import { optionalFileSystem } from './fs.ts'
 

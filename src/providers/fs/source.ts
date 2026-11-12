@@ -14,7 +14,7 @@ import { join } from 'node:path'
 
 import { SERVICE_API_VERSION } from '../../contract/index.ts'
 
-import type { AgentFileSystem } from '../../core/ports.ts'
+import type { AgentFileSystem } from '../../catalog/ports.ts'
 import type {
   AgentOrigin,
   AgentSource,

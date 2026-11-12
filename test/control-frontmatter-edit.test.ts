@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseAgentDocument } from '../src/core/index.ts'
+import { parseAgentDocument } from '../src/catalog/index.ts'
 import { applyFrontmatterField, serializeFrontmatterArray, serializeFrontmatterScalar } from '../src/control/frontmatter-edit.ts'
 import { FRONTMATTER_FIELDS } from '../src/yaml/index.ts'
 

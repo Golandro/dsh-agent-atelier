@@ -27,9 +27,9 @@ import {
   splitTopLevel,
   stripComment,
   unquote,
-} from '../../yaml/index.ts'
+} from '../yaml/index.ts'
 
-import type { AgentModelTarget } from '../../contract/index.ts'
+import type { AgentModelTarget } from '../contract/index.ts'
 
 /** Typed view of a document's frontmatter block. */
 export interface AgentFrontmatter {

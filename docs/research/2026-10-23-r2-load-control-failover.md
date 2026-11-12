@@ -44,9 +44,9 @@
 
 | # | 事实 | 位置 |
 |---|------|------|
-| W1 | 03 引擎已经落地：候选记录 `{origin: 'alias' | 'raw', route?, modelName?, skipped?}`，同一条流水线依次过「可用性 → 白名单 → 首个幸存者」，链耗尽 = `{ok:false, code:'chain-exhausted', message 回显整链}` | `src/core/resolve/model-chain.ts:63-74`、`:231-286` |
-| W2 | 跳过原因只有四种：`unknown-alias` / `unknown-model` / `unavailable` / `not-allowed`，外加报告用的 `not-reached`；**可用性先于白名单判定** | `src/core/resolve/model-chain.ts:135-138`；`src/contract/types.ts:299-307` |
-| W3 | `ModelDefinition.available` 是「v1 手动开关」；`synthesized` 只标记内置隐式条目（默认对无匹配时合成，`available: true`）；`dsh-default` 指针**恒指向一个模型条目** | `src/contract/types.ts:146-161`；`src/core/catalog/alias-registry.ts:191-210` |
+| W1 | 03 引擎已经落地：候选记录 `{origin: 'alias' | 'raw', route?, modelName?, skipped?}`，同一条流水线依次过「可用性 → 白名单 → 首个幸存者」，链耗尽 = `{ok:false, code:'chain-exhausted', message 回显整链}` | `src/resolve/model-chain.ts:63-74`、`:231-286` |
+| W2 | 跳过原因只有四种：`unknown-alias` / `unknown-model` / `unavailable` / `not-allowed`，外加报告用的 `not-reached`；**可用性先于白名单判定** | `src/resolve/model-chain.ts:135-138`；`src/contract/types.ts:299-307` |
+| W3 | `ModelDefinition.available` 是「v1 手动开关」；`synthesized` 只标记内置隐式条目（默认对无匹配时合成，`available: true`）；`dsh-default` 指针**恒指向一个模型条目** | `src/contract/types.ts:146-161`；`src/catalog/alias-registry.ts:191-210` |
 | W4 | 内置默认 agent 的链是 `modelOrder: [dsh-default]`，`requiredTools: []`、`skills: []` | `bundled/default/default.agent.md` |
 | W5 | R1（#9）findings `docs/research/2026-10-23-r1-alias-association.md` **本次核查时不存在**，故 R1 结构按假设处理（见 §2.1） | 本次 `ls docs/research` |
 
@@ -197,7 +197,7 @@ export type ChainSkipReason = /* 既有四种 */ | 'unsupported-effort'
 
 ### 3.2 新增／调整的纯函数
 
-1. **`withAvailability(snapshot, observations)`**（纯，`src/core/resolve/` 下的新模块 `observations.ts`）
+1. **`withAvailability(snapshot, observations)`**（纯，`src/resolve/` 下的新模块 `observations.ts`）
    - 输入：`AliasRegistrySnapshot` + 可选 `ChainObservations`；输出：带投影字段的模型列表：
 
 ```ts

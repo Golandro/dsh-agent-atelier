@@ -1,5 +1,5 @@
 /**
- * The filesystem ports both halves of the core read and write through.
+ * The filesystem ports discovery (catalog) and the write core (control) read and write through.
  *
  * Discovery mirrors the native skill loader's `optionalFileSystem(ctx)`
  * (`skill/skill-filesystem/src/index.ts:849`): when the host context exposes an
@@ -12,7 +12,7 @@
  * The read port is deliberately tiny: the discovery layer only ever lists a
  * root, reads one document, or asks whether a `.git` marker exists. The write
  * port (ticket 11) is primitives only — uniqueness, atomicity and permission
- * policy live in the core that sequences them, so an in-memory port can test
+ * policy live in the control core that sequences them, so an in-memory port can test
  * the same algorithm the Node port serves. Paths stay host paths throughout,
  * so no opaque target type has to leak into this bundle.
  */

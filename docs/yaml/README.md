@@ -19,7 +19,7 @@ YAML，不建立数据模型，也不替任何读者决定值语义。agent 文�
 - 用 `js-yaml` 的 `dump` 再序列化会丢注释、丢键序、改写引号风格，D14 的逐字节往返
   就不成立。因此写面不是「先解析成对象再输出」，而是**只替换目标行**的行拼接。
 - 守卫的 import 矩阵把 `src/yaml/` 列为独立纯层：只可读 `src/contract/index.ts`，
-  不允许 `node:*`、Cordis 或第三方运行时依赖；`core` / `control` / `dsh/host` 只准
+  不允许 `node:*`、Cordis 或第三方运行时依赖；`catalog` / `control` / `dsh/host` 只准
   经 `src/yaml/index.ts` 读取它（规则在 `scripts/checklist/matrix.mjs`）。
 
 ## 唯一真相源：raw 原文与 byte-exact 往返
@@ -33,7 +33,7 @@ YAML，不建立数据模型，也不替任何读者决定值语义。agent 文�
   双引号转义；不生成第二套模型。
 - **包围不变式**：非空 frontmatter 编译结果一定以 `\n` 结尾（空结果才是 `''`），
   因为闭合 fence 需要这个换行。空数组是列表字段的删除，不是写 `key: []`。
-- **编辑后验证仍归 core**：写面不独立演化解析语义，落盘前后都用既有读器验证。
+- **编辑后验证仍归 `catalog`**：写面不独立演化解析语义，落盘前后都用既有读器验证。
   坏层整体拒绝，绝不半写。
 
 ## 模块契约
@@ -86,12 +86,12 @@ YAML，不建立数据模型，也不替任何读者决定值语义。agent 文�
 
 | 消费者 | 落点 | 从表里拿什么 | 不自己做 |
 | --- | --- | --- | --- |
-| frontmatter 读器 | `src/core/catalog/frontmatter.ts` | 已知键集合与标量 / 数组形状 | 不另写可编辑字段名单；`model` 的映射解析仍留在读器 |
+| frontmatter 读器 | `src/catalog/frontmatter.ts` | 已知键集合与标量 / 数组形状 | 不另写可编辑字段名单；`model` 的映射解析仍留在读器 |
 | frontmatter 编译器 | `src/control/frontmatter-edit.ts` | 标量分支、数组分支、未知字段拒绝 | 不另写字段集合；值约束（如 `spawn` 只收 `spawn` / `fork`）留在编译器 |
 | wire 白名单 | `src/dsh/host/wire.ts` | 接受的 `field` 列表与错误消息顺序 | 不另外维护 HTTP 字段名单 |
-| discovery 投影 | `src/core/catalog/discovery.ts` | 从解析结果投影进 `AgentDefinition` 的字段集合 | 不重命名、不另造投影表 |
+| discovery 投影 | `src/catalog/discovery.ts` | 从解析结果投影进 `AgentDefinition` 的字段集合 | 不重命名、不另造投影表 |
 
-`src/core/catalog/registry-file.ts` 也消费 `lines.ts` / `scalar.ts` 的行与标量规则，但**不**消费 frontmatter 字段表：它有独立的 registry schema（`models` / `aliases`），字段集合与 frontmatter 无关。
+`src/catalog/registry-file.ts` 也消费 `lines.ts` / `scalar.ts` 的行与标量规则，但**不**消费 frontmatter 字段表：它有独立的 registry schema（`models` / `aliases`），字段集合与 frontmatter 无关。
 
 若某个消费者的 import 图不再经过字段表，那是一次契约回退，不是局部优化。
 
@@ -139,7 +139,7 @@ YAML，不建立数据模型，也不替任何读者决定值语义。agent 文�
 ## 守卫与落点
 
 - `scripts/checklist/matrix.mjs`：`yaml` 层的 `entries` 只有 `src/contract/index.ts`；
-  `core` / `control` / `dsh/host` 的 entries 才列 `src/yaml/index.ts`。新增跨层读取
+  `catalog` / `control` / `dsh/host` 的 entries 才列 `src/yaml/index.ts`。新增跨层读取
   先改矩阵，不要用深路径绕过。
 - `scripts/check.mjs` 的 anchors 检查会扫 `.scratch` / `docs` / `README.md` 里的裸
   `src/...` 路径与 `path:line`；本页只引用真实存在的落点。

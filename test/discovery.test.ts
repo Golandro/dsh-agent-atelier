@@ -7,11 +7,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   AgentDocumentError,
   createAgentRegistryService,
-} from '../src/core/catalog/discovery.ts'
-import { findProjectRoot, resolveAgentsHome, resolveDshHome } from '../src/core/catalog/roots.ts'
-import { createAgentProviders } from '../src/core/providers-registry.ts'
+} from '../src/catalog/discovery.ts'
+import { findProjectRoot, resolveAgentsHome, resolveDshHome } from '../src/catalog/roots.ts'
+import { createAgentProviders } from '../src/providers/registry.ts'
 import { FRONTMATTER_FIELDS } from '../src/yaml/index.ts'
-import type { AgentFileSystem } from '../src/core/ports.ts'
+import type { AgentFileSystem } from '../src/catalog/ports.ts'
 import { createFileSystemAgentProvider, createNodeFileSystem } from '../src/providers/fs/index.ts'
 import {
   BUNDLED_AGENT_RANK,

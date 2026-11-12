@@ -8,7 +8,7 @@ import type { Context } from '@deepseek-ai/cordis'
 
 import { createHostFileSystem, isHostFileSystem } from '../../providers/fs/index.ts'
 
-import type { AgentFileSystem } from '../../core/ports.ts'
+import type { AgentFileSystem } from '../../catalog/ports.ts'
 
 export function optionalFileSystem(ctx: Context): AgentFileSystem | undefined {
   const candidate: unknown = ctx.get('fs')

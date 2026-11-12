@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseAgentDocument, splitAgentFence } from '../src/core/catalog/frontmatter.ts'
+import { parseAgentDocument, splitAgentFence } from '../src/catalog/frontmatter.ts'
 import { FRONTMATTER_FIELD_KEYS, FRONTMATTER_FIELDS } from '../src/yaml/index.ts'
 
 /** Build a fenced document the way an author would write one. */

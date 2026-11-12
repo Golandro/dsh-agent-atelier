@@ -13,7 +13,7 @@ import {
   ALIAS_REGISTRY_SERVICE,
   apply,
 } from '../src/index.ts'
-import { createAgentProviders } from '../src/core/providers-registry.ts'
+import { createAgentProviders } from '../src/providers/registry.ts'
 import { apply as providerRowApply, applyProviders } from '../src/dsh/host/providers.ts'
 import { applyAssembly } from '../src/dsh/host/assembly.ts'
 import { SERVICE_API_VERSION } from '../src/contract/index.ts'

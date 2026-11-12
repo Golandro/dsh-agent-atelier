@@ -7,7 +7,7 @@ import {
   RATE_LIMIT_WINDOW_MS,
   routeKey,
   withAvailability,
-} from '../src/core/resolve/observations.ts'
+} from '../src/resolve/observations.ts'
 
 function model(modelName: string, overrides: Partial<ModelDefinition> = {}): ModelDefinition {
   return { modelName, provider: 'deepseek', model: `model-${modelName}`, available: true, source: 'user-dsh', ...overrides }

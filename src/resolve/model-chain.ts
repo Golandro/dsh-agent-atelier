@@ -54,7 +54,7 @@ import type {
   ModelRoute,
   ModelSelectionPolicy,
   RouteHealth,
-} from '../../contract/index.ts'
+} from '../contract/index.ts'
 import { routeKey, withAvailability } from './observations.ts'
 
 /**

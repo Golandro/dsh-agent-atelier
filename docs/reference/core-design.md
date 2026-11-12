@@ -12,7 +12,7 @@
 1. **插件单位是 Cordis 插件行，不是层。** 一个包可以暴露多个子入口（`name` 允许子路径），一个 bundle patch 可以插入多行；服务 key 是跨 bundle 的唯一契约。把每层强绑成一个插件仍然不做——纯算法留在 module 内部，只有被其他 bundle 消费的能力才 provide。
 2. **六层**：`contract`（types only）、`core`（目录 / 编排 / 写面）、`providers`（来源与写入适配器）、`dsh`（宿主 / 浏览器连接器）、`ui-core`（界面核心）、`ui-react`（React 组件库）。依赖单向指向 `contract`；宿主翼与界面翼不共享实现，只共享 `contract`（wire 是它的投影）。（2026-10-19 落地现状：`src/` 按**五层**矩阵运行——contract / core / providers / control / dsh；`control` 自票 11 起从 core 独立成层（`src/control/`），`ui-core` / `ui-react` 待 05/12。）
 
-   **2026-11-12 现状注记**：实际导入矩阵在 `contract` 之上增加了 `yaml` 共享纯域（`src/yaml/`：行工具、scalar 规则与 frontmatter 字段表），由 `core` / `control` / `dsh/host` 经 `src/yaml/index.ts` 读取。上面的六层叙述保留为设计目标；目录与依赖以 §2 的实际矩阵为准——`yaml` 不 import `node:*`、不碰宿主，也不承载 YAML schema 或值语义。
+   **2026-11-12 现状注记**：实际导入矩阵已按**领域包**运行——`contract`、`yaml`（共享文本手术纯域：行工具、scalar 规则与 frontmatter 字段表）、`catalog`（发现 / frontmatter / registry.yaml / alias registry / roots / 端口）、`resolve`（模型链解析 + 观测投影）、`providers`、`agent-assembly`、`control`、`dsh`。旧 `core` 目录与矩阵层已删除：`src/catalog/` 取代 `core/catalog` 与 `core/ports` 子入口，`src/resolve/` 取代 `core/resolve`，`core/index.ts` 不再存在；各包只经 `index.ts`（或 `src/catalog/ports.ts` 子入口）公共入口互读。裁决与目标布局见 `docs/adr/0008-domain-package-layout.md`，能力域目录见 `docs/README.md`。上面的六层叙述保留为设计目标；目录与依赖以 §2 的实际矩阵为准——`yaml` 不 import `node:*`、不碰宿主，也不承载 YAML schema 或值语义。
 3. **能力切分（Q1 的「部分 A / 部分 B」）**：
 
    | 能力 | A（module 内部） | B（Cordis 服务） | 理由 |
@@ -75,21 +75,23 @@ dsh/host                                         dsh/client
 | --- | --- | --- | --- |
 | `contract` | 无（TS 类型与字面量常量） | 任何运行时 import | 环境中立，浏览器可安全引用 |
 | `yaml` | `contract` | `node:*`、第三方 YAML 库、任何 I/O、`core` / `providers` / `dsh` / `ui-*` | 共享纯文本域（`src/yaml/`）：行工具 ＋ scalar 规则 ＋ frontmatter 字段表；只在原文上手术，不决定值语义；浏览器安全 |
-| `core` | `contract`、`yaml` | `providers`、`dsh`、`ui-*`、`node:fs`（端口注入） | 唯一 I/O = 每查询一次的 project-root 走查（注入端口，票 18 归位 registry）；条目 / 文档读全在 provider |
-| `providers` | `contract`、`core` 的 ports 子入口 | `dsh`、`ui-*` | 只做 I/O 适配；环境策略在这里 |
-| `dsh/host` | `contract`、`yaml`、`core`、`providers` | `ui-*`；其余 `@deepseek-ai/*` | 唯一可运行期 import `@deepseek-ai/cordis` 的层 |
+| `catalog` | `contract`、`yaml` | `providers`、`resolve`、`dsh`、`ui-*`、`node:fs`（端口注入） | 发现 / frontmatter / registry.yaml / alias registry / roots；唯一 I/O = 每查询一次的 project-root 走查（注入端口，票 18 归位 registry）；条目 / 文档读全在 provider |
+| `resolve` | `contract` | `catalog`、`providers`、`dsh`、`ui-*`、I/O | 纯算法：模型链解析 + 观测投影；不 import `node:*` |
+| `providers` | `contract`、`catalog` 的 ports 子入口 | `dsh`、`ui-*` | 只做 I/O 适配；环境策略在这里 |
+| `control` | `contract`、`yaml`、`catalog`、`resolve`、`providers` | `dsh`、`ui-*` | 写核心：compose / plan / commit / registry 编辑 / session / chain；`node:path` 只在此层 |
+| `dsh/host` | `contract`、`yaml`、`catalog`、`resolve`、`providers`、`agent-assembly`、`control` | `ui-*`；其余 `@deepseek-ai/*` | 唯一可运行期 import `@deepseek-ai/cordis` 的层 |
 | `ui-core` | `contract` | `core`、`providers`、`dsh`、React / DOM | 浏览器安全；fetch 作为注入端口 |
 | `ui-react` | `contract`、`ui-core` | `core`、`providers`、`dsh` | 纯 props；只有页面 / hook 碰 session |
 | `dsh/client` | `contract`、`ui-core`、`ui-react` | `core`、`providers`、`dsh/host`、`node:*` | 唯一懂 client slots（左侧栏 `sidebar.panellist` ＋ `main` 面板）的层 |
 
 规则：
 
-1. **跨层只准走对方声明的 public entry**（`index.ts`，或显式列出的子入口，如 `core/ports.ts`）；层内可以深 import。`scripts/check.mjs` 的 import 矩阵强制执行（含自测）。
+1. **跨层只准走对方声明的 public entry**（`index.ts`，或显式列出的子入口，如 `src/catalog/ports.ts`）；层内可以深 import。`scripts/check.mjs` 的 import 矩阵强制执行（含自测）。
 2. **`import type` 也算依赖**；唯一例外是 `dsh/host` 对 `@deepseek-ai/*` 的类型引用。
 3. **禁止 `common/`、`utils/`、`shared/` 垃圾抽屉**：共享代码必须属于某个 module。
 4. **禁止跨翼 import**；两翼只通过 `contract` 的 DTO 对齐。
 5. `src/index.ts` 保持为兼容入口（`package.json` 的 `main` 暂不变）：它组合已有插件行或 re-export `dsh/host` 的 all-in-one `apply`；不承载领域逻辑。
-6. **`yaml` 是 contract 之上的共享纯域**：只有 `core`、`control`、`dsh/host` 的矩阵允许经 `src/yaml/index.ts` 读取它；`providers`、`agent-assembly` 与界面翼不直接引用（需要同一套 YAML 规则时经这三个消费层之一）。它自身只 import `contract`，不 import `node:*`、宿主或任何 YAML 库；跨层读取新增列必须先改 `scripts/checklist/matrix.mjs`，不得用深路径绕过。
+6. **`yaml` 是 contract 之上的共享纯域**：只有 `catalog`、`control`、`dsh/host` 的矩阵允许经 `src/yaml/index.ts` 读取它；`providers`、`agent-assembly` 与界面翼不直接引用（需要同一套 YAML 规则时经这三个消费层之一）。它自身只 import `contract`，不 import `node:*`、宿主或任何 YAML 库；跨层读取新增列必须先改 `scripts/checklist/matrix.mjs`，不得用深路径绕过。
 
 ### 2.1 部署：插件行与服务
 
@@ -243,7 +245,7 @@ interface PreparedAgent {
 
 ### 3.5 `providers`：注册表与默认 provider
 
-**注册表服务**（core 提供；镜像 `ctx.skills.registerProvider`；**agent 侧已随票 18 落地**为 plain object `ctx.agentProviders`，`src/core/providers-registry.ts`）：
+**注册表服务**（`providers` 提供；镜像 `ctx.skills.registerProvider`；**agent 侧已随票 18 落地**为 plain object `ctx.agentProviders`，`src/providers/registry.ts`）：
 
 ```ts
 interface AgentProviders {                 // ctx.agentProviders（plain object，可被行级 inject）
@@ -436,15 +438,12 @@ src/
   index.ts                 # 兼容入口：all-in-one apply / re-export
   contract/                # types only（数据 + 服务契约）
   yaml/                    # 共享纯域：行工具 + scalar 规则 + frontmatter 字段表
-  core/
-    catalog/               # 01/02
-    resolve/               # 03
-    assemble/              # 04
-    control/               # 11
-    orchestrator.ts
-    providers-registry.ts
-    ports.ts               # 内部端口（fs 等）
+  catalog/                 # 01/02：发现 / frontmatter / registry.yaml / alias / roots；ports.ts 端口子入口
+  resolve/                 # 03：模型链解析 + 观测投影
+  control/                 # 11：写作核心（compose / plan / commit / 编辑 / session）
+  agent-assembly/          # 04：装配规划（目标名 assembly）
   providers/
+    registry.ts            # agentProviders 注册表（票 18）
     default/               # 默认 provider 行
     fs/                    # Node / host fs、workspace 解析
     writer/                # Node 原子写

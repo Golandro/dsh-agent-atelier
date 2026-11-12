@@ -12,8 +12,9 @@
  */
 import { join } from 'node:path'
 
-import { createAgentRegistryService, createAgentProviders, createAliasRegistryService } from '../core/index.ts'
-import type { AgentDirEntry, AgentFileSystem, ControlFileSystem } from '../core/ports.ts'
+import { createAgentRegistryService, createAliasRegistryService } from '../catalog/index.ts'
+import { createAgentProviders } from '../providers/index.ts'
+import type { AgentDirEntry, AgentFileSystem, ControlFileSystem } from '../catalog/ports.ts'
 import { createFileSystemAgentProvider } from '../providers/fs/index.ts'
 import { createControlCore, type ControlCore } from './core.ts'
 import type { AgentDiagnostic, AgentModelTarget, AgentAssembly, ModelSelectionPolicy } from '../contract/index.ts'

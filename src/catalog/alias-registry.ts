@@ -20,7 +20,7 @@
  */
 import { join, resolve } from 'node:path'
 
-import type { AgentFileSystem, FileSystemDependencies } from '../ports.ts'
+import type { AgentFileSystem, FileSystemDependencies } from './ports.ts'
 import { createLazyLoad } from './lazy-load.ts'
 import { DEFAULT_ALIAS_NAME, readRegistryLayer } from './registry-file.ts'
 import { findProjectRoot, resolveDshHome } from './roots.ts'
@@ -37,7 +37,7 @@ import type {
   AliasRegistrySnapshot,
   ModelDeclaration,
   ModelDefinition,
-} from '../../contract/index.ts'
+} from '../contract/index.ts'
 
 /** File name of a registry layer inside an agents directory (spec §5.2). */
 export const REGISTRY_FILE_NAME = 'registry.yaml'

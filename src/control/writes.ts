@@ -12,9 +12,9 @@
  */
 import { dirname } from 'node:path'
 
-import { parseAgentDocument } from '../core/index.ts'
+import { parseAgentDocument } from '../catalog/index.ts'
 
-import type { ControlFileSystem } from '../core/ports.ts'
+import type { ControlFileSystem } from '../catalog/ports.ts'
 import { errorMessage } from './client-errors.ts'
 import { assembleAgentDocument } from './compose.ts'
 import { applyFrontmatterField } from './frontmatter-edit.ts'

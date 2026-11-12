@@ -14,11 +14,11 @@
  * is written, so a layer is edited whole or not at all — the same
  * whole-or-dropped discipline the read side has (triage Q4).
  */
-import { aliasRegistryLayers, DEFAULT_ALIAS_NAME, readRegistryLayer } from '../core/index.ts'
+import { aliasRegistryLayers, DEFAULT_ALIAS_NAME, readRegistryLayer } from '../catalog/index.ts'
 import { blockEnd, indentOf, KEY_NAME_RE, splitKeyLine } from '../yaml/index.ts'
 
 import type { AliasRegistry } from '../contract/index.ts'
-import type { ControlFileSystem } from '../core/ports.ts'
+import type { ControlFileSystem } from '../catalog/ports.ts'
 import { errorMessage } from './client-errors.ts'
 import { serializeFrontmatterScalar } from './frontmatter-edit.ts'
 import { atomicWriteFile } from './writes.ts'

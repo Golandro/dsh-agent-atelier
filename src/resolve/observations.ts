@@ -16,7 +16,7 @@
  * v2), and with no observations every entry projects to `active` — which the
  * engine must treat exactly like "no observations at all".
  */
-import type { ChainObservations, ModelDefinition, ModelRoute, RouteHealth } from '../../contract/index.ts'
+import type { ChainObservations, ModelDefinition, ModelRoute, RouteHealth } from '../contract/index.ts'
 
 /** A model entry plus its runtime health; every other field stays the snapshot's. */
 export interface ProjectedModel extends ModelDefinition {

@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { classify, createFailureRecorder, type FailureSignal } from '../src/control/failures.ts'
-import { RATE_LIMIT_WINDOW_MS } from '../src/core/resolve/observations.ts'
+import { RATE_LIMIT_WINDOW_MS } from '../src/resolve/observations.ts'
 
 const ROUTE = { provider: 'deepseek', model: 'deepseek-chat' } as const
 const OTHER = { provider: 'vendor', model: 'other' } as const
