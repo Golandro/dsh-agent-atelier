@@ -15,6 +15,7 @@
  * whole-or-dropped discipline the read side has (triage Q4).
  */
 import { aliasRegistryLayers, DEFAULT_ALIAS_NAME, readRegistryLayer } from '../core/index.ts'
+import { blockEnd, indentOf, KEY_NAME_RE, splitKeyLine } from '../yaml/index.ts'
 
 import type { AliasRegistry } from '../contract/index.ts'
 import type { ControlFileSystem } from '../core/ports.ts'
@@ -32,9 +33,6 @@ export interface RegistryEditContext {
   readonly dshHome: string
   readonly warn?: ((message: string) => void) | undefined
 }
-
-/** Registry entry names share the key charset; the built-in pointer stays reserved. */
-const NAME_RE = /^[A-Za-z0-9_.-]+$/
 
 /**
  * Apply one registry edit and return its single-row report. The alias registry
@@ -130,7 +128,7 @@ function refusalResult(code: 'invalid-edit' | 'not-found' | 'read-only', message
 /** Reject a reserved or malformed entry name before any file is touched. */
 function checkEntryName(name: string): string | undefined {
   if (name === DEFAULT_ALIAS_NAME) return `"${name}" is reserved for the built-in alias`
-  if (!NAME_RE.test(name)) return `"${name}" is not a valid registry entry name (expected ${NAME_RE.source})`
+  if (!KEY_NAME_RE.test(name)) return `"${name}" is not a valid registry entry name (expected ${KEY_NAME_RE.source})`
   return undefined
 }
 
@@ -160,14 +158,14 @@ function spliceEdit(lines: string[], suffix: string, edit: RegistryEdit, before:
     case 'setAvailable': {
       const entry = findModelEntry(lines, edit.modelName, file)
       if (entry.ok === false) return entry
-      const end = entryBlockEnd(lines, entry.entryIndex, entry.section.entryIndent)
+      const end = blockEnd(lines, entry.entryIndex, entry.section.entryIndent)
       setOrInsertField(lines, entry.entryIndex, end, entry.section.entryIndent, 'available', `available: ${edit.available ? 'true' : 'false'}`)
       break
     }
     case 'setSysPrompt': {
       const entry = findModelEntry(lines, edit.modelName, file)
       if (entry.ok === false) return entry
-      const end = entryBlockEnd(lines, entry.entryIndex, entry.section.entryIndent)
+      const end = blockEnd(lines, entry.entryIndex, entry.section.entryIndent)
       // An empty prompt is the readers' "absent": remove the line instead of writing `''`.
       const value = edit.sysPrompt === '' ? undefined : edit.sysPrompt
       if (value === undefined) {
@@ -188,7 +186,7 @@ function spliceEdit(lines: string[], suffix: string, edit: RegistryEdit, before:
       // stale target lines would survive as a dangling block.
       lines.splice(
         entryIndex,
-        entryBlockEnd(lines, entryIndex, section.entryIndent) - entryIndex,
+        blockEnd(lines, entryIndex, section.entryIndent) - entryIndex,
         `${' '.repeat(section.entryIndent)}${edit.alias}: [${serializeFrontmatterScalar(edit.target)}]`,
       )
       break
@@ -198,7 +196,7 @@ function spliceEdit(lines: string[], suffix: string, edit: RegistryEdit, before:
       if (section === undefined) return { ok: false, message: `aliases section is missing in ${file}` }
       const entryIndex = findEntryLine(lines, section, edit.alias)
       if (entryIndex < 0) return { ok: false, message: `alias "${edit.alias}" is not in ${file}` }
-      lines.splice(entryIndex, entryBlockEnd(lines, entryIndex, section.entryIndent) - entryIndex)
+      lines.splice(entryIndex, blockEnd(lines, entryIndex, section.entryIndent) - entryIndex)
       break
     }
     case 'deleteModel': {
@@ -206,7 +204,7 @@ function spliceEdit(lines: string[], suffix: string, edit: RegistryEdit, before:
       if (section === undefined) return { ok: false, message: `models section is missing in ${file}` }
       const entryIndex = findEntryLine(lines, section, edit.modelName)
       if (entryIndex < 0) return { ok: false, message: `model "${edit.modelName}" is not in ${file}` }
-      lines.splice(entryIndex, entryBlockEnd(lines, entryIndex, section.entryIndent) - entryIndex)
+      lines.splice(entryIndex, blockEnd(lines, entryIndex, section.entryIndent) - entryIndex)
       break
     }
     case 'addAlias': {
@@ -309,25 +307,24 @@ function findEntryLine(lines: readonly string[], section: Section, name: string)
   for (let index = section.index + 1; index < lines.length; index += 1) {
     const line = lines[index] ?? ''
     if (line.trim() === '') continue
-    const indent = indentOf(line)
-    if (indent === 0) break
-    if (indent === section.entryIndent && line.slice(section.entryIndent).startsWith(`${name}:`)) return index
+    const split = splitKeyLine(line)
+    if (split === undefined) {
+      // A top-level non-key line (comment or layout) ends the section, exactly
+      // as the old indent scan did.
+      if (indentOf(line) === 0) break
+      continue
+    }
+    if (split.indent === 0) break
+    if (split.indent === section.entryIndent && split.key === name) return index
   }
   return -1
-}
-
-/** End (exclusive) of the indented block that follows an entry line. */
-function entryBlockEnd(lines: readonly string[], entryIndex: number, entryIndent: number): number {
-  let end = entryIndex + 1
-  while (end < lines.length && indentOf(lines[end] ?? '') > entryIndent) end += 1
-  return end
 }
 
 /** Line index of one `field:` line inside a half-open range, or `-1`. */
 function findFieldLine(lines: readonly string[], start: number, end: number, field: string): number {
   for (let index = start; index < end; index += 1) {
-    const line = lines[index] ?? ''
-    if (line.trimStart().startsWith(`${field}:`)) return index
+    const split = splitKeyLine(lines[index] ?? '')
+    if (split !== undefined && split.key === field) return index
   }
   return -1
 }
@@ -345,7 +342,11 @@ function blockFieldIndent(lines: readonly string[], start: number, end: number, 
 function sectionInsertIndex(lines: readonly string[], section: Section): number {
   for (let index = section.index + 1; index < lines.length; index += 1) {
     const line = lines[index] ?? ''
-    if (line.trim() !== '' && indentOf(line) === 0) return index
+    if (line.trim() === '') continue
+    const split = splitKeyLine(line)
+    // A top-level key starts the next section; a top-level comment or other
+    // layout line marks the same boundary the old indent scan used.
+    if (split === undefined ? indentOf(line) === 0 : split.indent === 0) return index
   }
   return lines.length
 }
@@ -361,9 +362,4 @@ function toEditableLines(text: string): { readonly lines: string[]; readonly suf
 function fromEditableLines(lines: readonly string[], suffix: string): string {
   if (lines.length === 0) return ''
   return lines.join('\n') + suffix
-}
-
-/** Leading whitespace width of one line. */
-function indentOf(line: string): number {
-  return line.length - line.trimStart().length
 }

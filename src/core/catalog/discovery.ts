@@ -16,7 +16,9 @@
 import { resolve } from 'node:path'
 
 import type { AgentFileSystem, FileSystemDependencies } from '../ports.ts'
+import { FRONTMATTER_FIELDS } from '../../yaml/index.ts'
 import { parseAgentDocument } from './frontmatter.ts'
+import type { AgentFrontmatter } from './frontmatter.ts'
 import { createLazyLoad } from './lazy-load.ts'
 import { createAgentRegistry, type AgentDefinitionContainer } from './registry.ts'
 import { findProjectRoot } from './roots.ts'
@@ -28,6 +30,7 @@ import type {
   AgentProviders,
   AgentRegistry,
   AgentSourceProvider,
+  FrontmatterField,
   ProviderLookupOptions,
   SourceDocument,
   SourceEntry,
@@ -43,6 +46,9 @@ const ADVISORY_CODES: ReadonlySet<AgentDiagnosticCode> = new Set<AgentDiagnostic
 
 /** A flat document where a directory is expected. */
 const MISPLACED_DOC_PATTERN = /^([a-z0-9]+(?:-[a-z0-9]+)*)(?:\.agent)?\.md$/
+
+/** Editable fields projected into the definition; `name`/`description` are defaulted instead. */
+type CarriedFrontmatterField = Exclude<FrontmatterField, 'name' | 'description'>
 
 /** Host-side access injected into the service. */
 export interface AgentRegistryDependencies extends FileSystemDependencies {
@@ -218,14 +224,8 @@ export function createAgentRegistryService(dependencies: AgentRegistryDependenci
       name: frontmatter.name ?? agentName,
       description: frontmatter.description ?? '',
       body: parsed.body,
-      ...(frontmatter.modelOrder !== undefined ? { modelOrder: frontmatter.modelOrder } : {}),
+      ...projectFrontmatter(frontmatter),
       ...(frontmatter.model !== undefined ? { model: frontmatter.model } : {}),
-      ...(frontmatter.requiredTools !== undefined ? { requiredTools: frontmatter.requiredTools } : {}),
-      ...(frontmatter.skills !== undefined ? { skills: frontmatter.skills } : {}),
-      ...(frontmatter.spawn !== undefined ? { spawn: frontmatter.spawn } : {}),
-      ...(frontmatter.reasoningEffort !== undefined ? { reasoningEffort: frontmatter.reasoningEffort } : {}),
-      ...(frontmatter.color !== undefined ? { color: frontmatter.color } : {}),
-      ...(frontmatter.emoji !== undefined ? { emoji: frontmatter.emoji } : {}),
       source: provider.source,
       origin: provider.origin,
       providerId: provider.id,
@@ -233,6 +233,21 @@ export function createAgentRegistryService(dependencies: AgentRegistryDependenci
       path: document.path,
     }
     return { definition, diagnostics }
+  }
+
+  /**
+   * Project the editable frontmatter fields the definition carries as-is.
+   * `name`/`description` are defaulted above and `model` is not editable, so the
+   * field table supplies the remaining rows — adding one there is enough.
+   */
+  function projectFrontmatter(frontmatter: AgentFrontmatter): Partial<Pick<AgentDefinition, CarriedFrontmatterField>> {
+    const projected: Partial<Pick<AgentDefinition, CarriedFrontmatterField>> = {}
+    for (const { key } of FRONTMATTER_FIELDS) {
+      if (key === 'name' || key === 'description') continue
+      const value = frontmatter[key]
+      if (value !== undefined) Object.assign(projected, { [key]: value })
+    }
+    return projected
   }
 
   /**

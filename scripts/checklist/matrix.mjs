@@ -45,12 +45,14 @@ export const CHUNK_ENTRIES = [
  */
 const IMPORT_MATRIX = [
   { name: 'contract', dir: 'src/contract/', entries: [], node: [], cordis: false },
-  { name: 'core', dir: 'src/core/', entries: ['src/contract/index.ts'], node: ['node:path', 'node:os'], cordis: false },
+  // Shared raw-YAML text surgery: browser-safe, no host, used by both wings.
+  { name: 'yaml', dir: 'src/yaml/', entries: ['src/contract/index.ts'], node: [], cordis: false },
+  { name: 'core', dir: 'src/core/', entries: ['src/contract/index.ts', 'src/yaml/index.ts'], node: ['node:path', 'node:os'], cordis: false },
   { name: 'providers', dir: 'src/providers/', entries: ['src/contract/index.ts', 'src/core/ports.ts'], node: true, cordis: false },
   { name: 'agent-assembly', dir: 'src/agent-assembly/', entries: ['src/contract/index.ts'], node: [], cordis: false },
-  { name: 'control', dir: 'src/control/', entries: ['src/contract/index.ts', 'src/core/index.ts', 'src/core/ports.ts', 'src/providers/fs/index.ts'], node: ['node:path'], cordis: false },
+  { name: 'control', dir: 'src/control/', entries: ['src/contract/index.ts', 'src/yaml/index.ts', 'src/core/index.ts', 'src/core/ports.ts', 'src/providers/fs/index.ts'], node: ['node:path'], cordis: false },
   { name: 'dsh/client', dir: 'src/dsh/client/', entries: ['src/contract/index.ts', 'src/core/ports.ts', 'src/control/index.ts', 'src/control/client-errors.ts', 'src/control/http-client.ts'], node: [], cordis: false, external: ['react'] },
-  { name: 'dsh/host', dir: 'src/dsh/host/', entries: ['src/contract/index.ts', 'src/core/index.ts', 'src/core/ports.ts', 'src/providers/fs/index.ts', 'src/agent-assembly/index.ts', 'src/control/index.ts'], node: true, cordis: true },
+  { name: 'dsh/host', dir: 'src/dsh/host/', entries: ['src/contract/index.ts', 'src/yaml/index.ts', 'src/core/index.ts', 'src/core/ports.ts', 'src/providers/fs/index.ts', 'src/agent-assembly/index.ts', 'src/control/index.ts'], node: true, cordis: true },
   { name: 'chunk-editor', dir: 'client-editor/', entries: CHUNK_ENTRIES, node: [], cordis: false, thirdParty: true },
   { name: 'chunk-list', dir: 'client-list/', entries: CHUNK_ENTRIES, node: [], cordis: false, thirdParty: true },
   { name: 'chunk-registry', dir: 'client-registry/', entries: CHUNK_ENTRIES, node: [], cordis: false, thirdParty: true },
@@ -136,7 +138,7 @@ export function analyzeImportMatrix(root = ROOT) {
   for (const rel of sourceFiles) {
     const layer = layerOf(rel)
     if (layer === undefined) {
-      problems.push(`矩阵：${rel} 不在任何层（contract/core/providers/agent-assembly/control/dsh/client/dsh/host/chunk-editor/chunk-list/chunk-registry，或入口 src/index.ts）`)
+      problems.push(`矩阵：${rel} 不在任何层（contract/yaml/core/providers/agent-assembly/control/dsh/client/dsh/host/chunk-editor/chunk-list/chunk-registry，或入口 src/index.ts）`)
       continue
     }
     files += 1

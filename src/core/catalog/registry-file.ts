@@ -13,17 +13,25 @@
  * This is a *second* minimal reader next to `./frontmatter.ts`, not a reuse of
  * it: registry.yaml needs booleans, a two-level block mapping and multi-field
  * flow mappings, none of which the agent-document subset can express. Both
- * readers sit on the scalar rules in `./yaml-scalar.ts`, and neither imports a
- * YAML library — `js-yaml` and `zod` stay declared in `package.json` as
- * reserved for the settings-UI work (2026-10-17 dependency ruling) — so the
- * bundle keeps exactly one YAML implementation.
+ * readers sit on the line and scalar rules in `../../yaml/index.ts`, and
+ * neither imports a YAML library — `js-yaml` and `zod` stay declared in
+ * `package.json` as reserved for the settings-UI work (2026-10-17 dependency
+ * ruling) — so the bundle keeps exactly one YAML implementation.
  *
  * A layer is read whole or rejected whole (triage Q4): every problem is
  * collected, syntax problems come back as `unparseable-registry` and schema
  * problems as one `invalid-registry` finding each, and the caller drops the
  * layer with those findings instead of merging half of it.
  */
-import { flowInner, splitTopLevel, stripComment, unquote } from './yaml-scalar.ts'
+import {
+  flowInner,
+  indentOf,
+  isIgnorable,
+  splitKeyLine,
+  splitTopLevel,
+  stripComment,
+  unquote,
+} from '../../yaml/index.ts'
 
 import type { AliasDeclaration, AliasDiagnosticCode, ModelDeclaration } from '../../contract/index.ts'
 
@@ -96,7 +104,6 @@ type ItemsResult =
 
 const LAYER_KEYS: ReadonlySet<string> = new Set(['models', 'aliases'])
 const MODEL_FIELDS: ReadonlySet<string> = new Set(['provider', 'model', 'sysPrompt', 'available', 'modelGroup', 'effort'])
-const KEY_RE = /^([A-Za-z0-9_.-]+):(?:\s*(.*))?$/
 const BLOCK_ITEM_RE = /^-\s*(.*)$/
 
 /**
@@ -392,8 +399,8 @@ function collectEntries(lines: readonly Line[], problems: string[]): readonly Bl
       index += 1
       continue
     }
-    const match = KEY_RE.exec(line.text.slice(indent))
-    if (match === null) {
+    const split = splitKeyLine(line.text)
+    if (split === undefined) {
       problems.push(`line ${line.number} is neither a key nor an indented block: ${line.text.trim()}`)
       index += 1
       continue
@@ -412,7 +419,7 @@ function collectEntries(lines: readonly Line[], problems: string[]): readonly Bl
       block.push(next)
       index += 1
     }
-    entries.push({ key: match[1] ?? '', inline: stripComment(match[2] ?? '').trim(), block, line: line.number })
+    entries.push({ key: split.key, inline: stripComment(split.inline).trim(), block, line: line.number })
   }
   return entries
 }
@@ -420,15 +427,4 @@ function collectEntries(lines: readonly Line[], problems: string[]): readonly Bl
 /** Split the text into numbered lines, dropping the `\r` of CRLF files. */
 function toLines(text: string): readonly Line[] {
   return text.split('\n').map((raw, index) => ({ text: raw.replace(/\r$/, ''), number: index + 1 }))
-}
-
-/** Leading whitespace width of one line. */
-function indentOf(text: string): number {
-  return text.length - text.trimStart().length
-}
-
-/** Blank lines and full-line comments carry no value. */
-function isIgnorable(text: string): boolean {
-  const trimmed = text.trim()
-  return trimmed === '' || trimmed.startsWith('#')
 }

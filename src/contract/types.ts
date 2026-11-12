@@ -559,3 +559,20 @@ export interface ChainResolutionFailure {
 /** What chain resolution answers; a failure is data, never a throw. */
 export type ChainResolution = ChainResolutionSuccess | ChainResolutionFailure
 
+/**
+ * Frontmatter fields the field form edits; each compiles into a raw-text edit
+ * (Q5 ruling). The type lives in the contract because the reader, writer, wire
+ * and discovery all name it; the runtime scalar-vs-array table lives in
+ * `src/yaml/frontmatter-fields.ts` and is the single source for their lists.
+ */
+export type FrontmatterField =
+  | 'name'
+  | 'description'
+  | 'color'
+  | 'emoji'
+  | 'spawn'
+  | 'reasoningEffort'
+  | 'modelOrder'
+  | 'requiredTools'
+  | 'skills'
+

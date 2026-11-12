@@ -10,20 +10,21 @@
  * text parses back to the value that was written. Invariant: the result is
  * either `''` or ends with a newline — the newline the closing fence needs.
  */
-import type { FrontmatterField, FrontmatterFieldValue } from './types.ts'
+import {
+  ARRAY_FRONTMATTER_FIELDS,
+  blockEnd,
+  frontmatterFieldKind,
+  isFrontmatterField,
+  SCALAR_FRONTMATTER_FIELDS,
+  splitKeyLine,
+} from '../yaml/index.ts'
 
-/** Fields that hold one string. */
-const SCALAR_FIELDS: ReadonlySet<FrontmatterField> = new Set(['name', 'description', 'color', 'emoji', 'spawn', 'reasoningEffort'])
-/** Fields that hold a list of strings. */
-const ARRAY_FIELDS: ReadonlySet<FrontmatterField> = new Set(['modelOrder', 'requiredTools', 'skills'])
+import type { FrontmatterField, FrontmatterFieldValue } from './types.ts'
 
 /** Result of compiling one field edit: the new text, or the reason it was refused. */
 export type FrontmatterFieldResult =
   | { readonly ok: true; readonly text: string }
   | { readonly ok: false; readonly reason: string }
-
-/** Top-level key line, anchored at column 0 (indented lines are block content). */
-const KEY_LINE_RE = /^([A-Za-z0-9_.-]+):/
 
 /**
  * Apply one field edit to the frontmatter's raw text.
@@ -35,7 +36,7 @@ const KEY_LINE_RE = /^([A-Za-z0-9_.-]+):/
 export function applyFrontmatterField(frontmatterText: string, field: FrontmatterField, value: FrontmatterFieldValue): FrontmatterFieldResult {
   const checked = checkValue(field, value)
   if (checked !== undefined) return { ok: false, reason: checked }
-  const scalar = SCALAR_FIELDS.has(field)
+  const scalar = frontmatterFieldKind(field) === 'scalar'
   const empty = value === undefined || (Array.isArray(value) && value.length === 0)
   const line = empty ? undefined : `${field}: ${scalar ? serializeFrontmatterScalar(value as string) : serializeFrontmatterArray(value as readonly string[])}`
   return { ok: true, text: spliceKeyLine(frontmatterText, field, line) }
@@ -43,13 +44,14 @@ export function applyFrontmatterField(frontmatterText: string, field: Frontmatte
 
 /** Reject a value whose shape does not fit the field, with a user-readable reason. */
 function checkValue(field: FrontmatterField, value: FrontmatterFieldValue): string | undefined {
-  if (!SCALAR_FIELDS.has(field) && !ARRAY_FIELDS.has(field)) return `unknown frontmatter field: ${field}`
+  if (!isFrontmatterField(field)) return `unknown frontmatter field: ${field}`
   if (value === undefined) return undefined
-  if (SCALAR_FIELDS.has(field)) {
+  if (SCALAR_FRONTMATTER_FIELDS.has(field)) {
     if (typeof value !== 'string') return `field "${field}" must be a string`
     if (field === 'spawn' && value !== 'spawn' && value !== 'fork') return `field "spawn" must be spawn or fork, got: ${value}`
     return undefined
   }
+  if (!ARRAY_FRONTMATTER_FIELDS.has(field)) return `unknown frontmatter field: ${field}`
   if (typeof value !== 'object' || !Array.isArray(value)) return `field "${field}" must be an array of strings`
   if (!value.every((item) => typeof item === 'string')) return `field "${field}" must be an array of strings`
   return undefined
@@ -63,7 +65,10 @@ function spliceKeyLine(frontmatterText: string, field: string, line: string | un
   const suffix = frontmatterText.endsWith('\n') ? '\n' : ''
   const body = suffix === '\n' ? frontmatterText.slice(0, -1) : frontmatterText
   const lines = body === '' ? [] : body.split('\n')
-  const keyIndex = lines.findIndex((candidate) => KEY_LINE_RE.exec(candidate)?.[1] === field)
+  const keyIndex = lines.findIndex((candidate) => {
+    const split = splitKeyLine(candidate)
+    return split !== undefined && split.indent === 0 && split.key === field
+  })
   if (line === undefined) {
     if (keyIndex < 0) {
       // True no-op for well-formed input (empty or \n-terminated); heal a
@@ -81,16 +86,6 @@ function spliceKeyLine(frontmatterText: string, field: string, line: string | un
   const text = lines.join('\n') + suffix
   // Keep the fenced invariant: non-empty frontmatter text ends with its newline.
   return text.endsWith('\n') ? text : `${text}\n`
-}
-
-/**
- * End of the indented block that follows a key line (exclusive). Blank lines
- * end the block — they carry no value and belong to the surrounding layout.
- */
-function blockEnd(lines: readonly string[], keyIndex: number): number {
-  let end = keyIndex + 1
-  while (end < lines.length && /^[\t ]/.test(lines[end] ?? '')) end += 1
-  return end
 }
 
 /**

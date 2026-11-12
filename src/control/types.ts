@@ -10,6 +10,7 @@
  */
 import type {
   AgentDefinition,
+  FrontmatterField,
   AgentDiagnostic,
   AgentOrigin,
   AgentSource,
@@ -20,6 +21,9 @@ import type {
   AssemblyPlan,
   ModelDefinition,
 } from '../contract/index.ts'
+
+/** Re-export the contract-owned field union so the control public entry keeps its shape. */
+export type { FrontmatterField } from '../contract/index.ts'
 
 /** The two editable parts of a v1 document (single file, no clips — Q1 ruling). */
 export type BlockId = 'frontmatter' | 'prose'
@@ -63,18 +67,6 @@ export interface ComposedAgentDocument {
   readonly framing: DocumentFraming
   readonly blocks: readonly ComposedBlock[]
 }
-
-/** Frontmatter fields the field form edits; each compiles into a raw-text edit (Q5 ruling). */
-export type FrontmatterField =
-  | 'name'
-  | 'description'
-  | 'color'
-  | 'emoji'
-  | 'spawn'
-  | 'reasoningEffort'
-  | 'modelOrder'
-  | 'requiredTools'
-  | 'skills'
 
 /** Value of one field edit: a scalar, a list, or a removal. */
 export type FrontmatterFieldValue = string | readonly string[] | undefined

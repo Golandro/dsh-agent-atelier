@@ -1,6 +1,6 @@
-# 0005 — 序列化唯一实现＝yaml-scalar 文本手术，raw 往返为唯一真相源
+# 0005 — 序列化唯一实现＝yaml 文本手术，raw 往返为唯一真相源
 
-写面（票 11）不做第二套 YAML 模型：读（`splitAgentFence` / `parseAgentDocument`）与写（`applyFrontmatterField` 字段编译器、registry 层手术）共用 `src/core/catalog/yaml-scalar.ts` 的行拼接（line-splice）文本手术；D14 逐字节往返（注释、未知键、键序、CRLF 保留）是唯一真相源。字段表单只是「生成原文编辑」的编译器（Q5=A+B 裁决），不引入平行数据路径。`js-yaml` / `zod` 依 2026-10-17 裁决保留在 `dependencies` 但标注 reserved，`src/` 不 import（check.mjs 矩阵强制；新增外部运行时 import 须先修订矩阵规则）。v1 落点：frontmatter 编译器不变式（结果 `''` 或以 `\n` 结尾）；plain 文档 ＋ 字段编辑 ⇒ 合成 `---\n` ＋ 文本 ＋ `---\n`；registry 手术前后各验一次 `readRegistryLayer`，坏层整体拒绝、绝不半写。
+写面（票 11）不做第二套 YAML 模型：读（`splitAgentFence` / `parseAgentDocument`）与写（`applyFrontmatterField` 字段编译器、registry 层手术）共用 `src/yaml/scalar.ts` 的标量规则与 `src/yaml/lines.ts` 的行拼接（line-splice）文本手术；D14 逐字节往返（注释、未知键、键序、CRLF 保留）是唯一真相源。字段表单只是「生成原文编辑」的编译器（Q5=A+B 裁决），不引入平行数据路径。可编辑字段的运行时表在 `src/yaml/frontmatter-fields.ts`，四个消费者（读器、字段编译器、wire 白名单、discovery 投影）从它派生，不另写列表。`js-yaml` / `zod` 依 2026-10-17 裁决保留在 `dependencies` 但标注 reserved，`src/` 不 import（check.mjs 矩阵强制；新增外部运行时 import 须先修订矩阵规则）。v1 落点：frontmatter 编译器不变式（结果 `''` 或以 `\n` 结尾）；plain 文档 ＋ 字段编辑 ⇒ 合成 `---\n` ＋ 文本 ＋ `---\n`；registry 手术前后各验一次 `readRegistryLayer`，坏层整体拒绝、绝不半写。
 
 ## Considered Options
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseAgentDocument } from '../src/core/catalog/frontmatter.ts'
+import { parseAgentDocument, splitAgentFence } from '../src/core/catalog/frontmatter.ts'
+import { FRONTMATTER_FIELD_KEYS, FRONTMATTER_FIELDS } from '../src/yaml/index.ts'
 
 /** Build a fenced document the way an author would write one. */
 function document(frontmatter: string, body = ''): string {
@@ -167,5 +168,79 @@ describe('minimal frontmatter reader', () => {
 
     expect(parsed.frontmatter.problems).toEqual([])
     expect(parsed.body).toBe('')
+  })
+
+  it('reads every field in the shared table without a second key list', () => {
+    const frontmatter = FRONTMATTER_FIELDS.map((field) =>
+      field.kind === 'scalar'
+        ? `${field.key}: ${field.key === 'spawn' ? 'spawn' : `${field.key}-value`}`
+        : `${field.key}: [${field.key}-item]`,
+    ).join('\n')
+    const parsed = parseAgentDocument(document(frontmatter))
+
+    expect(parsed.frontmatter.problems).toEqual([])
+    expect(parsed.frontmatter.extra).toEqual({})
+    const fields: Readonly<Record<string, unknown>> = { ...parsed.frontmatter }
+    for (const field of FRONTMATTER_FIELDS) {
+      expect(fields[field.key], field.key).toEqual(
+        field.kind === 'scalar' ? (field.key === 'spawn' ? 'spawn' : `${field.key}-value`) : [`${field.key}-item`],
+      )
+    }
+    // The table order is the single source; the legacy model key stays outside it.
+    expect(FRONTMATTER_FIELD_KEYS).toEqual(FRONTMATTER_FIELDS.map((field) => field.key))
+    expect(FRONTMATTER_FIELD_KEYS).not.toContain('model')
+  })
+
+  it('reads a tab-indented block as one column per tab', () => {
+    const parsed = parseAgentDocument(document('notes:\n\tkeep: me\n\t\tdeeper: me'))
+
+    expect(parsed.frontmatter.problems).toEqual([])
+    expect(parsed.frontmatter.extra['notes']).toBe('keep: me\n\tdeeper: me')
+  })
+
+  it('still rejects a top-level key that is indented, with the original message', () => {
+    const parsed = parseAgentDocument(document('\tname: 审查者'))
+
+    expect(parsed.frontmatter.problems).toEqual(['line 1 is neither a key nor an indented block: name: 审查者'])
+  })
+
+  it('keeps blank lines out of a plain block but inside a literal block', () => {
+    const plain = parseAgentDocument(document([
+      'notes:',
+      '  first: 1',
+      '',
+      '  second: 2',
+      'skills: [audit]',
+    ].join('\n')))
+
+    expect(plain.frontmatter.problems).toEqual([])
+    expect(plain.frontmatter.extra['notes']).toBe('first: 1\nsecond: 2')
+    expect(plain.frontmatter.skills).toEqual(['audit'])
+
+    const literal = parseAgentDocument(document([
+      'description: |',
+      '  first',
+      '',
+      '  second',
+    ].join('\n')))
+
+    expect(literal.frontmatter.problems).toEqual([])
+    expect(literal.frontmatter.description).toBe('first\n\nsecond')
+  })
+
+  it('reads CRLF frontmatter without leaking carriage returns into values, while the fence keeps its bytes', () => {
+    const text = '---\r\nname: 审查者\r\nmodelOrder: [fast]\r\n---\r\n正文\r\n'
+    const parsed = parseAgentDocument(text)
+
+    expect(parsed.hasFrontmatter).toBe(true)
+    expect(parsed.frontmatter.problems).toEqual([])
+    expect(parsed.frontmatter.name).toBe('审查者')
+    expect(parsed.frontmatter.modelOrder).toEqual(['fast'])
+    expect(parsed.body).toBe('正文')
+
+    const fence = splitAgentFence(text)
+    expect(fence.kind).toBe('closed')
+    expect(fence.opening).toBe('---\r\n')
+    expect(fence.closing).toBe('---\r\n')
   })
 })

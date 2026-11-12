@@ -213,4 +213,58 @@ describe('registry.yaml layer reader', () => {
 
     expect(failures.length).toBe(2)
   })
+
+  it('measures indentation one tab as one column, like the frontmatter reader', () => {
+    const read = readRegistryLayer('models:\n\tds-chat:\n\t\tprovider: deepseek\n\t\tmodel: deepseek-chat\n')
+
+    expect(read).toEqual({
+      ok: true,
+      data: {
+        models: [{ modelName: 'ds-chat', provider: 'deepseek', model: 'deepseek-chat', available: true }],
+        aliases: [],
+      },
+    })
+  })
+
+  it('reads a CRLF layer without carrying carriage returns into names or values', () => {
+    const read = readRegistryLayer(
+      'models:\r\n  ds-chat:\r\n    provider: deepseek\r\n    model: deepseek-chat\r\n    available: true\r\n',
+    )
+
+    expect(read).toEqual({
+      ok: true,
+      data: {
+        models: [{ modelName: 'ds-chat', provider: 'deepseek', model: 'deepseek-chat', available: true }],
+        aliases: [],
+      },
+    })
+  })
+
+  it('treats blank lines as layout between entries, not as part of any block', () => {
+    const read = readRegistryLayer([
+      'models:',
+      '  ds-chat:',
+      '    provider: deepseek',
+      '',
+      '    model: deepseek-chat',
+      '',
+      '  ds-reasoner: { provider: deepseek, model: deepseek-reasoner }',
+      '',
+      'aliases:',
+      '  smart: [ds-reasoner]',
+      '',
+      '  fast: [ds-chat]',
+    ].join('\n'))
+
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.data.models.map((entry) => entry.modelName)).toEqual(['ds-chat', 'ds-reasoner'])
+    expect(read.data.aliases.map((entry) => entry.alias)).toEqual(['smart', 'fast'])
+  })
+
+  it('keeps the per-level deeper-indent diagnostic', () => {
+    const failures = failuresOf('models:\n  not-a-key\n    ds-chat: { provider: p, model: m }\n')
+
+    expect(failures.join(' ')).toContain('is indented deeper than its level')
+  })
 })

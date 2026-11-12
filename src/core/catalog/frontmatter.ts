@@ -17,7 +17,17 @@
  * problem, and a document with problems is skipped with an
  * `unparseable-frontmatter` diagnostic rather than silently half-read.
  */
-import { flowInner, splitTopLevel, stripComment, unquote } from './yaml-scalar.ts'
+import {
+  flowInner,
+  FRONTMATTER_FIELD_KEYS,
+  FRONTMATTER_FIELDS,
+  indentOf,
+  isIgnorable,
+  splitKeyLine,
+  splitTopLevel,
+  stripComment,
+  unquote,
+} from '../../yaml/index.ts'
 
 import type { AgentModelTarget } from '../../contract/index.ts'
 
@@ -51,11 +61,10 @@ export interface AgentDocument {
   readonly body: string
 }
 
-const STRING_KEYS = ['name', 'description', 'color', 'emoji', 'spawn', 'reasoningEffort'] as const
-const STRING_ARRAY_KEYS = ['modelOrder', 'requiredTools', 'skills'] as const
+/** Legacy `{provider, model}` mapping, the one known key outside the editable field table. */
 const MODEL_KEY = 'model'
-const KNOWN_KEYS: ReadonlySet<string> = new Set<string>([...STRING_KEYS, ...STRING_ARRAY_KEYS, MODEL_KEY])
-const KEY_RE = /^([A-Za-z0-9_.-]+):(.*)$/
+/** Known top-level keys: the shared field table, plus the legacy escape hatch. */
+const KNOWN_KEYS: ReadonlySet<string> = new Set<string>([...FRONTMATTER_FIELD_KEYS, MODEL_KEY])
 const BLOCK_ITEM_RE = /^\s*-\s*(.*)$/
 const INDENTED_RE = /^\s/
 /** The block-scalar header this subset reads: YAML's literal form, bare `|` (+ optional trailing comment). */
@@ -163,14 +172,16 @@ function parseEntries(lines: readonly string[], problems: string[]): Map<string,
       index += 1
       continue
     }
-    const match = KEY_RE.exec(line)
-    if (match === null) {
+    // Only a top-level key (indent 0) is legal here; an indented line is still
+    // reported as neither a key nor an indented block, exactly as before.
+    const split = splitKeyLine(line)
+    if (split === undefined || split.indent !== 0) {
       problems.push(`line ${index + 1} is neither a key nor an indented block: ${line.trim()}`)
       index += 1
       continue
     }
-    const key = match[1] ?? ''
-    const inline = (match[2] ?? '').trim()
+    const key = split.key
+    const inline = split.inline.trim()
     index += 1
     const blockLines: string[] = []
     const literalBlock = isLiteralBlockHeader(inline)
@@ -242,7 +253,7 @@ function dedentBlock(lines: readonly string[]): string {
   let common = Number.POSITIVE_INFINITY
   for (const line of lines) {
     if (line.trim() === '') continue
-    const indent = line.length - line.trimStart().length
+    const indent = indentOf(line)
     if (indent < common) common = indent
   }
   if (!Number.isFinite(common)) return ''
@@ -290,15 +301,29 @@ function mapFrontmatter(entries: Map<string, RawEntry>, problems: string[]): Age
   for (const [key, entry] of entries) {
     if (!KNOWN_KEYS.has(key)) extra[key] = entry.raw
   }
-  const name = readString(entries, 'name', problems)
-  const description = readString(entries, 'description', problems)
-  const color = readString(entries, 'color', problems)
-  const emoji = readString(entries, 'emoji', problems)
-  const reasoningEffort = readString(entries, 'reasoningEffort', problems)
-  const spawn = readSpawn(entries, problems)
-  const modelOrder = readStringArray(entries, 'modelOrder', problems)
-  const requiredTools = readStringArray(entries, 'requiredTools', problems)
-  const skills = readStringArray(entries, 'skills', problems)
+  // Read every editable field from the one shared table: one scalar path and
+  // one array path, chosen by the table's kind, so a new field needs no list
+  // here. Values stay absent when the document does not declare them.
+  const scalars = new Map<string, string>()
+  const arrays = new Map<string, readonly string[]>()
+  for (const field of FRONTMATTER_FIELDS) {
+    if (field.kind === 'scalar') {
+      const value = readString(entries, field.key, problems)
+      if (value !== undefined) scalars.set(field.key, value)
+      continue
+    }
+    const value = readStringArray(entries, field.key, problems)
+    if (value !== undefined) arrays.set(field.key, value)
+  }
+  const name = scalars.get('name')
+  const description = scalars.get('description')
+  const color = scalars.get('color')
+  const emoji = scalars.get('emoji')
+  const reasoningEffort = scalars.get('reasoningEffort')
+  const spawn = readSpawn(scalars.get('spawn'), problems)
+  const modelOrder = arrays.get('modelOrder')
+  const requiredTools = arrays.get('requiredTools')
+  const skills = arrays.get('skills')
   const model = readModelTargets(entries, problems)
   return {
     ...(name !== undefined ? { name } : {}),
@@ -416,19 +441,12 @@ function parseModelTarget(item: string, problems: string[]): AgentModelTarget | 
   return { provider, model }
 }
 
-/** Read `spawn`, which only accepts the two flavors D13 defines. */
-function readSpawn(entries: Map<string, RawEntry>, problems: string[]): 'spawn' | 'fork' | undefined {
-  const value = readString(entries, 'spawn', problems)
+/** Validate `spawn`, which only accepts the two flavors D13 defines. */
+function readSpawn(value: string | undefined, problems: string[]): 'spawn' | 'fork' | undefined {
   if (value === undefined) return undefined
   if (value !== 'spawn' && value !== 'fork') {
     problems.push(`key "spawn" must be spawn or fork, got: ${value}`)
     return undefined
   }
   return value
-}
-
-/** Blank lines and full-line comments carry no value. */
-function isIgnorable(line: string): boolean {
-  const trimmed = line.trim()
-  return trimmed === '' || trimmed.startsWith('#')
 }

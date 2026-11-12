@@ -39,8 +39,9 @@ import {
   throwIfAborted,
   UnknownAgentError,
 } from '../../control/index.ts'
+import { FRONTMATTER_FIELD_KEYS, isFrontmatterField } from '../../yaml/index.ts'
 
-import type { ControlCore, DocumentEdit, FrontmatterField, RegistryEdit, WriteReport } from '../../control/index.ts'
+import type { ControlCore, DocumentEdit, RegistryEdit, WriteReport } from '../../control/index.ts'
 
 /** Root of the plugin's exact route namespace. */
 export const CONTROL_BASE_PATH = '/agent-atelier'
@@ -77,18 +78,6 @@ export const MAX_CWD_LENGTH = 4096
  * consumers import the wire's surface.
  */
 export { CLIENT_MARKER_HEADER, CLIENT_MARKER_VALUE }
-
-const FRONTMATTER_FIELDS: readonly FrontmatterField[] = [
-  'name',
-  'description',
-  'color',
-  'emoji',
-  'spawn',
-  'reasoningEffort',
-  'modelOrder',
-  'requiredTools',
-  'skills',
-]
 
 type RouteName = 'state' | 'compose' | 'chain' | 'plan' | 'commit' | 'registry' | 'invalidate'
 
@@ -365,14 +354,14 @@ function readEdit(value: unknown): ReadResult<DocumentEdit> {
   }
   if (value.kind === 'setFrontmatterField') {
     const field = value.field
-    if (typeof field !== 'string' || !(FRONTMATTER_FIELDS as readonly string[]).includes(field)) {
-      return { ok: false, message: `field must be one of ${FRONTMATTER_FIELDS.join(', ')}` }
+    if (typeof field !== 'string' || !isFrontmatterField(field)) {
+      return { ok: false, message: `field must be one of ${FRONTMATTER_FIELD_KEYS.join(', ')}` }
     }
     const fieldValue = readFieldValue(value.value)
     if (!fieldValue.ok) return fieldValue
     return {
       ok: true,
-      value: { kind: 'setFrontmatterField', agentName: agentName.value, field: field as FrontmatterField, value: fieldValue.value },
+      value: { kind: 'setFrontmatterField', agentName: agentName.value, field, value: fieldValue.value },
     }
   }
   return { ok: false, message: 'kind must be "setBlockText" or "setFrontmatterField"' }

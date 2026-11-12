@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { AGENT_CONTROL_SERVICE } from '../src/contract/index.ts'
 import { createAssemblyService } from '../src/agent-assembly/index.ts'
 import { createInMemoryControlCore } from '../src/control/memory.ts'
+import { FRONTMATTER_FIELDS, FRONTMATTER_FIELD_KEYS } from '../src/yaml/index.ts'
 import {
   CLIENT_MARKER_HEADER,
   CONTROL_ROUTE_PATHS,
@@ -263,6 +264,33 @@ describe('wire dispatcher', () => {
     expect(body.error.code).toBe('edit-rejected')
     expect(body.rejections[0]?.code).toBe('unknown-agent')
     expect(core.files.get(DOC)).toBe(DOC_TEXT)
+  })
+
+  it('refuses an unknown frontmatter field and keeps the table order in the message', async () => {
+    const core = createCore()
+    const rejected = await call(core, '/agent-atelier/plan', {
+      body: { edits: [{ ...DESCRIPTION_EDIT, field: 'nickname' }], cwd: PROJECT },
+    })
+
+    expect(rejected.status).toBe(400)
+    expect((rejected.body as { error: { code: string; message: string } }).error).toEqual({
+      code: 'invalid-request',
+      message: `edits[0]: field must be one of ${FRONTMATTER_FIELD_KEYS.join(', ')}`,
+    })
+    expect(core.files.get(DOC)).toBe(DOC_TEXT)
+  })
+
+  it('accepts every legal field from the shared table without changing its order', async () => {
+    const core = createCore()
+    for (const { key, kind } of FRONTMATTER_FIELDS) {
+      const value = kind === 'scalar' ? (key === 'spawn' ? 'spawn' : `${key}-value`) : [`${key}-item`]
+      const result = await call(core, '/agent-atelier/plan', {
+        body: { edits: [{ ...DESCRIPTION_EDIT, field: key, value }], cwd: PROJECT },
+      })
+      expect(result.status, key).toBe(200)
+      expect((result.body as { plan: { rejections: unknown[] } }).plan.rejections, key).toEqual([])
+    }
+    expect(FRONTMATTER_FIELD_KEYS).toEqual(FRONTMATTER_FIELDS.map((field) => field.key))
   })
 
   it('POST /commit maps a write conflict to 409', async () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { parseAgentDocument } from '../src/core/index.ts'
 import { applyFrontmatterField, serializeFrontmatterArray, serializeFrontmatterScalar } from '../src/control/frontmatter-edit.ts'
+import { FRONTMATTER_FIELDS } from '../src/yaml/index.ts'
 
 /** Wrap raw frontmatter text in a fenced document. */
 function fenced(frontmatterText: string): string {
@@ -43,6 +44,35 @@ describe('frontmatter field compiler', () => {
   it('treats an empty array as a removal', () => {
     const result = applyFrontmatterField('skills: [a, b]\nname: a\n', 'skills', [])
     expect(result).toEqual({ ok: true, text: 'name: a\n' })
+  })
+
+  it('refuses every field outside the shared table at the writer', () => {
+    for (const field of ['nickname', 'model', 'extra', '']) {
+      expect(applyFrontmatterField('name: a\n', field as never, 'x')).toEqual({
+        ok: false,
+        reason: `unknown frontmatter field: ${field}`,
+      })
+    }
+  })
+
+  it('accepts exactly the table fields and validates each against its declared shape', () => {
+    for (const { key, kind } of FRONTMATTER_FIELDS) {
+      const value = kind === 'scalar' ? (key === 'spawn' ? 'spawn' : `${key}-value`) : [`${key}-item`]
+      const written = applyFrontmatterField('', key, value)
+      expect(written.ok, key).toBe(true)
+      if (!written.ok) continue
+      expect(written.text.startsWith(`${key}: `)).toBe(true)
+      const parsed = parseAgentDocument(fenced(written.text))
+      expect(parsed.frontmatter.problems, key).toEqual([])
+      expect(parsed.frontmatter[key], key).toEqual(value)
+
+      // The wrong shape for the declared kind is refused with the existing message.
+      const wrong = applyFrontmatterField('', key, kind === 'scalar' ? [] : 'x')
+      expect(wrong, key).toEqual({
+        ok: false,
+        reason: kind === 'scalar' ? `field "${key}" must be a string` : `field "${key}" must be an array of strings`,
+      })
+    }
   })
 
   it('validates the spawn field and value shapes', () => {

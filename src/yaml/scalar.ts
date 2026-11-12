@@ -1,12 +1,11 @@
 /**
- * Scalar-level utilities shared by the two hand-rolled YAML readers.
+ * Scalar-level utilities for the one hand-rolled YAML implementation.
  *
- * Ticket 01's agent-document reader (`./frontmatter.ts`) and ticket 02's
- * registry.yaml reader (`./registry-file.ts`) need the same quote, comment and
+ * Agent-document frontmatter and registry.yaml need the same quote, comment and
  * flow-literal rules. No reader imports a YAML library — `js-yaml` and `zod`
  * stay declared in `package.json` as reserved for the settings-UI work
- * (2026-10-17 dependency ruling) — so the rules live here once
- * instead of being copied into each reader.
+ * (2026-10-17 dependency ruling) — so the rules live here once instead of
+ * being copied into each reader.
  *
  * Everything here works on one scalar token or one flow literal. None of it
  * decides what a value *means* — booleans, entry shapes and required keys stay

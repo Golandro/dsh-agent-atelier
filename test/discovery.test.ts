@@ -10,6 +10,7 @@ import {
 } from '../src/core/catalog/discovery.ts'
 import { findProjectRoot, resolveAgentsHome, resolveDshHome } from '../src/core/catalog/roots.ts'
 import { createAgentProviders } from '../src/core/providers-registry.ts'
+import { FRONTMATTER_FIELDS } from '../src/yaml/index.ts'
 import type { AgentFileSystem } from '../src/core/ports.ts'
 import { createFileSystemAgentProvider, createNodeFileSystem } from '../src/providers/fs/index.ts'
 import {
@@ -320,6 +321,31 @@ describe('agent document layout', () => {
     })
     expect(definition?.path).toBe(join(test.project, '.dsh', 'agents', 'reviewer', 'reviewer.agent.md'))
     expect(await test.registry.diagnostics({ cwd: test.project })).toEqual([])
+  })
+
+  it('projects every editable field in the shared table, plus the non-editable model chain', async () => {
+    const test = harness()
+    const rows = FRONTMATTER_FIELDS.map((field) => {
+      const value = field.kind === 'scalar' ? (field.key === 'spawn' ? 'spawn' : `${field.key}-value`) : `[${field.key}-item]`
+      return `${field.key}: ${value}`
+    })
+    writeAgent(join(test.project, '.dsh', 'agents'), 'table', [...rows, 'model:', '  - { provider: deepseek, model: deepseek-chat }'].join('\n'))
+
+    const definition = await test.registry.get('table', { cwd: test.project })
+
+    expect(definition?.model).toEqual([{ provider: 'deepseek', model: 'deepseek-chat' }])
+    expect(definition?.extra).toEqual({})
+    for (const { key, kind } of FRONTMATTER_FIELDS) {
+      expect(definition?.[key], key).toEqual(
+        kind === 'scalar' ? (key === 'spawn' ? 'spawn' : `${key}-value`) : [`${key}-item`],
+      )
+    }
+    // Every table row reaches the definition; the order above is the table's own.
+    expect(Object.keys(definition ?? {}).filter((key) => FRONTMATTER_FIELDS.some((field) => field.key === key))).toEqual(
+      FRONTMATTER_FIELDS.map((field) => field.key),
+    )
+    // `model` is not an editable table row, so the table must not claim it.
+    expect(FRONTMATTER_FIELDS.map((field) => field.key)).not.toContain('model')
   })
 
   it('registers an agent whose description is a literal block scalar', async () => {
