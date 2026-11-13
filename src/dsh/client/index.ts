@@ -28,6 +28,7 @@
 import { createElement as h, useEffect, useState } from 'react'
 
 import { createHttpControlClient } from '../../control/http-client.ts'
+import { useAbortableLoad } from './abortable-load.ts'
 import { PAGE_ROOT_CLASS } from './class-names.ts'
 import { AgentsWorkspace } from './page.tsx'
 import { observableOf } from './observable.ts'
@@ -41,7 +42,6 @@ import {
   writeRemembered,
 } from './workspace-scope.ts'
 
-import type { ControlSnapshot } from '../../control/index.ts'
 import type {
   DerivedChoice,
   ScopeNotice,
@@ -150,45 +150,32 @@ export function AgentControlPage({ scope }: AgentControlPageProps): ReactNode {
   // 首帧就要知道范围：先在壳里推导一次，首次快照直接带 cwd，避免先闪一次用户全局。
   const [boot] = useState<DerivedChoice>(() => bootstrapChoice(scope))
   const initialChoice = boot.choice
-  const [state, setState] = useState<PageState>({ status: 'loading' })
-  const [attempt, setAttempt] = useState(0)
-
   // 宿主重建 head / 插件重挂载时补一次（CSS 模块导出幂等的 ensure）。
   useEffect(() => { pageStyles.ensure?.() }, [])
 
-  useEffect(() => {
-    const controller = new AbortController()
-    setState({ status: 'loading' })
-    client
-      .snapshot({ signal: controller.signal, cwd: cwdOf(initialChoice) })
-      .then((snapshot) => {
-        if (!controller.signal.aborted) setState({ status: 'ready', snapshot })
-      })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted || isAbortError(error)) return
-        setState({ status: 'error', message: errorMessage(error) })
-      })
-    // 卸载 / 重试即中止在途请求（清理语义与页面内写路径一致）。
-    return () => controller.abort()
-  }, [client, attempt, initialChoice])
+  // 快照状态机与三处懒加载共用（票 26 / 簇 G）：挂载即读一次，重试重跑同一个 loader。
+  const page = useAbortableLoad(
+    (signal) => client.snapshot({ signal, cwd: cwdOf(initialChoice) }),
+    [client, initialChoice],
+  )
 
   // 就绪后整个舞台交给工作区：作用域根仍由壳持有（token / 前缀样式 / 拖拽 closest）。
-  if (state.status === 'ready') {
+  if (page.status === 'ready') {
     return h('div', { className: PAGE_ROOT_CLASS, 'data-testid': PAGE_TEST_ID },
       h(AgentsWorkspace, {
         client,
-        initialSnapshot: state.snapshot,
+        initialSnapshot: page.value,
         initialChoice,
         initialNotice: boot.staleRemembered === undefined ? undefined : STALE_SCOPE_NOTICE,
         scope,
       }))
   }
   // 引导态复用 list-chunk-status 的居中样式（加载中 / 失败 + 重试）。
-  if (state.status === 'error') {
+  if (page.status === 'error') {
     return h('div', { className: PAGE_ROOT_CLASS, 'data-testid': PAGE_TEST_ID },
       h('div', { className: 'list-chunk-status', role: 'alert' },
-        h('p', null, `快照加载失败：${state.message}`),
-        h('button', { type: 'button', className: 'btn btn-sm', onClick: () => setAttempt((a) => a + 1) }, '重试')))
+        h('p', null, `快照加载失败：${page.error}`),
+        h('button', { type: 'button', className: 'btn btn-sm', onClick: page.retry }, '重试')))
   }
   return h('div', { className: PAGE_ROOT_CLASS, 'data-testid': PAGE_TEST_ID },
     h('div', { className: 'list-chunk-status' }, h('p', null, '正在加载智能体…')))
@@ -231,18 +218,4 @@ function bootstrapChoice(scope: ScopeSource): DerivedChoice {
   // 记住的工作区已经没了：把这次被迫重选的结果记下来，别每次打开都提示一遍。
   if (derived.staleRemembered !== undefined) writeRemembered(scope.storage, derived.choice)
   return derived
-}
-
-type PageState =
-  | { readonly status: 'loading' }
-  | { readonly status: 'ready'; readonly snapshot: ControlSnapshot }
-  | { readonly status: 'error'; readonly message: string }
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message
-  return String(error)
 }

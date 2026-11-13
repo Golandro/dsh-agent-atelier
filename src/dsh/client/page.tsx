@@ -30,7 +30,8 @@
  *   块级保存 / 回退走同一条管线（仅该块 edit / 仅清该块草稿）。
  */
 import { createElement as h, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ControlClientError, abortError } from '../../control/client-errors.ts'
+import { ControlClientError, abortError, errorMessage, isAbortError } from '../../control/client-errors.ts'
+import { useAbortableLoad } from './abortable-load.ts'
 import { nsClass } from './class-names.ts'
 import { loadListChunk } from './chunk-loader.ts'
 import { routeFocusRequest } from './panel-focus.ts'
@@ -655,40 +656,19 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
 
 /* ── 懒加载列表（与编辑器同样的 loading / 失败 / 重试处理） ───────────── */
 
-type ListChunkState =
-  | { readonly status: 'loading' }
-  | { readonly status: 'ready'; readonly AgentListView: (props: AgentListViewProps) => ReactNode }
-  | { readonly status: 'error'; readonly message: string }
-
 function LazyAgentListView(props: AgentListViewProps): ReactNode {
-  const [state, setState] = useState<ListChunkState>({ status: 'loading' })
-  const [attempt, setAttempt] = useState(0)
+  // chunk 加载与失败重试走共享状态机（票 26 / 簇 G）；重试重跑同一个 loader。
+  const chunk = useAbortableLoad(() => loadListChunk())
 
-  useEffect(() => {
-    let cancelled = false
-    setState({ status: 'loading' })
-    Promise.resolve()
-      .then(loadListChunk)
-      .then((chunk) => {
-        if (!cancelled) setState({ status: 'ready', AgentListView: chunk.AgentListView as (p: AgentListViewProps) => ReactNode })
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) setState({ status: 'error', message: errorMessage(error) })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [attempt])
-
-  if (state.status === 'loading') {
+  if (chunk.status === 'loading') {
     return h('div', { className: 'list-chunk-status' }, '列表加载中…')
   }
-  if (state.status === 'error') {
+  if (chunk.status === 'error') {
     return h('div', { className: 'list-chunk-status list-chunk-status-error', role: 'alert' },
-      h('p', null, `列表加载失败：${state.message}`),
-      h('button', { type: 'button', className: 'btn btn-sm', onClick: () => setAttempt(attempt + 1) }, '重试'))
+      h('p', null, `列表加载失败：${chunk.error}`),
+      h('button', { type: 'button', className: 'btn btn-sm', onClick: chunk.retry }, '重试'))
   }
-  const ListView = state.AgentListView
+  const ListView = chunk.value.AgentListView as (p: AgentListViewProps) => ReactNode
   return h(ListView, props)
 }
 
@@ -715,12 +695,4 @@ function layerLabel(source: ComposedAgentDocument['source']): string {
     case 'user-agents': return 'user · ~/.agents'
     case 'bundled': return 'bundled'
   }
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

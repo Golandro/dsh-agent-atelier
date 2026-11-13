@@ -11,10 +11,11 @@
  * 变化不会触发 sync；只有外部状态真正变化（回退块 / 保存后重组 / 结构切换 /
  * 只读切换）才调一次 `sync`，避免每次击键都打扰 CodeMirror。
  */
-import { createElement as h, useEffect, useRef, useState } from 'react'
+import { createElement as h, useEffect, useRef } from 'react'
+import { useAbortableLoad } from './abortable-load.ts'
 import { loadEditorChunk } from './chunk-loader.ts'
 
-import type { DocumentEditorHandle, DocumentEditorOptions, EditorBlock, EditorChunk, EditorFraming } from './chunk-contracts.ts'
+import type { DocumentEditorHandle, DocumentEditorOptions, EditorBlock, EditorFraming } from './chunk-contracts.ts'
 import type { ReactNode } from 'react'
 
 export interface EditorMountProps {
@@ -32,14 +33,9 @@ export interface EditorMountProps {
   onRevertBlock(blockId: string): void
 }
 
-type ChunkState =
-  | { readonly status: 'loading' }
-  | { readonly status: 'ready'; readonly chunk: EditorChunk }
-  | { readonly status: 'error'; readonly message: string }
-
 export function EditorMount(props: EditorMountProps): ReactNode {
-  const [chunkState, setChunkState] = useState<ChunkState>({ status: 'loading' })
-  const [attempt, setAttempt] = useState(0)
+  // chunk 懒加载与失败重试走共享状态机（票 26 / 簇 G）。
+  const chunk = useAbortableLoad(loadEditorChunk)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const handleRef = useRef<DocumentEditorHandle | null>(null)
   // latest-props：挂载 / sync 时取当下回调，避免把陈旧闭包传进命令式句柄。
@@ -54,30 +50,13 @@ export function EditorMount(props: EditorMountProps): ReactNode {
     propsRef.current = props
   })
 
-  // chunk 懒加载：不可 abort，用 cancelled 标记丢弃过期结果；attempt 驱动重试。
-  useEffect(() => {
-    let cancelled = false
-    setChunkState({ status: 'loading' })
-    Promise.resolve()
-      .then(loadEditorChunk)
-      .then((chunk) => {
-        if (!cancelled) setChunkState({ status: 'ready', chunk })
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) setChunkState({ status: 'error', message: errorMessage(error) })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [attempt])
-
   // 挂载：chunk 就绪即创建；agentName 变化时本效应重跑 = 销毁重建。
   useEffect(() => {
-    if (chunkState.status !== 'ready') return
+    if (chunk.status !== 'ready') return
     const container = containerRef.current
     if (container === null) return
     const current = propsRef.current
-    const handle = chunkState.chunk.createDocumentEditor(container, buildOptions(current, appliedDraftsRef))
+    const handle = chunk.value.createDocumentEditor(container, buildOptions(current, appliedDraftsRef))
     handleRef.current = handle
     appliedDraftsRef.current = { ...current.drafts }
     lastSignatureRef.current = externalSignature(current)
@@ -85,7 +64,7 @@ export function EditorMount(props: EditorMountProps): ReactNode {
       handle.destroy()
       handleRef.current = null
     }
-  }, [chunkState, props.agentName])
+  }, [chunk.status, chunk.value, props.agentName])
 
   // 对账：外部状态与编辑器已知值不一致才 sync（渲染期逐次判定，代价可忽略）。
   useEffect(() => {
@@ -99,15 +78,15 @@ export function EditorMount(props: EditorMountProps): ReactNode {
     lastSignatureRef.current = signature
   })
 
-  if (chunkState.status === 'loading') {
+  if (chunk.status === 'loading') {
     return h('div', { className: 'doc-editor-status' }, '编辑器加载中…')
   }
-  if (chunkState.status === 'error') {
+  if (chunk.status === 'error') {
     return h(
       'div',
       { className: 'doc-editor-status doc-editor-status-error', role: 'alert' },
-      h('p', null, `编辑器加载失败：${chunkState.message}`),
-      h('button', { type: 'button', className: 'btn btn-sm', onClick: () => setAttempt(attempt + 1) }, '重试'),
+      h('p', null, `编辑器加载失败：${chunk.error}`),
+      h('button', { type: 'button', className: 'btn btn-sm', onClick: chunk.retry }, '重试'),
     )
   }
   // 编辑器命令式挂载点：cm-* 样式以 .doc-editor 为容器。
@@ -145,9 +124,4 @@ function shallowEqualDrafts(a: Readonly<Record<string, string>>, b: Readonly<Rec
   const bk = Object.keys(b)
   if (ak.length !== bk.length) return false
   return ak.every((key) => a[key] === b[key])
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message
-  return String(error)
 }

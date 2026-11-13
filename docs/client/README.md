@@ -27,7 +27,8 @@
 | --- | --- |
 | `src/dsh/client/index.ts` | `apply`、`AgentControlPage`、`AgentControlIcon`、`ClientContext`、`inject`。两个座同 id；页面单 client 实例；`createScopeSource` 惰性解 `workspaces` / `sessions`，存储不可用就不记住范围。 |
 | `src/dsh/client/page.tsx` | `AgentsWorkspace`。双栏 / 单栏由 CSS `@container pane` 决定；四个视图保持挂载；drafts 按「工作空间 + agent」分桶；保存统一走 plan 预览再 commit，成功后重新 compose 并清已提交草稿。 |
-| `src/dsh/client/editor-mount.tsx`、`src/dsh/client/registry-mount.tsx` | 懒加载 chunk 的 React 包装：loading / 失败 `role=alert` / 重试；chunk 只收纯数据与回调，不收 client / service 对象；样式仍由主 bundle 注入。 |
+| `src/dsh/client/abortable-load.ts` | `createAbortableLoad`（React 无关状态机：loading → ready / error，`start` 即重试并中止上一轮，`abort` 丢弃在途结果）与 `useAbortableLoad`（挂载 / deps 变化重启、卸载 abort）。列表 chunk、编辑器 chunk、registry chunk 与壳快照四处共用同一台机器。 |
+| `src/dsh/client/editor-mount.tsx`、`src/dsh/client/registry-mount.tsx` | 懒加载 chunk 的 React 包装：loading / 失败 `role=alert` / 重试都走 `useAbortableLoad`，不再自带状态机；chunk 只收纯数据与回调，不收 client / service 对象；样式仍由主 bundle 注入。 |
 | `src/dsh/client/workspace-scope.ts`、`src/dsh/client/use-workspace-list.ts` | 范围推导优先级：记住的显式选择 → 当前会话 cwd → 最近活跃工作区 → 用户全局；空值 / 坏值 / 服务缺失一律退化，不抛。 |
 | `src/dsh/client/panel-header.tsx`、`src/dsh/client/panel-types.ts`、`src/dsh/client/panel-focus.ts` | 四页签、页签键盘契约、跨页聚焦路由；头部只画页面算好的范围，不读服务。 |
 | `src/dsh/client/advisor.tsx`、`src/dsh/client/operation-history.tsx` | 顾问面板只渲染 snapshot 的 findings / assemblies；S5 预览直接读合并快照（按层首次出现即胜、同名最多一份），不按层重算；操作历史只呈现真实 commit 报告与待写 plan 预览。 |
@@ -40,6 +41,7 @@
 - `test/panel-focus.test.ts`、`test/panel-header.test.ts`、`test/panel-shell.test.ts`：页签键盘、头部三态、跨页聚焦与四页签挂载。
 - `test/advisor-panel.test.ts`：顾问面板只消费规划输出与合并快照（S5 预览不重算层序）。
 - `test/registry-chunk.test.ts`：registry chunk 视图与挂载器的加载 / 失败 / 重试。
+- `test/abortable-load.test.ts`：共享懒加载状态机的 node 级用例——成功、失败后重试、卸载后丢弃迟到结果、被重试取代的旧轮次、loader 自抛 abort；本仓无 DOM 基座（完整组件基座归 #14），hook 只做订阅绑定。
 - 写路径的行为由 `test/control-client.test.ts` 与 `test/host-wiring.test.ts` 在契约层覆盖，界面测试不复制协议。
 
 ## 不做的事
