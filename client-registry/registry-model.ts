@@ -300,11 +300,18 @@ function createContext(snapshot: ControlSnapshot, options: RegistryBuildOptions)
   return { snapshot, modelsByName, aliasesByName, healthByRoute: options.healthByRoute }
 }
 
+/** 空间到层来源的唯一映射；merged 没有自己的层（读作 undefined）。 */
+export function layerSourceOf(space: RegistrySpace): RegistryLayerSource | undefined {
+  if (space === 'project') return 'project-dsh'
+  if (space === 'user') return 'user-dsh'
+  return undefined
+}
+
 function layerFor(
   snapshot: ControlSnapshot,
   space: Exclude<RegistrySpace, 'merged'>,
 ): RegistryLayerSnapshot | undefined {
-  const source: RegistryLayerSource = space === 'project' ? 'project-dsh' : 'user-dsh'
+  const source = layerSourceOf(space)
   return snapshot.registryLayers.find((layer) => layer.source === source)
 }
 

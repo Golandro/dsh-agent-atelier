@@ -50,7 +50,7 @@ import type {
   RegistrySelection,
 } from './model-links.ts'
 import type { AliasChainState, AliasCopyStatus } from './alias-detail.ts'
-import type { AddModelDraft, ModelWriteUi } from './model-detail.ts'
+import type { AddModelDraft, ModelGroupAction, ModelWriteUi } from './model-detail.ts'
 import type {
   ModelRow,
   RegistryKind,
@@ -125,8 +125,8 @@ export interface ModelsPageViewProps {
   /** 写通道在途：禁用开关 / 删除 / 新增提交。 */
   readonly writeBusy?: boolean | undefined
   readonly onToggleAvailable?: ((row: ModelRow, available: boolean) => void) | undefined
-  /** 整组开关：available 是目标整组值（false = 关闭）。 */
-  readonly onToggleGroup?: ((row: ModelRow, available: boolean) => void) | undefined
+  /** 整组开关。 */
+  readonly onToggleGroup?: ((row: ModelRow, action: ModelGroupAction) => void) | undefined
   readonly onDeleteModel?: ((row: ModelRow) => void) | undefined
   readonly onAddModel?: ((draft: AddModelDraft) => void) | undefined
 }
@@ -444,7 +444,7 @@ interface ModelDetailPaneProps {
   readonly onRetryChain?: (() => void) | undefined
   readonly onRemapTarget?: ((name: string) => void) | undefined
   readonly onToggleAvailable?: ((row: ModelRow, available: boolean) => void) | undefined
-  readonly onToggleGroup?: ((row: ModelRow, available: boolean) => void) | undefined
+  readonly onToggleGroup?: ((row: ModelRow, action: ModelGroupAction) => void) | undefined
   readonly onDeleteModel?: ((row: ModelRow) => void) | undefined
   readonly onAddModel?: ((draft: AddModelDraft) => void) | undefined
   readonly onRequestFocus?: ((focus: PanelFocus, destination?: RegistryDestination) => void) | undefined
@@ -562,7 +562,7 @@ function ModelDetailPane(props: ModelDetailPaneProps): ReactNode {
                   : (available: boolean) => props.onToggleAvailable?.(row, available),
                 onToggleGroup: props.onToggleGroup === undefined
                   ? undefined
-                  : (available: boolean) => props.onToggleGroup?.(row, available),
+                  : (action: ModelGroupAction) => props.onToggleGroup?.(row, action),
                 onRequestDelete: props.onDeleteModel === undefined
                   ? undefined
                   : () => props.onState({ deleteConfirm: true }),
@@ -727,14 +727,16 @@ export function ModelRegistryView(props: RegistryViewProps): ReactNode {
     })
   }
 
-  const toggleGroup = (row: ModelRow, available: boolean): void => {
+  // 计划由 model-detail 的纯函数求值：视图用它渲染按钮与拦截原因，这里用它
+  // 决定写什么。被拦下的计划没有编辑，直接报原因，不发请求。
+  const toggleGroup = (row: ModelRow, action: ModelGroupAction): void => {
     const group = modelGroupFactsOf(props.snapshot, page.space, row)
-    const plan = groupTogglePlanOf(group, available)
-    if (plan.blocked !== undefined || plan.edits.length === 0) {
-      setWrite({ status: 'error', message: plan.blocked ?? '整组没有可写入的声明。' })
+    const plan = groupTogglePlanOf(group, action)
+    if (plan.blocked !== undefined) {
+      setWrite({ status: 'error', message: plan.blocked })
       return
     }
-    runWrite(plan.edits, '整组' + (available ? '开启 ' : '关闭 ') + group.name + '（' + String(plan.edits.length) + ' 笔）')
+    runWrite(plan.edits, '整组' + (action === 'open' ? '开启 ' : '关闭 ') + group.name + '（' + String(plan.edits.length) + ' 笔）')
   }
 
   // 跨页聚焦：目标在当前空间找不到时切合并空间（票 60 的裁决），找到才消费；

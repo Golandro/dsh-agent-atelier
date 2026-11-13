@@ -24,7 +24,6 @@ import {
   deleteModelEditOf,
   fanInOthersOf,
   groupTogglePlanOf,
-  groupTriggerNamesOf,
   modelGroupFactsOf,
   modelPromptOf,
   setAvailableEditOf,
@@ -33,6 +32,7 @@ import {
   writeToneOf,
 } from '../client-registry/model-detail.ts'
 import { buildRegistryRows } from '../client-registry/registry-model.ts'
+import { createRegistryWriter } from '../src/dsh/client/registry-writes.ts'
 
 import type { ModelRow } from '../client-registry/registry-model.ts'
 import type { RegistryWriteOutcome } from '../src/dsh/client/chunk-contracts.ts'
@@ -44,7 +44,7 @@ import type {
   ModelDeclaration,
   ModelDefinition,
 } from '../src/contract/index.ts'
-import type { ControlSnapshot } from '../src/control/index.ts'
+import type { ControlSnapshot, RegistryEdit } from '../src/control/index.ts'
 
 const PROJECT_PATH = '/work/.dsh/agents/registry.yaml'
 const USER_PATH = '/home/me/.dsh/agents/registry.yaml'
@@ -167,7 +167,7 @@ function snapshotOf(input: {
  * - alt-fast 与 fast 同线路，供 fan-in 去重；
  * - gpu-a / gpu-b 同组，前者声明 false 把整组折成停用（gpu-b 声明 true）；
  * - orphan 只在用户层，被两个别名指向且没有下层；
- * - dsh-default 内置合成，只读。
+ * - dsh-default 内置合成，只读，与 mixed-a 同组：折叠触发者没有层声明可读。
  */
 function fixture(projectRoot: string | null = '/work'): ControlSnapshot {
   return snapshotOf({
@@ -185,6 +185,7 @@ function fixture(projectRoot: string | null = '/work'): ControlSnapshot {
           rawModel('guard-a', 'acme', 'guard', { modelGroup: 'guarded', available: false }),
           rawModel('dup-a', 'acme', 'dup', { modelGroup: 'dup' }),
           rawModel('dup-b', 'acme', 'dup2', { modelGroup: 'dup' }),
+          rawModel('mixed-a', 'acme', 'shared', { modelGroup: 'shared', available: false }),
         ],
         [
           rawAlias('smart', ['fast']),
@@ -219,7 +220,13 @@ function fixture(projectRoot: string | null = '/work'): ControlSnapshot {
       modelDefinition('dup-a', 'acme', 'dup', { modelGroup: 'dup' }),
       modelDefinition('dup-b', 'acme', 'dup2', { modelGroup: 'dup' }),
       modelDefinition('orphan', 'acme', 'orphan', { source: 'user-dsh' }),
-      modelDefinition('dsh-default', 'deepseek', 'chat', { source: 'built-in', synthesized: true }),
+      modelDefinition('mixed-a', 'acme', 'shared', { modelGroup: 'shared', available: false }),
+      modelDefinition('dsh-default', 'deepseek', 'chat', {
+        source: 'built-in',
+        synthesized: true,
+        modelGroup: 'shared',
+        available: false,
+      }),
     ],
     aliases: [
       aliasDefinition('smart', ['fast']),
@@ -288,7 +295,7 @@ describe('可用性事实与组折叠', () => {
 
   it('合并行取赢家声明；生效值来自合并快照', () => {
     const row = modelRow(snapshot, 'merged', 'fast')
-    const facts = availabilityFactsOf(snapshot, row)
+    const facts = availabilityFactsOf(row)
     expect(facts.declared).toBe(true)
     expect(facts.effective).toBe(true)
     expect(facts.declaredLayer).toBe('project-dsh')
@@ -296,25 +303,23 @@ describe('可用性事实与组折叠', () => {
     expect(facts.effectiveLayer).toBe('project-dsh')
     expect(facts.editable).toBe(true)
     expect(facts.folded).toBe(false)
-    expect(facts.triggers).toEqual([])
   })
 
   it('组内一条 false 折叠整组：声明 true 的组员被折成停用并注明触发条目', () => {
     const folded = modelRow(snapshot, 'merged', 'gpu-b')
-    const facts = availabilityFactsOf(snapshot, folded)
+    const facts = availabilityFactsOf(folded)
     expect(facts.declared).toBe(true)
     expect(facts.effective).toBe(false)
     expect(facts.folded).toBe(true)
-    expect(facts.triggers).toEqual(['gpu-a'])
-    expect(groupTriggerNamesOf(snapshot, folded)).toEqual(['gpu-a'])
+    expect(modelGroupFactsOf(snapshot, 'merged', folded).triggers).toEqual(['gpu-a'])
 
     const trigger = modelRow(snapshot, 'merged', 'gpu-a')
-    expect(availabilityFactsOf(snapshot, trigger).folded).toBe(false)
+    expect(availabilityFactsOf(trigger).folded).toBe(false)
   })
 
   it('被高层覆盖的层行：声明层与生效层分开，开关不可编辑', () => {
     const row = modelRow(snapshot, 'user', 'fast')
-    const facts = availabilityFactsOf(snapshot, row)
+    const facts = availabilityFactsOf(row)
     expect(facts.declared).toBe(true)
     expect(facts.declaredLayer).toBe('user-dsh')
     expect(facts.effectiveLayer).toBe('project-dsh')
@@ -324,12 +329,12 @@ describe('可用性事实与组折叠', () => {
 
   it('内置合成为只读；模板缺省值是真实生效值', () => {
     const row = modelRow(snapshot, 'merged', 'dsh-default')
-    const facts = availabilityFactsOf(snapshot, row)
+    const facts = availabilityFactsOf(row)
     expect(facts.readOnly).toBe(true)
     expect(facts.editable).toBe(false)
 
     const idle = modelRow(snapshot, 'merged', 'idle')
-    expect(availabilityFactsOf(snapshot, idle).declared).toBe(false)
+    expect(availabilityFactsOf(idle).declared).toBe(false)
   })
 })
 
@@ -342,79 +347,130 @@ describe('组成员与整组开关', () => {
     expect(group.available).toBe(false)
     expect(group.members.map((member) => member.name)).toEqual(['gpu-a', 'gpu-b'])
     expect(group.triggers).toEqual(['gpu-a'])
+    expect(group.opaque).toEqual([])
     const trigger = group.members.find((member) => member.name === 'gpu-a')
     const folded = group.members.find((member) => member.name === 'gpu-b')
-    expect(trigger).toMatchObject({ declared: false, effective: false, trigger: true, editable: true })
-    expect(folded).toMatchObject({ declared: true, effective: false, trigger: false })
+    expect(trigger).toMatchObject({ declaredAvailable: false, effective: false, trigger: true, editable: true })
+    expect(folded).toMatchObject({ declaredAvailable: true, effective: false, trigger: false })
   })
 
   it('跨层同名声明按层标注；被覆盖层的 false 不折叠整组', () => {
     const group = modelGroupFactsOf(snapshot, 'merged', modelRow(snapshot, 'merged', 'dup-a'))
     const member = group.members.find((entry) => entry.name === 'dup-a')
-    expect(member?.declared).toBe(true)
+    expect(member?.declaredAvailable).toBe(true)
     expect(member?.effective).toBe(true)
-    expect(member?.layers.map((layer) => [layer.source, layer.available, layer.winner])).toEqual([
-      ['project-dsh', true, true],
-      ['user-dsh', false, false],
-    ])
     expect(group.triggers).toEqual([])
     expect(group.available).toBe(true)
+  })
+
+  it('内置 / 合成组员没有层声明：不拿折叠后的生效值冒充触发者', () => {
+    const group = modelGroupFactsOf(snapshot, 'merged', modelRow(snapshot, 'merged', 'dsh-default'))
+    expect(group.name).toBe('shared')
+    expect(group.members.map((member) => member.name)).toEqual(['dsh-default', 'mixed-a'])
+    const builtIn = group.members.find((member) => member.name === 'dsh-default')
+    expect(builtIn).toMatchObject({ declaredAvailable: undefined, effective: false, trigger: false, readOnly: true })
+    expect(group.triggers).toEqual(['mixed-a'])
+    expect(group.opaque).toEqual(['dsh-default'])
   })
 
   it('层空间的 raw 组被覆盖时，组员按生效组展示', () => {
     const group = modelGroupFactsOf(snapshot, 'user', modelRow(snapshot, 'user', 'gpu-b'))
     expect(group.name).toBe('gpu')
-    expect(group.declaredGroup).toBe('gpu-old')
     expect(group.members.map((member) => member.name)).toEqual(['gpu-a', 'gpu-b'])
   })
 
   it('整组关闭写组内所有可写且可用的条目（多笔）', () => {
     const group = modelGroupFactsOf(snapshot, 'merged', modelRow(snapshot, 'merged', 'cross-a'))
-    const plan = groupTogglePlanOf(group, false)
+    const plan = groupTogglePlanOf(group, 'close')
     expect(plan.action).toBe('close')
     expect(plan.edits).toEqual([
       { kind: 'setAvailable', modelName: 'cross-a', available: false },
       { kind: 'setAvailable', modelName: 'cross-b', available: false },
     ])
     expect(plan.blocked).toBeUndefined()
+    expect(plan.note).toContain('cross-a / cross-b')
   })
 
-  it('层空间整组关闭只写本层可写组成员，其余注明不可写', () => {
+  it('层空间整组关闭只写本层可写组成员，其余注明不写入', () => {
     const group = modelGroupFactsOf(snapshot, 'user', modelRow(snapshot, 'user', 'cross-b'))
     expect(group.members.map((member) => [member.name, member.editable])).toEqual([
       ['cross-a', false],
       ['cross-b', true],
     ])
-    const plan = groupTogglePlanOf(group, false)
+    const plan = groupTogglePlanOf(group, 'close')
     expect(plan.edits).toEqual([{ kind: 'setAvailable', modelName: 'cross-b', available: false }])
-    expect(plan.note).toContain('1 条组员')
     expect(plan.note).toContain('cross-a')
+    expect(plan.note).toContain('本次不写入')
   })
 
   it('组员全在更高层时整组关闭被拦下并说明', () => {
     const group = modelGroupFactsOf(snapshot, 'user', modelRow(snapshot, 'user', 'dup-a'))
-    const plan = groupTogglePlanOf(group, false)
+    const plan = groupTogglePlanOf(group, 'close')
     expect(plan.edits).toEqual([])
     expect(plan.blocked).toContain('dup-a')
   })
 
-  it('整组开启要清掉全部 false 声明；有不可写触发器时直接拦下', () => {
+  it('整组开启清掉可写的 false 声明；全写不到时才拦下', () => {
     const gpu = modelGroupFactsOf(snapshot, 'merged', modelRow(snapshot, 'merged', 'gpu-a'))
-    expect(groupTogglePlanOf(gpu, true).edits).toEqual([
+    expect(groupTogglePlanOf(gpu, 'open').edits).toEqual([
       { kind: 'setAvailable', modelName: 'gpu-a', available: true },
     ])
 
+    // 唯一的 false 声明在更高层：用户空间写不到，整组开不起来。
     const userGroup = modelGroupFactsOf(snapshot, 'user', modelRow(snapshot, 'user', 'guard-b'))
-    const userPlan = groupTogglePlanOf(userGroup, true)
+    const userPlan = groupTogglePlanOf(userGroup, 'open')
     expect(userPlan.edits).toEqual([])
     expect(userPlan.blocked).toContain('guard-a')
     expect(userPlan.blocked).toContain('合并视图')
 
     const mergedGroup = modelGroupFactsOf(snapshot, 'merged', modelRow(snapshot, 'merged', 'guard-b'))
-    const mergedPlan = groupTogglePlanOf(mergedGroup, true)
-    expect(mergedPlan.available).toBe(true)
+    const mergedPlan = groupTogglePlanOf(mergedGroup, 'open')
     expect(mergedPlan.edits).toEqual([{ kind: 'setAvailable', modelName: 'guard-a', available: true }])
-    expect(mergedPlan.note).toContain('全部 1 条')
+    expect(mergedPlan.blocked).toBeUndefined()
+  })
+
+  it('单条目组不展开成员区，但 pool-mixed-groups 的关系说明始终可见', () => {
+    const detail = detailOf(render(snapshot, { kind: 'model', selected: { kind: 'model', name: 'idle' } }, WRITE_EXTRAS))
+    expect(detail).not.toContain('组成员（×')
+    expect(detail).toContain('pool-mixed-groups')
+  })
+
+  it('内置组员没有层声明：标「无层声明」，不冒充折叠触发者', () => {
+    const detail = detailOf(render(snapshot, { kind: 'model', selected: { kind: 'model', name: 'dsh-default' } }, WRITE_EXTRAS))
+    expect(detail).toContain('data-group-member="dsh-default"')
+    expect(detail).toContain('无层声明')
+    expect(detail).not.toContain('data-group-trigger="dsh-default"')
+    expect(detail).toContain('data-group-trigger="mixed-a"')
+  })
+
+  it('整组计划经写通道逐笔串行：editIndex 对齐、部分失败聚合', async () => {
+    const group = modelGroupFactsOf(snapshot, 'merged', modelRow(snapshot, 'merged', 'cross-a'))
+    const plan = groupTogglePlanOf(group, 'close')
+    const sent: RegistryEdit[] = []
+    // 第二笔失败：写通道应给出 partial，两行按 editIndex 分开。
+    const writer = createRegistryWriter({
+      applyRegistryEdit: async (edit) => {
+        sent.push(edit)
+        return sent.length === 2
+          ? { results: [{ ok: false, file: undefined, code: 'read-only', message: 'no file' }] }
+          : { results: [{ ok: true, file: PROJECT_PATH }] }
+      },
+      reloadAfterWrite: async () => snapshot,
+    })
+    const outcome = await writer.run(plan.edits, { signal: new AbortController().signal })
+    expect(sent).toEqual(plan.edits)
+    expect(outcome.status).toBe('partial')
+    expect(outcome.changedCount).toBe(1)
+    expect(outcome.rows.map((row) => [row.editIndex, row.ok])).toEqual([[0, true], [1, false]])
+    expect(writeHeadlineOf(outcome)).toBe('部分写入（1 笔成功）')
+  })
+
+  it('只读条目触发折叠时说明没有文件可写，而不是指向合并视图', () => {
+    const group = modelGroupFactsOf(snapshot, 'merged', modelRow(snapshot, 'merged', 'dsh-default'))
+    const plan = groupTogglePlanOf(group, 'open')
+    // 合并空间能写 mixed-a，所以仍然发出这一笔，只注明触发者写不到。
+    expect(plan.edits).toEqual([{ kind: 'setAvailable', modelName: 'mixed-a', available: true }])
+    expect(plan.note).toContain('dsh-default')
   })
 })
 
@@ -622,12 +678,14 @@ describe('模型详情静态输出', () => {
     expect(detail).toContain('整组关闭（写 1 条）')
     expect(detail).toContain('data-group-member="cross-a"')
     expect(detail).toContain('本空间不可写')
-    expect(detail).toContain('1 条组员')
+    expect(detail).toContain('本次不写入')
   })
 
-  it('同名声明跨层时按层标注赢家与被覆盖层', () => {
+  it('跨层同名声明只标注生效层，不重述层合并', () => {
     const detail = detailOf(render(snapshot, { kind: 'model', selected: { kind: 'model', name: 'dup-a' } }, WRITE_EXTRAS))
-    expect(detail).toContain('同名层：project · .dsh（赢家） · 可用 / user · ~/.dsh（被覆盖） · 停用')
+    // 组员行只给生效声明所在层；被覆盖层的声明由层视图负责，不在详情里复述。
+    expect(detail).toContain('data-group-member="dup-a"')
+    expect(detail).not.toContain('同名层：')
   })
 
   it('本空间没有可写组员时整组动作禁用并给原因', () => {

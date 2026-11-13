@@ -33,6 +33,7 @@ import type {
   GroupMemberFacts,
   ModelAvailabilityFacts,
   ModelDeleteGate,
+  ModelGroupAction,
   ModelGroupFacts,
   ModelWriteUi,
 } from './model-detail.ts'
@@ -47,8 +48,8 @@ export interface ModelDetailBodyProps {
   readonly writeBusy?: boolean | undefined
   readonly deleteConfirm: boolean
   readonly onToggleAvailable?: ((available: boolean) => void) | undefined
-  /** 整组关闭 / 开启；available 是目标整组值（false = 关闭）。 */
-  readonly onToggleGroup?: ((available: boolean) => void) | undefined
+  /** 整组关闭 / 开启。 */
+  readonly onToggleGroup?: ((action: ModelGroupAction) => void) | undefined
   readonly onRequestDelete?: (() => void) | undefined
   readonly onConfirmDelete?: (() => void) | undefined
   readonly onCancelDelete?: (() => void) | undefined
@@ -58,7 +59,7 @@ export interface ModelDetailBodyProps {
 /** 模型详情的全部正文；调用方只负责标题栏。 */
 export function ModelDetailBody(props: ModelDetailBodyProps): ReactNode {
   const row = props.row
-  const facts = availabilityFactsOf(props.snapshot, row)
+  const facts = availabilityFactsOf(row)
   const group = modelGroupFactsOf(props.snapshot, props.space, row)
   const gate = deleteGateOf(row)
   return h(
@@ -75,16 +76,16 @@ export function ModelDetailBody(props: ModelDetailBodyProps): ReactNode {
       h(Fact, { label: '生效值' }, h('span', { className: 'tag ' + (facts.effective ? 'tag-ok' : 'tag-warn') }, facts.effective ? '可用' : '停用'), h('span', { className: 'dim' }, ' · 合并后 · ' + registryLayerLabel(facts.effectiveLayer))),
       h(Fact, { label: '组' },
         h('code', null, facts.group),
-        facts.declaredGroup === facts.group
-          ? (facts.group === row.name ? h('span', { className: 'dim' }, '（默认：自身条目名）') : null)
-          : h('span', { className: 'dim' }, '（本条声明：' + facts.declaredGroup + '，被合并赢家覆盖）'),
+        facts.group === row.name ? h('span', { className: 'dim' }, '（默认：自身条目名）') : null,
         facts.folded ? h('span', { className: 'tag tag-warn' }, '组级停用') : null,
       ),
     ),
+    h('p', { className: 'dim model-avail-note', 'data-group-hint': facts.group }, '池内混用不同 modelGroup 的提示（pool-mixed-groups）归别名诊断；本页只按 modelGroup 归组，不重复告警。'),
     h(WriteFeedback, { write: props.write }),
     h(AvailabilitySection, {
       row,
       facts,
+      triggers: group.triggers,
       writeBusy: props.writeBusy,
       onToggleAvailable: props.onToggleAvailable,
     }),
@@ -115,6 +116,8 @@ export function ModelDetailBody(props: ModelDetailBodyProps): ReactNode {
 interface AvailabilitySectionProps {
   readonly row: ModelRow
   readonly facts: ModelAvailabilityFacts
+  /** 组内声明 false 的条目：折叠的唯一解释，与组成员区同源。 */
+  readonly triggers: readonly string[]
   readonly writeBusy?: boolean | undefined
   readonly onToggleAvailable?: ((available: boolean) => void) | undefined
 }
@@ -163,7 +166,7 @@ function availabilityNotes(props: AvailabilitySectionProps): ReactNode {
           'p',
           { key: 'folded', className: 'model-avail-warn', role: 'alert' },
           '组级停用：' + facts.group + ' 组内 ' +
-            (facts.triggers.length === 0 ? '条目' : facts.triggers.join(' / ')) +
+            (props.triggers.length === 0 ? '条目' : props.triggers.join(' / ')) +
             ' 声明 available:false，宿主已把整组折成停用；本条开关只改自己的声明，整组动作见下方组成员区。',
         )
       : null,
@@ -190,22 +193,22 @@ interface GroupSectionProps {
   readonly group: ModelGroupFacts
   readonly rowName: string
   readonly writeBusy?: boolean | undefined
-  readonly onToggleGroup?: ((available: boolean) => void) | undefined
+  readonly onToggleGroup?: ((action: ModelGroupAction) => void) | undefined
 }
 
 /**
- * 组成员与整组动作。折叠归宿主；这里只展示成员、层级与触发者，并把整组
+ * 组成员与整组动作。折叠归宿主；这里只展示成员、层与触发者，并把整组
  * 关闭 / 开启落成一批 setAvailable（可写范围按当前空间收敛）。
  */
 function GroupSection(props: GroupSectionProps): ReactNode {
   const group = props.group
   if (group.members.length <= 1) return null
-  const plan = groupTogglePlanOf(group, !group.available)
+  const action: ModelGroupAction = group.available ? 'close' : 'open'
+  const plan = groupTogglePlanOf(group, action)
   const disabled = plan.blocked !== undefined || props.writeBusy === true || props.onToggleGroup === undefined
   const count = plan.edits.length
-  const label = plan.action === 'close'
-    ? (count === 0 ? '整组关闭' : '整组关闭（写 ' + String(count) + ' 条）')
-    : (count === 0 ? '整组开启' : '整组开启（写 ' + String(count) + ' 条）')
+  const verb = action === 'close' ? '整组关闭' : '整组开启'
+  const label = count === 0 ? verb : verb + '（写 ' + String(count) + ' 条）'
   return h(
     'section',
     { className: 'detail-sec model-group', 'data-model-group': group.name },
@@ -215,9 +218,6 @@ function GroupSection(props: GroupSectionProps): ReactNode {
       { className: 'dim model-avail-note' },
       '同一 modelGroup 任一条目声明 available:false ⇒ 整组停用；折叠由宿主在装载期完成，本页只展示，不再判一遍。',
     ),
-    group.declaredGroup === group.name
-      ? null
-      : h('p', { className: 'dim model-avail-note' }, '本条 raw 声明的组是「' + group.declaredGroup + '」；整组按生效组「' + group.name + '」展示。'),
     h(
       'div',
       { className: 'model-group-list' },
@@ -237,21 +237,20 @@ function GroupSection(props: GroupSectionProps): ReactNode {
           type: 'button',
           className: 'btn btn-sm',
           'data-model-group-toggle': group.name,
-          'data-model-group-action': plan.action,
+          'data-model-group-action': action,
           disabled,
-          onClick: () => props.onToggleGroup?.(plan.available),
+          onClick: () => props.onToggleGroup?.(action),
         },
         label,
       ),
     ),
     props.writeBusy === true ? h('p', { className: 'dim model-avail-note' }, '写通道在途：等这一批结束再试。') : null,
-    plan.blocked === undefined ? null : h('p', { className: 'model-avail-warn', role: 'alert' }, plan.blocked),
-    plan.note === undefined ? null : h('p', { className: 'dim model-avail-note' }, plan.note),
-    h('p', { className: 'dim model-avail-note' }, '整组动作是一批写入（逐笔串行）：关闭改写组内可写且可用的条目，开启清掉全部 false 声明；只改本条请用上方单条开关。'),
+    plan.blocked === undefined ? null : h('p', { className: 'model-avail-warn', role: 'alert', 'data-group-blocked': group.name }, plan.blocked),
+    plan.note === undefined ? null : h('p', { className: 'dim model-avail-note', 'data-group-note': group.name }, plan.note),
+    h('p', { className: 'dim model-avail-note' }, '整组动作是一批写入（逐笔串行）：关闭给组内可写且可用的条目各写一条 available:false，开启清掉可写的 false 声明；只改本条请用上方单条开关。'),
     props.onToggleGroup === undefined
       ? h('p', { className: 'dim model-avail-note' }, '当前没有接入写通道，整组动作只读。')
       : null,
-    h('p', { className: 'dim model-avail-note' }, '池内混用不同 modelGroup 的提示（pool-mixed-groups）归别名诊断；本区只按 modelGroup 归组，不重复告警。'),
   )
 }
 
@@ -262,9 +261,10 @@ interface GroupMemberRowProps {
 
 function GroupMemberRow(props: GroupMemberRowProps): ReactNode {
   const member = props.member
+  const declared = member.declaredAvailable
   const foldTag = member.trigger
     ? h('span', { className: 'tag tag-warn', 'data-group-trigger': member.name }, '折叠触发')
-    : member.declared && !member.effective
+    : declared === true && !member.effective
       ? h('span', { className: 'tag tag-warn' }, '被组折叠')
       : null
   return h(
@@ -278,19 +278,12 @@ function GroupMemberRow(props: GroupMemberRowProps): ReactNode {
     ),
     h('code', { className: 'model-group-route' }, member.route),
     h('span', { className: 'tag ' + sourceTagClass(member.declaredLayer) }, registryLayerLabel(member.declaredLayer)),
-    h('span', { className: 'tag ' + (member.declared ? 'tag-ok' : 'tag-warn') }, '声明 ' + (member.declared ? '可用' : '停用')),
+    declared === undefined
+      ? h('span', { className: 'tag tag-dim' }, '无层声明')
+      : h('span', { className: 'tag ' + (declared ? 'tag-ok' : 'tag-warn') }, '声明 ' + (declared ? '可用' : '停用')),
     h('span', { className: 'tag ' + (member.effective ? 'tag-ok' : 'tag-warn') }, '生效 ' + (member.effective ? '可用' : '停用')),
     foldTag,
     h('span', { className: 'tag tag-dim' }, member.readOnly ? '只读' : member.editable ? '本空间可写' : '本空间不可写'),
-    member.layers.length <= 1
-      ? null
-      : h(
-          'span',
-          { className: 'dim model-group-layers' },
-          '同名层：' + member.layers
-            .map((layer) => registryLayerLabel(layer.source) + (layer.winner ? '（赢家）' : '（被覆盖）') + ' · ' + (layer.available ? '可用' : '停用'))
-            .join(' / '),
-        ),
     member.declaredPath === undefined
       ? null
       : h('span', { className: 'dim model-group-path' }, member.declaredPath),
