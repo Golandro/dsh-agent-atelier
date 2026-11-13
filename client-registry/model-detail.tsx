@@ -72,7 +72,12 @@ export function ModelDetailBody(props: ModelDetailBodyProps): ReactNode {
       h(Fact, { label: '文件' }, h('code', null, rowPathLabel(row))),
       h(Fact, { label: '路线' }, h('code', null, row.route), row.route === row.effectiveRoute ? null : h('span', { className: 'dim' }, ' · 生效 ' + row.effectiveRoute)),
       h(Fact, { label: '层关系' }, row.layer.label === '' ? '无同名冲突' : row.layer.label),
-      h(Fact, { label: '声明值' }, h('span', { className: 'tag ' + (facts.declared ? 'tag-ok' : 'tag-warn') }, facts.declared ? '可用' : '停用'), h('span', { className: 'dim' }, ' · ' + registryLayerLabel(facts.declaredLayer) + (facts.declaredPath === undefined ? '' : ' · ' + facts.declaredPath))),
+      h(Fact, { label: '声明值' },
+        facts.declared === undefined
+          ? h('span', { className: 'tag tag-dim' }, '无层声明')
+          : h('span', { className: 'tag ' + (facts.declared ? 'tag-ok' : 'tag-warn') }, facts.declared ? '可用' : '停用'),
+        h('span', { className: 'dim' }, ' · ' + (facts.declared === undefined ? '内置 / 合成条目没有层声明，值由宿主合成' : registryLayerLabel(facts.declaredLayer) + (facts.declaredPath === undefined ? '' : ' · ' + facts.declaredPath))),
+      ),
       h(Fact, { label: '生效值' }, h('span', { className: 'tag ' + (facts.effective ? 'tag-ok' : 'tag-warn') }, facts.effective ? '可用' : '停用'), h('span', { className: 'dim' }, ' · 合并后 · ' + registryLayerLabel(facts.effectiveLayer))),
       h(Fact, { label: '组' },
         h('code', null, facts.group),
@@ -80,7 +85,9 @@ export function ModelDetailBody(props: ModelDetailBodyProps): ReactNode {
         facts.folded ? h('span', { className: 'tag tag-warn' }, '组级停用') : null,
       ),
     ),
-    h('p', { className: 'dim model-avail-note', 'data-group-hint': facts.group }, '池内混用不同 modelGroup 的提示（pool-mixed-groups）归别名诊断；本页只按 modelGroup 归组，不重复告警。'),
+    facts.group === row.name && !facts.folded
+      ? null
+      : h('p', { className: 'dim model-avail-note' }, '池内混用不同 modelGroup 的提示（pool-mixed-groups）归别名诊断；本页只按 modelGroup 归组，不重复告警。'),
     h(WriteFeedback, { write: props.write }),
     h(AvailabilitySection, {
       row,
@@ -137,7 +144,7 @@ function AvailabilitySection(props: AvailabilitySectionProps): ReactNode {
         h('input', {
           type: 'checkbox',
           role: 'switch',
-          checked: props.facts.declared,
+          checked: props.facts.declared === true,
           disabled,
           'data-model-available': props.row.name,
           'aria-label': '本条 available 开关 ' + props.row.name,

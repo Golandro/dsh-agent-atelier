@@ -32,7 +32,6 @@ import {
   writeToneOf,
 } from '../client-registry/model-detail.ts'
 import { buildRegistryRows } from '../client-registry/registry-model.ts'
-import { createRegistryWriter } from '../src/dsh/client/registry-writes.ts'
 
 import type { ModelRow } from '../client-registry/registry-model.ts'
 import type { RegistryWriteOutcome } from '../src/dsh/client/chunk-contracts.ts'
@@ -44,7 +43,7 @@ import type {
   ModelDeclaration,
   ModelDefinition,
 } from '../src/contract/index.ts'
-import type { ControlSnapshot, RegistryEdit } from '../src/control/index.ts'
+import type { ControlSnapshot } from '../src/control/index.ts'
 
 const PROJECT_PATH = '/work/.dsh/agents/registry.yaml'
 const USER_PATH = '/home/me/.dsh/agents/registry.yaml'
@@ -416,7 +415,7 @@ describe('组成员与整组开关', () => {
       { kind: 'setAvailable', modelName: 'gpu-a', available: true },
     ])
 
-    // 唯一的 false 声明在更高层：用户空间写不到，整组开不起来。
+    // 组内有一条 false 声明在更高层：整组开不起来，不写半批。
     const userGroup = modelGroupFactsOf(snapshot, 'user', modelRow(snapshot, 'user', 'guard-b'))
     const userPlan = groupTogglePlanOf(userGroup, 'open')
     expect(userPlan.edits).toEqual([])
@@ -429,9 +428,14 @@ describe('组成员与整组开关', () => {
     expect(mergedPlan.blocked).toBeUndefined()
   })
 
-  it('单条目组不展开成员区，但 pool-mixed-groups 的关系说明始终可见', () => {
+  it('单条目组不展开成员区，也不挂 pool-mixed-groups 说明', () => {
     const detail = detailOf(render(snapshot, { kind: 'model', selected: { kind: 'model', name: 'idle' } }, WRITE_EXTRAS))
     expect(detail).not.toContain('组成员（×')
+    expect(detail).not.toContain('pool-mixed-groups')
+  })
+
+  it('同组条目才挂 pool-mixed-groups 的关系说明', () => {
+    const detail = detailOf(render(snapshot, { kind: 'model', selected: { kind: 'model', name: 'cross-a' } }, WRITE_EXTRAS))
     expect(detail).toContain('pool-mixed-groups')
   })
 
@@ -443,34 +447,57 @@ describe('组成员与整组开关', () => {
     expect(detail).toContain('data-group-trigger="mixed-a"')
   })
 
-  it('整组计划经写通道逐笔串行：editIndex 对齐、部分失败聚合', async () => {
-    const group = modelGroupFactsOf(snapshot, 'merged', modelRow(snapshot, 'merged', 'cross-a'))
-    const plan = groupTogglePlanOf(group, 'close')
-    const sent: RegistryEdit[] = []
-    // 第二笔失败：写通道应给出 partial，两行按 editIndex 分开。
-    const writer = createRegistryWriter({
-      applyRegistryEdit: async (edit) => {
-        sent.push(edit)
-        return sent.length === 2
-          ? { results: [{ ok: false, file: undefined, code: 'read-only', message: 'no file' }] }
-          : { results: [{ ok: true, file: PROJECT_PATH }] }
-      },
-      reloadAfterWrite: async () => snapshot,
+  it('组内有一条停用声明写不到时整组开启被拦下，不写半批', () => {
+    // x 在工作区层声明 false（用户空间写不到），y 在用户层声明 false（可写）：
+    // 只写 y 会让 plan 自认成功而整组仍停用，所以直接拦下。
+    const mixed = snapshotOf({
+      layers: [
+        layer('project-dsh', [rawModel('x', 'acme', 'mx', { modelGroup: 'mx', available: false })]),
+        layer('user-dsh', [rawModel('y', 'acme', 'my', { modelGroup: 'mx', available: false })]),
+      ],
+      models: [
+        modelDefinition('x', 'acme', 'mx', { modelGroup: 'mx', available: false }),
+        modelDefinition('y', 'acme', 'my', { modelGroup: 'mx', available: false, source: 'user-dsh' }),
+      ],
     })
-    const outcome = await writer.run(plan.edits, { signal: new AbortController().signal })
-    expect(sent).toEqual(plan.edits)
-    expect(outcome.status).toBe('partial')
-    expect(outcome.changedCount).toBe(1)
-    expect(outcome.rows.map((row) => [row.editIndex, row.ok])).toEqual([[0, true], [1, false]])
-    expect(writeHeadlineOf(outcome)).toBe('部分写入（1 笔成功）')
+    const group = modelGroupFactsOf(mixed, 'user', modelRow(mixed, 'user', 'y'))
+    expect(group.triggers).toEqual(['x', 'y'])
+    const plan = groupTogglePlanOf(group, 'open')
+    expect(plan.edits).toEqual([])
+    expect(plan.blocked).toContain('x')
+    expect(plan.blocked).toContain('合并视图')
   })
 
-  it('只读条目触发折叠时说明没有文件可写，而不是指向合并视图', () => {
-    const group = modelGroupFactsOf(snapshot, 'merged', modelRow(snapshot, 'merged', 'dsh-default'))
+  it('组内全部停用声明都可写时整组开启一次清完', () => {
+    const mixed = snapshotOf({
+      layers: [layer('project-dsh', [
+        rawModel('p', 'acme', 'mp', { modelGroup: 'mp', available: false }),
+        rawModel('q', 'acme', 'mq', { modelGroup: 'mp', available: false }),
+      ])],
+      models: [
+        modelDefinition('p', 'acme', 'mp', { modelGroup: 'mp', available: false }),
+        modelDefinition('q', 'acme', 'mq', { modelGroup: 'mp', available: false }),
+      ],
+    })
+    const group = modelGroupFactsOf(mixed, 'merged', modelRow(mixed, 'merged', 'p'))
     const plan = groupTogglePlanOf(group, 'open')
-    // 合并空间能写 mixed-a，所以仍然发出这一笔，只注明触发者写不到。
+    expect(plan.blocked).toBeUndefined()
+    expect(plan.edits).toEqual([
+      { kind: 'setAvailable', modelName: 'p', available: true },
+      { kind: 'setAvailable', modelName: 'q', available: true },
+    ])
+    expect(plan.note).toContain('全部 2 条')
+  })
+
+  it('内置 / 合成组员恒为 true，不冒充触发者：开启只清可读的 false 声明', () => {
+    const group = modelGroupFactsOf(snapshot, 'merged', modelRow(snapshot, 'merged', 'dsh-default'))
+    // 合成条目 available 恒为 true（宿主合成时写死），触发者是同组的 mixed-a。
+    expect(group.triggers).toEqual(['mixed-a'])
+    expect(group.opaque).toEqual(['dsh-default'])
+    const plan = groupTogglePlanOf(group, 'open')
+    expect(plan.blocked).toBeUndefined()
     expect(plan.edits).toEqual([{ kind: 'setAvailable', modelName: 'mixed-a', available: true }])
-    expect(plan.note).toContain('dsh-default')
+    expect(plan.note).toBeUndefined()
   })
 })
 

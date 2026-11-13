@@ -417,6 +417,10 @@ describe('组折叠与合成条目', () => {
     expect(synthesized.readOnly).toBe(true)
     expect(synthesized.path).toBeUndefined()
     expect(synthesized.available).toBe(true)
+    // 内置 / 合成条目没有层声明：声明值读作 undefined，不拿生效值顶替。
+    expect(synthesized.declaredAvailable).toBeUndefined()
+    expect(synthesized.groupFolded).toBe(false)
+    expect(synthesized.hasIssues).toBe(false)
 
     const mergedAliases = buildAliasRows(snapshot, 'merged')
     const builtIn = pick(mergedAliases, 'dsh-default')

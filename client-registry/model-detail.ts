@@ -9,7 +9,7 @@
  */
 import type { ControlSnapshot, RegistryEdit } from '../src/control/index.ts'
 import type { RegistryWriteOutcome } from '../src/dsh/client/chunk-contracts.ts'
-import { layerSourceOf, registryLayerLabel, routeKey } from './registry-model.ts'
+import { declaredAvailableOf, layerSourceOf, registryLayerLabel, routeKey } from './registry-model.ts'
 
 import type { LayerRef, ModelRow, RegistrySource, RegistrySpace } from './registry-model.ts'
 
@@ -20,8 +20,11 @@ export type ModelFanInRef = ModelRow['fanIn'][number]
 
 /** 一条模型条目的可用性事实：声明值、生效值与声明层。 */
 export interface ModelAvailabilityFacts {
-  /** 本条声明里的 available（raw 层声明或合并赢家声明）。 */
-  readonly declared: boolean
+  /**
+   * 本条声明里的 available（raw 层声明或合并赢家声明）；内置 / 合成条目没有
+   * 层声明，读作 undefined。
+   */
+  readonly declared: boolean | undefined
   readonly declaredLayer: RegistrySource
   readonly declaredPath?: string | undefined
   /** 合并快照里的 available（装载期已折叠组开关）。 */
@@ -35,20 +38,6 @@ export interface ModelAvailabilityFacts {
   readonly folded: boolean
   /** 生效组键（合并赢家的 modelGroup ?? modelName）；折叠按这一组求值。 */
   readonly group: string
-  /** 本条 raw 声明写的组键；层空间被覆盖时可能与生效组不同。 */
-  readonly declaredGroup: string
-}
-
-/**
- * 声明值来自哪一层：registryLayers 最高优先级在前，先命中的层就是赢家。
- * 内置 / 合成条目没有任何层声明，读作 undefined——不拿已折叠的生效值顶替。
- */
-function declaredAvailableOf(snapshot: ControlSnapshot, modelName: string): boolean | undefined {
-  for (const layer of snapshot.registryLayers) {
-    const declaration = layer.models.find((model) => model.modelName === modelName)
-    if (declaration !== undefined) return declaration.available
-  }
-  return undefined
 }
 
 /**
@@ -72,7 +61,6 @@ export function availabilityFactsOf(row: ModelRow): ModelAvailabilityFacts {
     readOnly: row.readOnly,
     folded: row.groupFolded,
     group: effectiveGroupOf(row),
-    declaredGroup: row.group,
   }
 }
 
@@ -122,7 +110,7 @@ export interface ModelGroupFacts {
 /** 组内声明可读且为 false 的条目：唯一能解释折叠的触发者。 */
 function triggersOf(members: readonly GroupMemberFacts[]): readonly string[] {
   return members
-    .filter((member) => member.declaredAvailable === false)
+    .filter((member) => member.trigger)
     .map((member) => member.name)
     .sort((left, right) => left.localeCompare(right, 'zh-CN'))
 }
@@ -191,25 +179,20 @@ function namesOf(members: readonly GroupMemberFacts[]): string {
  * 这里只按「声明值」决定写哪几条：
  * - 关闭：写组内可写且声明 true 的条目。写一条已足够让整组停用，逐条写是为了
  *   单条被重新开启后整组仍保持停用；写不到的组员保持原值并注明。
- * - 开启：清掉所有可写的 false 声明；还有写不到的 false 声明时照写并注明整组
- *   仍会停用，只在一条都写不到时才拦下。
+ * - 开启：清掉全部声明 false 的条目。只要有一条停用声明在本空间写不到，整组
+ *   就开不起来——直接拦下并指向合并视图，不写半批。
+ *
+ * 内置 / 合成条目恒为 available:true（宿主合成时就写死），因此只读组员永远
+ * 不是触发者；拦截文案里的「写不到」只会指向更高层的声明。
  */
 export function groupTogglePlanOf(facts: ModelGroupFacts, action: ModelGroupAction): ModelGroupTogglePlan {
+  const triggers = facts.members.filter((member) => member.trigger)
   if (action === 'open') {
-    const triggers = facts.members.filter((member) => member.declaredAvailable === false)
     if (triggers.length === 0) {
-      return {
-        action,
-        group: facts.name,
-        edits: [],
-        blocked: facts.opaque.length === 0
-          ? '组内没有声明 available:false 的条目，整组已经可用。'
-          : '整组停用，但没有可读的 available:false 声明：触发者是 ' + facts.opaque.join(' / ') + '（内置 / 合成，只读）。',
-      }
+      return { action, group: facts.name, edits: [], blocked: '组内没有声明 available:false 的条目，整组已经可用。' }
     }
-    const writable = triggers.filter((member) => member.editable)
     const locked = triggers.filter((member) => !member.editable)
-    if (writable.length === 0) {
+    if (locked.length > 0) {
       return {
         action,
         group: facts.name,
@@ -217,19 +200,13 @@ export function groupTogglePlanOf(facts: ModelGroupFacts, action: ModelGroupActi
         blocked: '组内 ' + namesOf(locked) + ' 的停用声明在更高层，本空间写不到；请切到合并视图再开启整组。',
       }
     }
-    const notes = [
-      ...(locked.length === 0
-        ? []
-        : ['另有 ' + namesOf(locked) + ' 的停用声明写不到；清掉本批后整组仍会停用（折叠看全部声明）。']),
-      ...(facts.opaque.length === 0
-        ? []
-        : [facts.opaque.join(' / ') + ' 是内置 / 合成条目，没有层声明可读；若它自身声明停用，整组仍会停用。']),
-    ]
     return {
       action,
       group: facts.name,
-      edits: writable.map((member) => ({ kind: 'setAvailable', modelName: member.name, available: true })),
-      ...(notes.length === 0 ? {} : { note: notes.join(' ') }),
+      edits: triggers.map((member) => ({ kind: 'setAvailable', modelName: member.name, available: true })),
+      ...(triggers.length === 1
+        ? {}
+        : { note: '开启要清掉全部 ' + String(triggers.length) + ' 条 false 声明；任一条残留都会把整组折成停用。' }),
     }
   }
   const targets = facts.members.filter((member) => member.editable && member.declaredAvailable === true)

@@ -178,8 +178,13 @@ export interface ModelRow extends RegistryRowBase {
   readonly effective: RegistryModelDefinition
   /** 生效条目的 available（装载期已折叠组开关）。 */
   readonly available: boolean
-  /** 本行 raw 声明的 available；merged 行取赢家声明。 */
-  readonly declaredAvailable: boolean
+  /**
+   * 本行 raw 声明的 available；merged 行取赢家声明。
+   *
+   * 内置 / 合成条目没有任何层声明，读作 `undefined`——绝不拿已折叠的生效值
+   * 顶替，否则详情会把折叠后的 false 说成「声明值 停用」。
+   */
+  readonly declaredAvailable: boolean | undefined
   /** 模型级开关的聚合键：modelGroup，缺省为自身名。 */
   readonly group: string
   readonly groupFolded: boolean
@@ -298,6 +303,21 @@ function createContext(snapshot: ControlSnapshot, options: RegistryBuildOptions)
   const aliasesByName = new Map<string, RegistryAliasDefinition>()
   for (const entry of snapshot.aliases) aliasesByName.set(entry.alias, entry)
   return { snapshot, modelsByName, aliasesByName, healthByRoute: options.healthByRoute }
+}
+
+/**
+ * 一个条目名的层声明 available：registryLayers 已是最高优先级在前，先命中的
+ * 层就是赢家声明。内置 / 合成条目没有任何层声明，读作 `undefined`。
+ */
+export function declaredAvailableOf(
+  snapshot: ControlSnapshot,
+  modelName: string,
+): boolean | undefined {
+  for (const layer of snapshot.registryLayers) {
+    const declaration = layer.models.find((model) => model.modelName === modelName)
+    if (declaration !== undefined) return declaration.available
+  }
+  return undefined
 }
 
 /** 空间到层来源的唯一映射；merged 没有自己的层（读作 undefined）。 */
@@ -546,11 +566,10 @@ function buildModelRow(
 ): ModelRow {
   const name = effective.modelName
   const effectiveRoute = routeKey(effective)
-  const rawWinner = refs.find((ref) => ref.source === effective.source)
-  const declaredAvailable =
-    space === 'merged'
-      ? (rawWinner?.declaration.available ?? effective.available)
-      : declaration.available
+  // 层空间读本行自己的 raw 声明；合并空间读赢家声明，没有层声明就是 undefined。
+  const declaredAvailable = space === 'merged'
+    ? declaredAvailableOf(context.snapshot, name)
+    : declaration.available
   const effectiveRow = space === 'merged' || source === effective.source
   const aliases = aliasesPointingAt(context, name)
   const fanIn = fanInForRoute(context, effectiveRoute)
@@ -569,7 +588,7 @@ function buildModelRow(
     layer,
     readOnly: effective.source === 'built-in' || effective.synthesized === true,
     // 层空间里 raw 停用不会被覆盖隐藏；merged 行同时看生效面，组折叠可见。
-    hasIssues: !declaredAvailable || !effective.available,
+    hasIssues: declaredAvailable === false || !effective.available,
     declaration,
     provider: declaration.provider,
     model: declaration.model,
@@ -579,7 +598,7 @@ function buildModelRow(
     available: effective.available,
     declaredAvailable,
     group: declaration.modelGroup ?? declaration.modelName,
-    groupFolded: effectiveRow && declaredAvailable && !effective.available,
+    groupFolded: effectiveRow && declaredAvailable === true && !effective.available,
     synthesized: effective.synthesized === true,
     ...(declaration.sysPrompt === undefined ? {} : { sysPrompt: declaration.sysPrompt }),
     aliases,
