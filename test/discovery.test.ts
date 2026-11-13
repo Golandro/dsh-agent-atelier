@@ -16,6 +16,7 @@ import { createFileSystemAgentProvider, createNodeFileSystem } from '../src/prov
 import { scratchDir, write } from './support/fs.ts'
 import {
   BUNDLED_AGENT_RANK,
+  CUSTOM_RANK,
   PROJECT_AGENTS_RANK,
   PROJECT_DSH_RANK,
   USER_AGENTS_RANK,
@@ -156,6 +157,29 @@ describe('agent discovery roots', () => {
       'user-agents': USER_AGENTS_RANK,
       bundled: BUNDLED_AGENT_RANK,
     }).toEqual(AGENT_SOURCE_RANK)
+  })
+
+  it('keeps the rank table ordered, distinct, and clear of the reserved custom slot', () => {
+    // The table's doc promises the declaration order of `AgentSource`, no
+    // shared ranks, and a free 300 slot for v2 custom roots (簇 F). Types
+    // enforce only the member set, so those promises get a witness here.
+    const entries = Object.entries(AGENT_SOURCE_RANK) as [AgentSource, number][]
+
+    expect(entries.map(([source]) => source)).toEqual([
+      'project-dsh',
+      'project-agents',
+      'user-dsh',
+      'user-agents',
+      'bundled',
+    ])
+
+    const ranks = entries.map(([, rank]) => rank)
+    expect([...ranks].sort((left, right) => left - right)).toEqual(ranks)
+    expect(new Set(ranks).size).toBe(ranks.length)
+
+    expect(AGENT_SOURCE_RANK['project-agents']).toBeLessThan(CUSTOM_RANK)
+    expect(AGENT_SOURCE_RANK['user-dsh']).toBeGreaterThan(CUSTOM_RANK)
+    expect(ranks).not.toContain(CUSTOM_RANK)
   })
 
   it('lets the workspace win a duplicate agent name, then the earlier user root', async () => {
