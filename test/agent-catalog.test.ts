@@ -2,9 +2,8 @@
  * 票 06 的第一刀：目录投影、摘要与发布门控的纯函数行为。
  * 断言只看公开输出（条目、规范文本、动作/update 标志），不看内部实现。
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -32,6 +31,7 @@ import {
   readCatalogSource,
   renderCatalog,
 } from '../src/agent-assembly/index.ts'
+import { scratchDir, write } from './support/fs.ts'
 
 /** Identity hash: the digest is the canonical text itself, readable in assertions. */
 const identity = (text: string): string => text
@@ -314,23 +314,9 @@ describe('createCatalogMessage', () => {
 })
 /* ── pre-step seam: the real core row on a real Cordis Context ───────────── */
 
-const tempDirs: string[] = []
-
 afterEach(() => {
-  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
   vi.unstubAllEnvs()
 })
-
-function scratchDir(prefix: string): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix))
-  tempDirs.push(dir)
-  return dir
-}
-
-function writeText(path: string, text: string): void {
-  mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, text)
-}
 
 const REGISTRY_LAYER = [
   'models:',
@@ -409,14 +395,14 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
   vi.stubEnv('DSH_AGENTS_HOME', join(home, 'agents-home'))
   const project = scratchDir('agent-atelier-catalog-project-')
   mkdirSync(join(project, '.git'), { recursive: true })
-  writeText(join(home, 'agents', 'registry.yaml'), REGISTRY_LAYER)
-  writeText(join(project, '.dsh', 'agents', 'alpha', 'alpha.agent.md'), ALPHA_DOC)
-  writeText(join(project, '.dsh', 'agents', 'beta', 'beta.agent.md'), BETA_DOC)
+  write(join(home, 'agents', 'registry.yaml'), REGISTRY_LAYER)
+  write(join(project, '.dsh', 'agents', 'alpha', 'alpha.agent.md'), ALPHA_DOC)
+  write(join(project, '.dsh', 'agents', 'beta', 'beta.agent.md'), BETA_DOC)
   if (options.looseDocument === true) {
-    writeText(join(project, '.dsh', 'agents', 'loose.agent.md'), '---\ndescription: "flat document"\n---\nbody\n')
+    write(join(project, '.dsh', 'agents', 'loose.agent.md'), '---\ndescription: "flat document"\n---\nbody\n')
   }
   if (options.rawDocument === true) {
-    writeText(join(project, '.dsh', 'agents', 'gamma', 'gamma.agent.md'), [
+    write(join(project, '.dsh', 'agents', 'gamma', 'gamma.agent.md'), [
       '---',
       'name: Gamma',
       'description: "Raw model chain"',
@@ -427,7 +413,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
     ].join('\n'))
   }
   if (options.advisoryDocument === true) {
-    writeText(join(project, '.dsh', 'agents', 'advisable', 'advisable.agent.md'), [
+    write(join(project, '.dsh', 'agents', 'advisable', 'advisable.agent.md'), [
       '---',
       'name: Advisable',
       'description: "No model order"',
@@ -437,7 +423,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
     ].join('\n'))
   }
   if (options.brokenRegistryLayer === true) {
-    writeText(join(project, '.dsh', 'agents', 'registry.yaml'), 'aliases:\n  broken: [chat\n')
+    write(join(project, '.dsh', 'agents', 'registry.yaml'), 'aliases:\n  broken: [chat\n')
   }
 
   const ctx = new Context()
@@ -570,7 +556,7 @@ describe('agent catalog pre-step seam', () => {
 
     expect(enterMessages(await dispatch(fx))).toHaveLength(0)
 
-    writeText(join(fx.home, 'agents', 'registry.yaml'), REMAPPED_LAYER)
+    write(join(fx.home, 'agents', 'registry.yaml'), REMAPPED_LAYER)
     fx.aliasRegistry.invalidate()
     expect(enterMessages(await dispatch(fx))).toHaveLength(0)
     expect(textOf(first)).toContain('- \`fast\`')
@@ -580,7 +566,7 @@ describe('agent catalog pre-step seam', () => {
   it('appends one replacement message when a description changes', async () => {
     const fx = await fixture()
     const first = commitCatalog(fx, await dispatch(fx))
-    writeText(join(fx.project, '.dsh', 'agents', 'alpha', 'alpha.agent.md'), ALPHA_DOC.replace('Reviews', 'Deeply reviews'))
+    write(join(fx.project, '.dsh', 'agents', 'alpha', 'alpha.agent.md'), ALPHA_DOC.replace('Reviews', 'Deeply reviews'))
     fx.registry.invalidate()
 
     const decision = await dispatch(fx)
@@ -599,7 +585,7 @@ describe('agent catalog pre-step seam', () => {
   it('appends one replacement message when a model order changes', async () => {
     const fx = await fixture()
     commitCatalog(fx, await dispatch(fx))
-    writeText(
+    write(
       join(fx.project, '.dsh', 'agents', 'alpha', 'alpha.agent.md'),
       ALPHA_DOC.replace('modelOrder: [fast]', 'modelOrder: [smart]'),
     )

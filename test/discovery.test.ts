@@ -1,8 +1,7 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 
 import {
   AgentDocumentError,
@@ -14,6 +13,7 @@ import { FRONTMATTER_FIELDS } from '../src/yaml/index.ts'
 import type { AgentFileSystem } from '../src/catalog/ports.ts'
 import { AGENT_SOURCE_RANK } from '../src/contract/index.ts'
 import { createFileSystemAgentProvider, createNodeFileSystem } from '../src/providers/fs/index.ts'
+import { scratchDir, write } from './support/fs.ts'
 import {
   BUNDLED_AGENT_RANK,
   PROJECT_AGENTS_RANK,
@@ -27,17 +27,8 @@ import type { ProviderControl } from '../src/contract/index.ts'
 let tmp = ''
 
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), 'agent-atelier-discovery-'))
+  tmp = scratchDir('agent-atelier-discovery-')
 })
-
-afterEach(() => {
-  rmSync(tmp, { recursive: true, force: true })
-})
-
-function write(path: string, text: string): void {
-  mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, text)
-}
 
 /** One agent document: fenced frontmatter plus body, or a bare body. */
 function document(frontmatter: string | undefined, body = 'body text'): string {

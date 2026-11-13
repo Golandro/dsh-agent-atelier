@@ -1,5 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { Context } from '@deepseek-ai/cordis'
@@ -17,6 +16,7 @@ import { createAgentProviders } from '../src/providers/registry.ts'
 import { apply as providerRowApply, applyProviders } from '../src/dsh/host/providers.ts'
 import { applyAssembly } from '../src/dsh/host/assembly.ts'
 import { SERVICE_API_VERSION } from '../src/contract/index.ts'
+import { scratchDir } from './support/fs.ts'
 import type { AgentAssembly, AgentRegistry, AliasRegistry } from '../src/contract/index.ts'
 import type { AgentProviders } from '../src/contract/index.ts'
 
@@ -40,10 +40,7 @@ async function mounted(): Promise<{
   return { ctx, registry, aliasRegistry, providers, control }
 }
 
-/** One throwaway directory under the OS temp dir. */
-function scratchDir(): string {
-  return mkdtempSync(join(tmpdir(), 'agent-atelier-plugin-'))
-}
+
 
 /** The provider row exactly as the loader mounts it: a plugin object with `inject` + the module's `apply` entry. */
 function providerRow(): { inject: readonly string[]; apply: typeof providerRowApply } {
@@ -149,7 +146,7 @@ describe('agent-atelier plugin', () => {
   })
 
   it('resolves the built-in dsh-default alias from a default-model service mounted after the plugin', async () => {
-    const home = scratchDir()
+    const home = scratchDir('agent-atelier-plugin-')
     vi.stubEnv('DSH_HOME', home)
     vi.stubEnv('DSH_AGENTS_HOME', join(home, 'agents-home'))
     try {
@@ -185,7 +182,7 @@ describe('agent-atelier plugin', () => {
     // The user roots come from $DSH_HOME / $DSH_AGENTS_HOME: pin them to a
     // throwaway home so the test never reads the machine's real ~/.dsh or
     // ~/.agents, and assert nothing else shows up.
-    const home = scratchDir()
+    const home = scratchDir('agent-atelier-plugin-')
     vi.stubEnv('DSH_HOME', home)
     vi.stubEnv('DSH_AGENTS_HOME', join(home, 'agents-home'))
     try {
@@ -208,7 +205,7 @@ describe('agent-atelier plugin', () => {
   })
 
   it('reads through an fs service mounted after the plugin, not through Node', async () => {
-    const project = scratchDir()
+    const project = scratchDir('agent-atelier-plugin-')
     try {
       mkdirSync(join(project, '.git'), { recursive: true })
       mkdirSync(join(project, '.dsh', 'agents', 'alpha'), { recursive: true })
@@ -326,7 +323,7 @@ describe('provider plugin row', () => {
   })
 
   it('reads the trusted bundled root through Node even when an fs service is mounted', async () => {
-    const home = scratchDir()
+    const home = scratchDir('agent-atelier-plugin-')
     vi.stubEnv('DSH_HOME', home)
     vi.stubEnv('DSH_AGENTS_HOME', join(home, 'agents-home'))
     try {

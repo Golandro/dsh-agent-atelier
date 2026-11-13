@@ -8,19 +8,20 @@ import {
 } from '../src/control/client-errors.ts'
 import { createHttpControlClient } from '../src/control/http-client.ts'
 import { ControlClientError, createMemoryControlClient } from '../src/control/index.ts'
-import { createInMemoryControlCore } from '../src/control/memory.ts'
 import { dispatchControlRequest } from '../src/dsh/host/index.ts'
+import { createControlFixture } from './support/control-fixture.ts'
 
 import type { ControlClient, ControlCore } from '../src/control/index.ts'
 import type { InMemoryControlCore } from '../src/control/memory.ts'
 
-const PROJECT = '/client-proj'
-const HOME = '/client-home'
-const AGENTS = `${PROJECT}/.dsh/agents`
-const DOC = `${AGENTS}/alpha/alpha.agent.md`
-const REGISTRY = `${AGENTS}/registry.yaml`
-const DOC_TEXT = '---\nname: Alpha\ndescription: first\n---\nAlpha body\n'
-const REGISTRY_TEXT = 'models:\n  gpt5:\n    provider: openai\n    model: gpt-5\n'
+const fixture = createControlFixture({ projectRoot: '/client-proj', dshHome: '/client-home' })
+const {
+  projectRoot: PROJECT,
+  docPath: DOC,
+  registryPath: REGISTRY,
+  docText: DOC_TEXT,
+  createCore,
+} = fixture
 
 const DESCRIPTION_EDIT = {
   kind: 'setFrontmatterField',
@@ -28,18 +29,6 @@ const DESCRIPTION_EDIT = {
   field: 'description',
   value: 'second',
 } as const
-
-function createCore(): InMemoryControlCore {
-  return createInMemoryControlCore({
-    projectRoot: PROJECT,
-    dshHome: HOME,
-    files: {
-      [`${PROJECT}/.git`]: '',
-      [DOC]: DOC_TEXT,
-      [REGISTRY]: REGISTRY_TEXT,
-    },
-  })
-}
 
 /** A fetch double that forwards to the real wire dispatcher. */
 function bridge(core: InMemoryControlCore): typeof fetch {

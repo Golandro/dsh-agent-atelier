@@ -14,6 +14,7 @@ import {
   dispatchControlRequest,
   handleControlRequest,
 } from '../src/dsh/host/index.ts'
+import { createControlFixture } from './support/control-fixture.ts'
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ModelSelectionPolicy } from '../src/contract/index.ts'
@@ -21,30 +22,21 @@ import type { ControlCore } from '../src/control/index.ts'
 import type { InMemoryControlCore } from '../src/control/memory.ts'
 import type { ControlDispatchInput, ControlDispatchResult } from '../src/dsh/host/index.ts'
 
-const PROJECT = '/wire-proj'
-const HOME = '/wire-home'
-const AGENTS = `${PROJECT}/.dsh/agents`
-const DOC = `${AGENTS}/alpha/alpha.agent.md`
-const REGISTRY = `${AGENTS}/registry.yaml`
-const DOC_TEXT = '---\nname: Alpha\ndescription: first\n---\nAlpha body\n'
-const REGISTRY_TEXT = 'models:\n  gpt5:\n    provider: openai\n    model: gpt-5\n'
+const fixture = createControlFixture({ projectRoot: '/wire-proj', dshHome: '/wire-home' })
+const {
+  projectRoot: PROJECT,
+  dshHome: HOME,
+  agentsDir: AGENTS,
+  docPath: DOC,
+  registryPath: REGISTRY,
+  docText: DOC_TEXT,
+  registryText: REGISTRY_TEXT,
+  createCore,
+} = fixture
 
 const JSON_HEADERS: Readonly<Record<string, string>> = {
   'content-type': 'application/json',
   [CLIENT_MARKER_HEADER]: '1',
-}
-
-/** One in-memory control core with a single fenced agent and one model. */
-function createCore(): InMemoryControlCore {
-  return createInMemoryControlCore({
-    projectRoot: PROJECT,
-    dshHome: HOME,
-    files: {
-      [`${PROJECT}/.git`]: '',
-      [DOC]: DOC_TEXT,
-      [REGISTRY]: REGISTRY_TEXT,
-    },
-  })
 }
 
 const CHAIN_REGISTRY = [

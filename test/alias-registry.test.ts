@@ -1,30 +1,18 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { createAliasRegistryService, inspectAliasRegistry, type AliasRegistryDependencies } from '../src/catalog/alias-registry.ts'
 import { createNodeFileSystem } from '../src/providers/fs/index.ts'
 import { DEFAULT_ALIAS_NAME } from '../src/catalog/registry-file.ts'
+import { scratchDir, write } from './support/fs.ts'
 import type { AgentModelTarget, AliasDefinition, AliasRegistrySnapshot, ModelDefinition } from '../src/contract/types.ts'
-
-const tempDirs: string[] = []
-
-afterEach(() => {
-  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
-})
-
-function scratchDir(prefix: string): string {
-  const dir = mkdtempSync(join(tmpdir(), prefix))
-  tempDirs.push(dir)
-  return dir
-}
 
 /** A throwaway `$DSH_HOME` with an optional global registry.yaml layer. */
 function homeDir(layer?: string): string {
   const root = scratchDir('agent-atelier-home-')
-  if (layer !== undefined) writeLayer(join(root, 'agents', 'registry.yaml'), layer)
+  if (layer !== undefined) write(join(root, 'agents', 'registry.yaml'), layer)
   return root
 }
 
@@ -32,13 +20,8 @@ function homeDir(layer?: string): string {
 function workspaceDir(layer?: string): string {
   const root = scratchDir('agent-atelier-ws-')
   mkdirSync(join(root, '.git'), { recursive: true })
-  if (layer !== undefined) writeLayer(join(root, '.dsh', 'agents', 'registry.yaml'), layer)
+  if (layer !== undefined) write(join(root, '.dsh', 'agents', 'registry.yaml'), layer)
   return root
-}
-
-function writeLayer(path: string, text: string): void {
-  mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, text)
 }
 
 function projectLayerPath(workspace: string): string {

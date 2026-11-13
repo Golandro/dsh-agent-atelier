@@ -1,26 +1,17 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { beforeEach, describe, expect, it } from 'vitest'
 
 import { createFileSystemAgentProvider } from '../src/providers/fs/source.ts'
 import { createNodeFileSystem } from '../src/providers/fs/node.ts'
+import { scratchDir, write } from './support/fs.ts'
 import type { AgentFileSystem } from '../src/catalog/ports.ts'
 
 let tmp = ''
 
 beforeEach(() => {
-  tmp = mkdtempSync(join(tmpdir(), 'agent-atelier-source-'))
+  tmp = scratchDir('agent-atelier-source-')
 })
-
-afterEach(() => {
-  rmSync(tmp, { recursive: true, force: true })
-})
-
-function write(path: string, text: string): void {
-  mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, text)
-}
 
 /** Build the provider under test: one root, one filesystem selector. */
 function provider(

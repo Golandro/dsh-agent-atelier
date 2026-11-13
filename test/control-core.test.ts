@@ -2,19 +2,16 @@ import { describe, expect, it } from 'vitest'
 
 import { evaluateAgentQuery } from '../src/control/index.ts'
 import { createAgentDocPort } from '../src/control/core.ts'
-import { createInMemoryControlCore } from '../src/control/memory.ts'
 import { AGENT_SOURCE_RANK } from '../src/contract/index.ts'
+import { createControlFixture } from './support/control-fixture.ts'
 
 import type { AgentRow, DocumentEdit } from '../src/control/index.ts'
 import type { InMemoryControlCore } from '../src/control/memory.ts'
 
-const PROJECT = '/dsh-proj'
-const HOME = '/dsh-home'
-const PROJECT_AGENTS = `${PROJECT}/.dsh/agents`
-const HOME_AGENTS = `${HOME}/agents`
-const DOC_ALPHA = `${PROJECT_AGENTS}/alpha/alpha.agent.md`
+const PROJECT_ROOT = '/dsh-proj'
+const DSH_HOME = '/dsh-home'
+const HOME_AGENTS = `${DSH_HOME}/agents`
 const DOC_BETA = `${HOME_AGENTS}/beta/beta.agent.md`
-const REGISTRY_PROJECT = `${PROJECT_AGENTS}/registry.yaml`
 const REGISTRY_USER = `${HOME_AGENTS}/registry.yaml`
 
 const ALPHA_TEXT = '---\nname: Alpha\n# kept comment\nunknown-key: 1\ndescription: first\n---\nAlpha body\n'
@@ -22,21 +19,27 @@ const BETA_TEXT = 'plain beta body\n'
 const REGISTRY_PROJECT_TEXT = 'models:\n  gpt5:\n    provider: openai\n    model: gpt-5\naliases:\n  smart: [gpt5]\n'
 const REGISTRY_USER_TEXT = 'models:\n  kimi:\n    provider: moonshot\n    model: kimi-2\n    available: false\n'
 
-/** One in-memory core with the standard two-agent, two-layer fixture. */
-function createCore(overrides: Parameters<typeof createInMemoryControlCore>[0] = {}): InMemoryControlCore {
-  return createInMemoryControlCore({
-    projectRoot: PROJECT,
-    dshHome: HOME,
-    files: {
-      [`${PROJECT}/.git`]: '',
-      [DOC_ALPHA]: ALPHA_TEXT,
-      [DOC_BETA]: BETA_TEXT,
-      [REGISTRY_PROJECT]: REGISTRY_PROJECT_TEXT,
-      [REGISTRY_USER]: REGISTRY_USER_TEXT,
-    },
-    ...overrides,
-  })
-}
+/**
+ * The two-layer fixture: the shared project layer (one fenced alpha document
+ * plus the project registry) and the user layer the merge tests need.
+ */
+const fixture = createControlFixture({
+  projectRoot: PROJECT_ROOT,
+  dshHome: DSH_HOME,
+  docText: ALPHA_TEXT,
+  registryText: REGISTRY_PROJECT_TEXT,
+  extraFiles: {
+    [DOC_BETA]: BETA_TEXT,
+    [REGISTRY_USER]: REGISTRY_USER_TEXT,
+  },
+})
+const {
+  projectRoot: PROJECT,
+  agentsDir: PROJECT_AGENTS,
+  docPath: DOC_ALPHA,
+  registryPath: REGISTRY_PROJECT,
+  createCore,
+} = fixture
 
 describe('control core over the in-memory adapter', () => {
   it('snapshot merges both layers and normalizes findings with origins', async () => {
