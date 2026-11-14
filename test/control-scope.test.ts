@@ -7,9 +7,9 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { createInMemoryControlCore } from '../src/control/memory.ts'
+import { createInMemoryControlCore } from './support/memory.ts'
 
-import type { InMemoryControlCore, InMemoryControlOptions } from '../src/control/memory.ts'
+import type { InMemoryControlCore, InMemoryControlOptions } from './support/memory.ts'
 
 const WORKSPACE = '/scope-ws'
 const NESTED = `${WORKSPACE}/sub`

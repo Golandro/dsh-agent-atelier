@@ -3,7 +3,8 @@
  * components/PaneSplitter.tsx 移植）。
  *
  * 统一规则（与原型一致）：
- *   available = 容器宽度 − 排除项（如右侧抽屉；本页 Q2 最小口径暂无排除项）
+ *   available = 容器宽度（本页 Q2 最小口径没有排除项；原型的抽屉扣除
+ *   已随 `excludeRef` / `excludeActive` 一并删除——两份副本都没有消费者）
  *   列表宽度在 [列表最小, available − 内容最小 − 分隔条] 之间夹取
  *   available < 列表最小 + 内容最小 + 分隔条 ⇒ 单栏模式（编辑器独占主视图，
  *     列表隐藏）——这是布局决策，由 styles.css 的 `@container pane` 接管；
@@ -25,18 +26,19 @@ export const PANE_CONTENT_MIN_REM = 40
 export const PANE_LIST_DEFAULT_REM = 24
 /** 分隔条宽（rem）。 */
 export const PANE_SPLITTER_REM = 0.375
+/**
+ * 分隔条上的键盘步进（px）：←/→ 每次移动的量（簇 P，此前是两处内联字面量）。
+ *
+ * 样式侧没有可对齐的量：分隔条宽度走 `--splitter-w`（rem），步进是纯交互
+ * 量。根字号也不能对齐——styles.css 明说不接管 `:root`，页面自己设的是
+ * 14px，而布局常量按 `rootFontSize()` 的 16px 口径算，两者本就不同源。
+ * 所以这里是一个独立常量，`client-registry` 副本的同名常量由
+ * test/pane-layout-css.test.ts 断言相等。
+ */
+export const KEYBOARD_STEP_PX = 16
 
 export function rootFontSize(): number {
   return parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
-}
-
-export interface PaneLayoutOptions {
-  /** 从可用宽度中扣除的元素（如右侧顾问抽屉）；本页暂未使用。 */
-  readonly excludeRef?: RefObject<HTMLElement | null>
-  /** 排除项当前是否生效。 */
-  readonly excludeActive?: boolean
-  /** 容器挂载/切换标识；变化时重新测量并观察。 */
-  readonly measureKey?: unknown
 }
 
 export interface PaneLayout {
@@ -51,10 +53,7 @@ export interface PaneLayout {
   resetListWidth: () => void
 }
 
-export function usePaneLayout<T extends HTMLElement>(
-  containerRef: RefObject<T | null>,
-  options: PaneLayoutOptions = {},
-): PaneLayout {
+export function usePaneLayout<T extends HTMLElement>(containerRef: RefObject<T | null>): PaneLayout {
   const rem = rootFontSize()
   const minList = PANE_LIST_MIN_REM * rem
   const minContent = PANE_CONTENT_MIN_REM * rem
@@ -69,26 +68,22 @@ export function usePaneLayout<T extends HTMLElement>(
   useLayoutEffect(() => {
     const update = () => {
       const base = containerRef.current?.clientWidth ?? window.innerWidth
-      const excluded = options.excludeActive === true && options.excludeRef?.current
-        ? options.excludeRef.current.offsetWidth
-        : 0
-      setAvailable(Math.max(0, base - excluded))
+      setAvailable(Math.max(0, base))
     }
     update()
     const ro = new ResizeObserver(update)
     if (containerRef.current) ro.observe(containerRef.current)
-    if (options.excludeActive === true && options.excludeRef?.current) ro.observe(options.excludeRef.current)
     window.addEventListener('resize', update)
     return () => {
       ro.disconnect()
       window.removeEventListener('resize', update)
     }
-  }, [containerRef, options.excludeRef, options.excludeActive, options.measureKey])
+  }, [containerRef])
 
   const maxListWidth = Math.max(minList, available - minContent - splitter)
   const defaultListWidth = Math.min(maxListWidth, Math.max(minList, PANE_LIST_DEFAULT_REM * rem))
 
-  // 视口/抽屉变化后把已保存的列表宽度夹回合法范围。
+  // 视口变化后把已保存的列表宽度夹回合法范围。
   useLayoutEffect(() => {
     setListWidth((w) => Math.min(maxListWidth, Math.max(minList, w)))
   }, [minList, maxListWidth])
@@ -118,7 +113,7 @@ export interface PaneSplitterProps {
 
 /**
  * 可拖拽分栏：只负责交互与无障碍语义，宽度状态、边界和落位由父级决定。
- * 指针拖拽按「按下时的宽度 + 位移」计算；键盘 ←/→ 步进 16px；双击复位。
+ * 指针拖拽按「按下时的宽度 + 位移」计算；键盘 ←/→ 步进 {@link KEYBOARD_STEP_PX}；双击复位。
  */
 export function PaneSplitter(props: PaneSplitterProps): ReactNode {
   const { min, max } = props
@@ -158,10 +153,10 @@ export function PaneSplitter(props: PaneSplitterProps): ReactNode {
     onKeyDown: (e: ReactKeyboardEvent<HTMLDivElement>) => {
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
-        props.onResize(Math.max(min, props.value - 16))
+        props.onResize(Math.max(min, props.value - KEYBOARD_STEP_PX))
       } else if (e.key === 'ArrowRight') {
         e.preventDefault()
-        props.onResize(Math.min(max, props.value + 16))
+        props.onResize(Math.min(max, props.value + KEYBOARD_STEP_PX))
       }
     },
   })

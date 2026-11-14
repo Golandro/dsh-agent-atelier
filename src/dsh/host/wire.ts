@@ -386,76 +386,117 @@ function readFieldValue(value: unknown): ReadResult<string | readonly string[] |
   return { ok: false, message: 'field value must be a string, an array of strings, or undefined' }
 }
 
+/**
+ * One reader per registry-edit kind (簇 P). The table below is keyed by
+ * `RegistryEdit['kind']`, so adding a kind to the union fails the build until a
+ * reader exists for it — the old if-chain silently fell through to "unknown
+ * kind" instead. Dispatch is a lookup, not an ordering: no branch can shadow
+ * another.
+ */
+type RegistryEditReader<K extends RegistryEdit['kind']> = (raw: Record<string, unknown>) => ReadResult<Extract<RegistryEdit, { kind: K }>>
+
+function readSetAvailable(raw: Record<string, unknown>): ReadResult<Extract<RegistryEdit, { kind: 'setAvailable' }>> {
+  const modelName = readRegistryName(raw.modelName, 'modelName')
+  if (!modelName.ok) return modelName
+  if (typeof raw.available !== 'boolean') return { ok: false, message: 'available must be a boolean' }
+  return { ok: true, value: { kind: 'setAvailable', modelName: modelName.value, available: raw.available } }
+}
+
+function readSetSysPrompt(raw: Record<string, unknown>): ReadResult<Extract<RegistryEdit, { kind: 'setSysPrompt' }>> {
+  const modelName = readRegistryName(raw.modelName, 'modelName')
+  if (!modelName.ok) return modelName
+  const sysPrompt = readOptionalText(raw.sysPrompt, 'sysPrompt')
+  if (!sysPrompt.ok) return sysPrompt
+  return { ok: true, value: { kind: 'setSysPrompt', modelName: modelName.value, sysPrompt: sysPrompt.value } }
+}
+
+function readRemapAlias(raw: Record<string, unknown>): ReadResult<Extract<RegistryEdit, { kind: 'remapAlias' }>> {
+  const alias = readRegistryName(raw.alias, 'alias')
+  if (!alias.ok) return alias
+  const target = readRegistryName(raw.target, 'target')
+  if (!target.ok) return target
+  return { ok: true, value: { kind: 'remapAlias', alias: alias.value, target: target.value } }
+}
+
+function readDeleteAlias(raw: Record<string, unknown>): ReadResult<Extract<RegistryEdit, { kind: 'deleteAlias' }>> {
+  const alias = readRegistryName(raw.alias, 'alias')
+  if (!alias.ok) return alias
+  return { ok: true, value: { kind: 'deleteAlias', alias: alias.value } }
+}
+
+function readDeleteModel(raw: Record<string, unknown>): ReadResult<Extract<RegistryEdit, { kind: 'deleteModel' }>> {
+  const modelName = readRegistryName(raw.modelName, 'modelName')
+  if (!modelName.ok) return modelName
+  return { ok: true, value: { kind: 'deleteModel', modelName: modelName.value } }
+}
+
+function readAddAlias(raw: Record<string, unknown>): ReadResult<Extract<RegistryEdit, { kind: 'addAlias' }>> {
+  const alias = readRegistryName(raw.alias, 'alias')
+  if (!alias.ok) return alias
+  const target = readRegistryName(raw.target, 'target')
+  if (!target.ok) return target
+  const source = readLayerSource(raw.source)
+  if (!source.ok) return source
+  return { ok: true, value: { kind: 'addAlias', alias: alias.value, target: target.value, source: source.value } }
+}
+
+function readAddModel(raw: Record<string, unknown>): ReadResult<Extract<RegistryEdit, { kind: 'addModel' }>> {
+  const modelName = readRegistryName(raw.modelName, 'modelName')
+  if (!modelName.ok) return modelName
+  const provider = readString(raw.provider, 'provider', 256)
+  if (!provider.ok) return provider
+  const model = readString(raw.model, 'model', 256)
+  if (!model.ok) return model
+  const sysPrompt = readOptionalText(raw.sysPrompt, 'sysPrompt')
+  if (!sysPrompt.ok) return sysPrompt
+  if (raw.available !== undefined && raw.available !== null && typeof raw.available !== 'boolean') {
+    return { ok: false, message: 'available must be a boolean when given' }
+  }
+  const source = readLayerSource(raw.source)
+  if (!source.ok) return source
+  return {
+    ok: true,
+    value: {
+      kind: 'addModel',
+      modelName: modelName.value,
+      provider: provider.value,
+      model: model.value,
+      sysPrompt: sysPrompt.value,
+      available: typeof raw.available === 'boolean' ? raw.available : undefined,
+      source: source.value,
+    },
+  }
+}
+
+/** Every kind the wire accepts, one reader each; the key type makes it exhaustive. */
+const REGISTRY_EDIT_READERS: { readonly [K in RegistryEdit['kind']]: RegistryEditReader<K> } = {
+  setAvailable: readSetAvailable,
+  setSysPrompt: readSetSysPrompt,
+  remapAlias: readRemapAlias,
+  deleteAlias: readDeleteAlias,
+  deleteModel: readDeleteModel,
+  addAlias: readAddAlias,
+  addModel: readAddModel,
+}
+
+/**
+ * Narrow an arbitrary wire string to a kind the table covers.
+ *
+ * The table *is* the set of accepted kinds, so asking it beats keeping a second
+ * list in sync — and the predicate hands the compiler the narrowing, so the
+ * dispatch below needs no cast of its own.
+ */
+function isRegistryEditKind(kind: string): kind is RegistryEdit['kind'] {
+  return Object.hasOwn(REGISTRY_EDIT_READERS, kind)
+}
+
 function readRegistryEdit(value: unknown): ReadResult<RegistryEdit> {
   if (!isRecord(value)) return { ok: false, message: 'edit must be an object' }
   const kind = value.kind
-  if (kind === 'setAvailable') {
-    const modelName = readRegistryName(value.modelName, 'modelName')
-    if (!modelName.ok) return modelName
-    if (typeof value.available !== 'boolean') return { ok: false, message: 'available must be a boolean' }
-    return { ok: true, value: { kind, modelName: modelName.value, available: value.available } }
+  if (typeof kind !== 'string' || !isRegistryEditKind(kind)) {
+    return { ok: false, message: 'unknown registry edit kind' }
   }
-  if (kind === 'setSysPrompt') {
-    const modelName = readRegistryName(value.modelName, 'modelName')
-    if (!modelName.ok) return modelName
-    const sysPrompt = readOptionalText(value.sysPrompt, 'sysPrompt')
-    if (!sysPrompt.ok) return sysPrompt
-    return { ok: true, value: { kind, modelName: modelName.value, sysPrompt: sysPrompt.value } }
-  }
-  if (kind === 'remapAlias') {
-    const alias = readRegistryName(value.alias, 'alias')
-    if (!alias.ok) return alias
-    const target = readRegistryName(value.target, 'target')
-    if (!target.ok) return target
-    return { ok: true, value: { kind, alias: alias.value, target: target.value } }
-  }
-  if (kind === 'deleteAlias') {
-    const alias = readRegistryName(value.alias, 'alias')
-    if (!alias.ok) return alias
-    return { ok: true, value: { kind, alias: alias.value } }
-  }
-  if (kind === 'deleteModel') {
-    const modelName = readRegistryName(value.modelName, 'modelName')
-    if (!modelName.ok) return modelName
-    return { ok: true, value: { kind, modelName: modelName.value } }
-  }
-  if (kind === 'addAlias') {
-    const alias = readRegistryName(value.alias, 'alias')
-    if (!alias.ok) return alias
-    const target = readRegistryName(value.target, 'target')
-    if (!target.ok) return target
-    const source = readLayerSource(value.source)
-    if (!source.ok) return source
-    return { ok: true, value: { kind, alias: alias.value, target: target.value, source: source.value } }
-  }
-  if (kind === 'addModel') {
-    const modelName = readRegistryName(value.modelName, 'modelName')
-    if (!modelName.ok) return modelName
-    const provider = readString(value.provider, 'provider', 256)
-    if (!provider.ok) return provider
-    const model = readString(value.model, 'model', 256)
-    if (!model.ok) return model
-    const sysPrompt = readOptionalText(value.sysPrompt, 'sysPrompt')
-    if (!sysPrompt.ok) return sysPrompt
-    if (value.available !== undefined && value.available !== null && typeof value.available !== 'boolean') {
-      return { ok: false, message: 'available must be a boolean when given' }
-    }
-    const source = readLayerSource(value.source)
-    if (!source.ok) return source
-    return {
-      ok: true,
-      value: {
-        kind,
-        modelName: modelName.value,
-        provider: provider.value,
-        model: model.value,
-        sysPrompt: sysPrompt.value,
-        available: typeof value.available === 'boolean' ? value.available : undefined,
-        source: source.value,
-      },
-    }
-  }
-  return { ok: false, message: 'unknown registry edit kind' }
+  return REGISTRY_EDIT_READERS[kind](value)
 }
 
 function readRegistryName(value: unknown, field: string): ReadResult<string> {

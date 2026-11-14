@@ -12,7 +12,7 @@ import { dispatchControlRequest } from '../src/dsh/host/index.ts'
 import { createControlFixture } from './support/control-fixture.ts'
 
 import type { ControlClient, ControlCore } from '../src/control/index.ts'
-import type { InMemoryControlCore } from '../src/control/memory.ts'
+import type { InMemoryControlCore } from './support/memory.ts'
 
 const fixture = createControlFixture({ projectRoot: '/client-proj', dshHome: '/client-home' })
 const {

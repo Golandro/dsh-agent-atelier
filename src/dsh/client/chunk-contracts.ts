@@ -24,9 +24,6 @@
 import type { AliasRegistrySource } from '../../contract/index.ts'
 import type { AgentChainReport, ControlSnapshot, RegistryEdit, WriteFailureCode, WriteResult } from '../../control/index.ts'
 
-/** Specifiers the on-demand chunk loader accepts for this package. */
-export type ChunkSpecifier = './client.editor.js' | './client.list.js' | './client.registry.js'
-
 /** Editable block kind the editor chunk renders (v1 ruling: no clip rows). */
 export type EditorBlockKind = 'frontmatter' | 'prose'
 

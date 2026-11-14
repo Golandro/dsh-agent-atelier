@@ -21,7 +21,7 @@ providers 是「来源适配」域，两类职责彼此分离：
 
 矩阵给 providers 的 entries 是 `src/contract/index.ts` 与 `src/catalog/ports.ts`（窄端口，不需要整个 catalog）；node 为 true，cordis 为 false。本层因此可以 I/O，但不能读 catalog 的发现 / 读器实现，也不能 import 宿主包。
 
-消费者方向：dsh/host 的 `src/dsh/host/core.ts` 构造注册表并 provide；`src/dsh/host/providers.ts` 把四个根加 bundled 根注册进去；catalog 的 agent registry 只消费注入的 `AgentProviders`；control 的 `src/control/memory.ts` 用真实注册表与两个文件系统 provider 搭测试适配器，写路径用 `ControlFileSystem` 端口。providers 不反向 import control / resolve / catalog 入口。
+消费者方向：dsh/host 的 `src/dsh/host/core.ts` 构造注册表并 provide；`src/dsh/host/providers.ts` 把四个根加 bundled 根注册进去；catalog 的 agent registry 只消费注入的 `AgentProviders`；测试装配 `test/support/memory.ts`（簇 N 起迁出生产 bundle）用真实注册表与两个文件系统 provider 搭内存适配器，写路径用 `ControlFileSystem` 端口。providers 不反向 import control / resolve / catalog 入口。
 
 ## 关键符号与落点
 

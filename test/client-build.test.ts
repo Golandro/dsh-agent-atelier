@@ -30,9 +30,29 @@ let editor = ''
 let list = ''
 let registry = ''
 
+/**
+ * Run one build script and, if it fails, rethrow with the log attached.
+ *
+ * 簇 P: `stdio: 'pipe'` kept the output out of the reporter, so a broken build
+ * surfaced as a bare "Command failed" with the actual error swallowed. Keeping
+ * the build inside this suite (rather than a separate `check:build` job) is the
+ * documented default — `pnpm run check` semantics stay unchanged — so the log
+ * has to reach the person reading the failure.
+ */
+function runBuild(script: string): void {
+  try {
+    execFileSync('node', [script], { cwd: ROOT, stdio: 'pipe' })
+  } catch (error) {
+    const failure = error as { stdout?: Buffer; stderr?: Buffer; message?: string }
+    const log = [failure.stdout?.toString() ?? '', failure.stderr?.toString() ?? ''].join('').trim()
+    throw new Error(`${script} 构建失败：${failure.message ?? '未知错误'}
+${log || '(构建脚本没有输出)'}`)
+  }
+}
+
 beforeAll(() => {
-  execFileSync('node', ['scripts/build-client.mjs'], { cwd: ROOT, stdio: 'pipe' })
-  execFileSync('node', ['scripts/build-chunks.mjs'], { cwd: ROOT, stdio: 'pipe' })
+  runBuild('scripts/build-client.mjs')
+  runBuild('scripts/build-chunks.mjs')
   const read = (name: string): string => {
     const path = join(ROOT, 'lib', name)
     expect(existsSync(path), `lib/${name} 应由构建产生`).toBe(true)

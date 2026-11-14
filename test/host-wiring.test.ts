@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { AGENT_CONTROL_SERVICE } from '../src/contract/index.ts'
 import { createAssemblyService } from '../src/agent-assembly/index.ts'
-import { createInMemoryControlCore } from '../src/control/memory.ts'
+import { createInMemoryControlCore } from './support/memory.ts'
 import { FRONTMATTER_FIELDS, FRONTMATTER_FIELD_KEYS } from '../src/yaml/index.ts'
 import {
   CLIENT_MARKER_HEADER,
@@ -21,7 +21,7 @@ import { createControlFixture } from './support/control-fixture.ts'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ModelSelectionPolicy } from '../src/contract/index.ts'
 import type { ControlCore } from '../src/control/index.ts'
-import type { InMemoryControlCore } from '../src/control/memory.ts'
+import type { InMemoryControlCore } from './support/memory.ts'
 import type { ControlDispatchInput, ControlDispatchResult } from '../src/dsh/host/index.ts'
 
 const fixture = createControlFixture({ projectRoot: '/wire-proj', dshHome: '/wire-home' })

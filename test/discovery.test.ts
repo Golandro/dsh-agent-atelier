@@ -16,7 +16,6 @@ import { createFileSystemAgentProvider, createNodeFileSystem } from '../src/prov
 import { scratchDir, write } from './support/fs.ts'
 import {
   BUNDLED_AGENT_RANK,
-  CUSTOM_RANK,
   PROJECT_AGENTS_RANK,
   PROJECT_DSH_RANK,
   USER_AGENTS_RANK,
@@ -177,9 +176,15 @@ describe('agent discovery roots', () => {
     expect([...ranks].sort((left, right) => left - right)).toEqual(ranks)
     expect(new Set(ranks).size).toBe(ranks.length)
 
-    expect(AGENT_SOURCE_RANK['project-agents']).toBeLessThan(CUSTOM_RANK)
-    expect(AGENT_SOURCE_RANK['user-dsh']).toBeGreaterThan(CUSTOM_RANK)
-    expect(ranks).not.toContain(CUSTOM_RANK)
+    // The table's doc reserves a 300 slot between project-agents (200) and
+    // user-dsh (400) for v2 custom roots. 簇 M deleted the host's unused
+    // CUSTOM_RANK export, so the reservation is asserted here as data. It stays
+    // a test-local literal on purpose: exporting it from contract would widen
+    // the public surface for a number no provider registers.
+    const reservedCustomRank = 300
+    expect(AGENT_SOURCE_RANK['project-agents']).toBeLessThan(reservedCustomRank)
+    expect(AGENT_SOURCE_RANK['user-dsh']).toBeGreaterThan(reservedCustomRank)
+    expect(ranks).not.toContain(reservedCustomRank)
   })
 
   it('lets the workspace win a duplicate agent name, then the earlier user root', async () => {

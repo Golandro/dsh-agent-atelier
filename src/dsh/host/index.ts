@@ -16,7 +16,7 @@ export type { SummonPluginConfig } from './summon.ts'
 export { mountFailureLedger } from './failures.ts'
 export type { FailureLedgerOptions } from './failures.ts'
 export type { AssemblyPluginConfig } from './assembly.ts'
-export { applyProviders, BUNDLED_AGENTS_DIR, CUSTOM_RANK, PROJECT_AGENTS_RANK, PROJECT_DSH_RANK, USER_AGENTS_RANK, USER_DSH_RANK, BUNDLED_AGENT_RANK, inject as providerRowInject } from './providers.ts'
+export { applyProviders, BUNDLED_AGENTS_DIR, PROJECT_AGENTS_RANK, PROJECT_DSH_RANK, USER_AGENTS_RANK, USER_DSH_RANK, BUNDLED_AGENT_RANK, inject as providerRowInject } from './providers.ts'
 export { applyUiHost, handleControlRequest } from './ui-host.ts'
 export type { HostWebServer } from './ui-host.ts'
 export {

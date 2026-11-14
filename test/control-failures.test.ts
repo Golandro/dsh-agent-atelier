@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { createInMemoryControlCore } from '../src/control/memory.ts'
+import { createInMemoryControlCore } from './support/memory.ts'
 import { RATE_LIMIT_WINDOW_MS } from '../src/resolve/observations.ts'
 
 import type { ChainObservations } from '../src/contract/index.ts'

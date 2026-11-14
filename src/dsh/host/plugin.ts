@@ -21,14 +21,21 @@ import { applyProviders } from './providers.ts'
 import { applySummon } from './summon.ts'
 import { applyUiHost } from './ui-host.ts'
 
-/** Loader-row config understood by the package root. */
+/**
+ * Loader-row config understood by the package root.
+ *
+ * Only `ui-host` is a real mode: the bare-name row asks for it so the row does
+ * not mount the registries a second time. Everything else — an absent config,
+ * an empty one, or any other value — mounts the all-in-one compatibility
+ * entry, which is what `package.json`'s `main` and the subpath rows need.
+ *
+ * 簇 M: the old `'all'` literal was never passed by anything and meant exactly
+ * the same as omitting the field, so it is gone; `ui-host` is the one value
+ * that selects a different behaviour.
+ */
 export interface AgentManagerPluginConfig {
-  /**
-   * `all` (default) mounts the core, assembly and filesystem provider rows in
-   * one plugin; `ui-host` mounts only the control routes, for the bare-name
-   * loader row.
-   */
-  readonly role?: 'all' | 'ui-host' | undefined
+  /** `ui-host` mounts only the control routes, for the bare-name loader row. */
+  readonly role?: 'ui-host' | undefined
 }
 
 /** Plugin entry; the loader passes the row config as the second argument. */

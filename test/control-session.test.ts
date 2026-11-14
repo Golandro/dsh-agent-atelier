@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 
 import { projectItemEffort, routeNotAllowed } from '../src/control/resolve.ts'
 import { ChainExhaustedError } from '../src/control/session-agent.ts'
-import { createInMemoryControlCore } from '../src/control/memory.ts'
+import { createInMemoryControlCore } from './support/memory.ts'
 import { resolveModelChain } from '../src/resolve/index.ts'
 
 import type { AgentDefinition, AliasRegistrySnapshot, ChainObservations, ChainResolutionInput, ModelSelectionPolicy } from '../src/contract/index.ts'
-import type { InMemoryControlCore } from '../src/control/memory.ts'
+import type { InMemoryControlCore } from './support/memory.ts'
 import type { ComposeSessionOptions } from '../src/control/session.ts'
 
 const PROJECT = '/start-proj'

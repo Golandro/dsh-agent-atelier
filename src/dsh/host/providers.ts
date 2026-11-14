@@ -28,12 +28,13 @@ export const PROJECT_DSH_RANK = AGENT_SOURCE_RANK['project-dsh']
 /** Project-level root inside the workspace's `.agents` directory. */
 export const PROJECT_AGENTS_RANK = AGENT_SOURCE_RANK['project-agents']
 /**
- * Reserved slot between `project-agents` (200) and `user-dsh` (400) in the
- * contract's rank table: v2 custom agent directories, which have no
- * `AgentSource` yet and so no row of their own.
+ * User-level root under `$DSH_HOME`.
+ *
+ * The 300 slot between this root and `project-agents` (200) stays reserved for
+ * v2 custom roots; there is no constant for it here because no provider
+ * registers it (簇 M: an unused export is not a promise). The reservation is
+ * documented on `AGENT_SOURCE_RANK`.
  */
-export const CUSTOM_RANK = 300
-/** User-level root under `$DSH_HOME`. */
 export const USER_DSH_RANK = AGENT_SOURCE_RANK['user-dsh']
 /** User-level root under `$DSH_AGENTS_HOME` (default `~/.agents`). */
 export const USER_AGENTS_RANK = AGENT_SOURCE_RANK['user-agents']

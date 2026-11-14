@@ -23,6 +23,26 @@ first message) and deliberately delegates runtime orchestration to native DSH.
 `agentRegistry` is deliberately **not** named `agents`: the host already owns
 `ctx.agents`, and a bundle must not shadow a native service.
 
+### Row config compatibility
+
+The package root (`main` → `apply`) is a supported entry, not an internal one.
+Only a **bare-name** row reaches it: the subpath entries (`/core`, `/assembly`,
+`/summon`, `/providers/fs`) each resolve to their own module and call that
+module's `apply`, so the row config never selects between them.
+
+| Loader row | `config` | Mounts |
+| --- | --- | --- |
+| bare package name | `{ role: 'ui-host' }` | only the `/agent-atelier/*` control routes (the client module scanner only treats a bare-name row as a client source, so this row must stay bare) |
+| bare package name | omitted / `{}` | the all-in-one entry: core + assembly + summon + providers |
+
+Omitting the config is the compatibility promise: a single-row consumer that
+mounts this package by name keeps working. Nothing in this repo's own
+`cordis.patch.yml` relies on it — that patch uses the subpath rows plus a
+`role: 'ui-host'` bare row — so the promise is to external consumers, not to a
+consumer you can grep for here. `role` accepts **only** `'ui-host'`; any other
+value is not a mode. (Until 簇 M the type also listed `'all'`, which nothing
+ever passed and which behaved exactly like omitting the field.)
+
 ## Commands
 
 ```bash

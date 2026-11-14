@@ -6,7 +6,7 @@ import { createControlFixture } from './support/control-fixture.ts'
 
 import type { AgentDefinition, AgentSource } from '../src/contract/index.ts'
 import type { AgentListQuery, AgentRow, DocumentEdit } from '../src/control/index.ts'
-import type { InMemoryControlCore } from '../src/control/memory.ts'
+import type { InMemoryControlCore } from './support/memory.ts'
 
 const PROJECT_ROOT = '/dsh-proj'
 const DSH_HOME = '/dsh-home'

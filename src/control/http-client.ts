@@ -91,17 +91,17 @@ export function createHttpControlClient(options: HttpControlClientOptions = {}):
   return {
     async snapshot(call) {
       const body = await request('state', 'GET', undefined, call)
-      return readField<ControlSnapshot>(body, 'snapshot', 'snapshot')
+      return readField<ControlSnapshot>(body, 'snapshot')
     },
 
     async compose(agentName, call) {
       const body = await request('compose', 'POST', { agentName }, call)
-      return readField<ComposedAgentDocument>(body, 'document', 'document')
+      return readField<ComposedAgentDocument>(body, 'document')
     },
 
     async chainReport(agentName, call) {
       const body = await request('chain', 'POST', { agentName }, call)
-      const report = readField<ChainResolutionReport>(body, 'report', 'report')
+      const report = readField<ChainResolutionReport>(body, 'report')
       // Two wire fields, one domain shape: the exhausted flag is checked, not
       // defaulted, so a schema drift cannot read as "the chain resolved".
       const exhausted = body.exhausted
@@ -113,17 +113,17 @@ export function createHttpControlClient(options: HttpControlClientOptions = {}):
 
     async plan(agentName, edits: readonly DocumentEdit[], call) {
       const body = await request('plan', 'POST', { agentName, edits }, call)
-      return readField<WritePlan>(body, 'plan', 'plan')
+      return readField<WritePlan>(body, 'plan')
     },
 
     async commit(edits: readonly DocumentEdit[], call) {
       const body = await request('commit', 'POST', { edits }, call)
-      return readField<WriteReport>(body, 'report', 'report')
+      return readField<WriteReport>(body, 'report')
     },
 
     async applyRegistryEdit(edit: RegistryEdit, call) {
       const body = await request('registry', 'POST', { edit }, call)
-      return readField<WriteReport>(body, 'report', 'report')
+      return readField<WriteReport>(body, 'report')
     },
 
     async invalidate(call) {
@@ -145,9 +145,16 @@ function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function readField<T>(body: JsonRecord, field: string, label: string): T {
+/**
+ * Read one required member of a route response.
+ *
+ * 簇 P: the old signature took a third `label` argument that every call site
+ * passed as the same string as `field`; a parameter that can only ever
+ * duplicate another is noise, so the message reads `field` directly.
+ */
+function readField<T>(body: JsonRecord, field: string): T {
   const value = body[field]
-  if (value === undefined) throw new ControlClientError(500, 'internal', `control route response is missing "${label}"`)
+  if (value === undefined) throw new ControlClientError(500, 'internal', `control route response is missing "${field}"`)
   return value as T
 }
 

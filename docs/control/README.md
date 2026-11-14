@@ -13,7 +13,7 @@ control 是写作核心域：把一份 agent 文档的原始字节组成编辑�
 - `src/control/index.ts`：唯一跨包公共入口，re-export control core、session / summon / resolve 的纯决策、failure recorder、两种 client 适配器、query 求值器与全部域类型。跨包读取只准落在这里。
 - `src/control/client-errors.ts`：窄子入口。wire 形状的错误类（`ControlClientError`、`UnknownAgentError`）、写入报告到 HTTP 状态的映射、abort 判据与 mutation 标记头；浏览器安全，不 import `node:*`。dsh/client 与 host wire 共享同一份标记和状态语义。
 - `src/control/http-client.ts`：窄子入口。`ControlClient` 的 HTTP 适配器，面向固定路由（state / compose / chain / plan / commit / registry / invalidate），把非 2xx body 映射成同一个 `ControlClientError`；不 import `node:*`，浏览器与测试共用。
-- 内部 seam 不扩大公共面：`src/control/memory.ts` 的 `createInMemoryControlCore`、`src/control/writes.ts` 的纯计划函数、`src/control/compose.ts` 的块切分仍由 core 组装，测试直接 import 模块。
+- 内部 seam 不扩大公共面：`test/support/memory.ts` 的 `createInMemoryControlCore`（簇 N 迁出生产 bundle）、`src/control/writes.ts` 的纯计划函数、`src/control/compose.ts` 的块切分仍由 core 组装，测试直接 import 模块。
 
 ## 依赖方向
 
@@ -35,11 +35,12 @@ control 是写作核心域：把一份 agent 文档的原始字节组成编辑�
 | `src/control/query.ts` | `evaluateAgentQuery`：列表筛选与排序的唯一解释者；层轴 `layerRankOf` 读 contract 的 `AGENT_SOURCE_RANK`（唯一 rank 表，本地不再维护），问题权重与稳定并列由它决定，视图与测试不得各写一份。 |
 | `src/control/failures.ts` | `classify`、`createFailureRecorder`。请求终态失败记 `failures`，attempt 级只更新展示字段；rate-limit 按 `(session, turn, step)` 去重；不读时钟，`observations(now)` 用注入时刻。 |
 | `src/control/resolve.ts` | `sessionChainContext`、`projectItemEffort`、`routeNotAllowed`。把文档与已读快照投影进纯链引擎，本身不重排、不改写失败。 |
-| `src/control/client.ts`、`src/control/memory.ts` | `ControlClient` / `createMemoryControlClient` 是两个适配器的共同端口；memory 用 `Map<string, string>` 跑真实的 provider、registry 与写算法，不复制 merge / serialization。 |
+| `src/control/client.ts` | `ControlClient` / `createMemoryControlClient` 是两个适配器的共同端口。内存适配器本身是测试装配，簇 N 起在 `test/support/memory.ts`（见「测试 seam」）。 |
 | `src/control/types.ts` | 域形状：composed document、edit、write plan / report、registry edit、snapshot / query。不引入字符偏移或编辑器状态。 |
 
 ## 测试 seam
 
+- `test/support/memory.ts`：内存适配器（`createInMemoryControlCore`），用 `Map<string, string>` 跑真实的 provider、registry 与写算法，不复制 merge / serialization。簇 N 把它迁出生产 bundle——它不是公共入口，也不该占领域落点表的位置。
 - `test/control-*.test.ts` 覆盖本域：`control-compose`（fence 与逐字节往返）、`control-core`（内存适配器上的完整读写）、`control-frontmatter-edit`、`control-node-write`（临时文件 / rename）、`control-scope`（工作空间作用域与 registry 编辑）、`control-session`（链解析与 allowlist）、`control-failures`、`control-client`（两种适配器同一契约）、`control-assemblies`（snapshot 的装配投影）。
 - `test/host-wiring.test.ts`：wire 路由只做信封校验再调 control core，字段编辑与冲突 / 只读映射不另造规则。
 - `test/failures-wiring.test.ts`：两条宿主腿「先 delegate 再记录」与 attempt-only 的语义。
@@ -54,6 +55,6 @@ control 是写作核心域：把一份 agent 文档的原始字节组成编辑�
 ## 待收口项
 
 - TODO（包抽象 3）：按票面确认 `src/control/index.ts` 的公共面是否最终冻结为当前导出集合；任何新增 / 收窄先改矩阵与 self-test，禁止用深路径兼容。
-- TODO（包抽象 3）：复核 `src/control/memory.ts`、`src/control/compose.ts`、`src/control/writes.ts` 等内部 seam 的「测试直读」边界，写实本页并补齐与 dsh/host 的职责表。
+- TODO（包抽象 3）：复核 `test/support/memory.ts`、`src/control/compose.ts`、`src/control/writes.ts` 等内部 seam 的「测试直读」边界，写实本页并补齐与 dsh/host 的职责表。
 - TODO（包抽象 3）：确认 `src/control/types.ts` 对 `FrontmatterField` 的 re-export 是否仍需要（类型唯一真相在 `src/contract/types.ts`），保持单一类型来源、不复制定义。
 - TODO（docs 收口）：本页状态转「落定」，与包抽象 3 的 docs 全量刷新同批；届时把上表的事实与 ADR-0008 的最终布局对齐。

@@ -9,15 +9,21 @@
  * path prefixes (directories are implied by deeper keys), and the write port
  * mints unique temp names per instance. No merge, scan or serialization logic
  * is duplicated here.
+ *
+ * 簇 N: this module lives in `test/support/`, not `src/control/`. It is test
+ * assembly — a Map-backed filesystem plus provider wiring — so shipping it in
+ * the production bundle was paying for code no host path executes. It is not a
+ * public entry either way: `src/control/index.ts` never re-exported it, and
+ * `tsconfig.build.json` only compiles `src/`, so `lib/` no longer carries it.
  */
 import { join } from 'node:path'
 
-import { createAgentRegistryService, createAliasRegistryService } from '../catalog/index.ts'
-import { createAgentProviders } from '../providers/index.ts'
-import type { AgentDirEntry, AgentFileSystem, ControlFileSystem } from '../catalog/ports.ts'
-import { createFileSystemAgentProvider } from '../providers/fs/index.ts'
-import { createControlCore, type ControlCore } from './core.ts'
-import type { AgentDiagnostic, AgentModelTarget, AgentAssembly, ModelSelectionPolicy } from '../contract/index.ts'
+import { createAgentRegistryService, createAliasRegistryService } from '../../src/catalog/index.ts'
+import { createAgentProviders } from '../../src/providers/index.ts'
+import type { AgentDirEntry, AgentFileSystem, ControlFileSystem } from '../../src/catalog/ports.ts'
+import { createFileSystemAgentProvider } from '../../src/providers/fs/index.ts'
+import { createControlCore, type ControlCore } from '../../src/control/core.ts'
+import type { AgentDiagnostic, AgentModelTarget, AgentAssembly, ModelSelectionPolicy } from '../../src/contract/index.ts'
 
 /** Construction options; every path is in-memory and never touched on disk. */
 export interface InMemoryControlOptions {

@@ -9,12 +9,14 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 import {
+  KEYBOARD_STEP_PX,
   PANE_CONTENT_MIN_REM,
   PANE_LIST_DEFAULT_REM,
   PANE_LIST_MIN_REM,
   PANE_SPLITTER_REM,
 } from '../src/dsh/client/pane.tsx'
 import {
+  KEYBOARD_STEP_PX as CHUNK_KEYBOARD_STEP_PX,
   PANE_CONTENT_MIN_REM as CHUNK_CONTENT_MIN_REM,
   PANE_LIST_DEFAULT_REM as CHUNK_LIST_DEFAULT_REM,
   PANE_LIST_MIN_REM as CHUNK_LIST_MIN_REM,
@@ -48,6 +50,8 @@ describe('分栏布局（CSS 容器查询）', () => {
     expect(CHUNK_CONTENT_MIN_REM).toBe(PANE_CONTENT_MIN_REM)
     expect(CHUNK_SPLITTER_REM).toBe(PANE_SPLITTER_REM)
     expect(CHUNK_LIST_DEFAULT_REM).toBe(PANE_LIST_DEFAULT_REM)
+    // 键盘步进也是两份副本的共同口径：它没有 CSS 对应量，漂移只能靠这里拦。
+    expect(CHUNK_KEYBOARD_STEP_PX).toBe(KEYBOARD_STEP_PX)
   })
 
   it('模型关联页的窄容器单栏规则用同一断点', () => {

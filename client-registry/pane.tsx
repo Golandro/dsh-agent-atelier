@@ -2,10 +2,15 @@
  * 分栏布局（registry chunk 私有件，票 63）。
  *
  * 与主 bundle `src/dsh/client/pane.tsx` 同构、常量同口径（20rem / 40rem /
- * 0.375rem / 默认 24rem）：发布 chunk 不能 import 主 bundle 源码（import 矩阵
- * 只放行 control 公共入口与 chunk-contracts），所以这里是与 client-list 的
- * ListPane 相同的刻意重复；test/pane-layout-css.test.ts 断言两套常量相等，
- * 防止漂移。
+ * 0.375rem / 默认 24rem / 键盘步进 16px）：发布 chunk 不能 import 主 bundle 源码
+ * （import 矩阵只放行 control 公共入口与 chunk-contracts），所以这里是与
+ * client-list 的 ListPane 相同的刻意重复；test/pane-layout-css.test.ts 断言两套
+ * 常量相等，防止漂移。
+ *
+ * 抽屉扣除（`excludeRef` / `excludeActive`）在本 chunk 里同样零消费者，簇 M
+ * 一并删掉了——此前只靠注释宣称「这里有消费者」，实际只有 `model-links.tsx`
+ * 传 `measureKey`。主 bundle 那份连 `options` 参数都没有了；本 chunk 保留
+ * `PaneLayoutOptions` 仅为承载 `measureKey`（变化时重新测量）。
  *
  * 与主 bundle 版本的差异只有两处：
  * 1. 初始尺寸对 SSR 安全（没有 window / document 时用 1280px / 16px 占位，
@@ -27,6 +32,8 @@ export const PANE_CONTENT_MIN_REM = 40
 export const PANE_LIST_DEFAULT_REM = 24
 /** 分隔条宽（rem）；与主 bundle pane.tsx 一致。 */
 export const PANE_SPLITTER_REM = 0.375
+/** 分隔条上的键盘步进（px）；与主 bundle pane.tsx 一致（簇 P）。 */
+export const KEYBOARD_STEP_PX = 16
 
 /** 分隔条类名（主 bundle 的 nsClass('pane-splitter') 里的局部类）。 */
 const SPLITTER_CLASS = 'pane-splitter'
@@ -41,10 +48,6 @@ function viewportWidth(): number {
 }
 
 export interface PaneLayoutOptions {
-  /** 从可用宽度中扣除的元素（如右侧顾问抽屉）。 */
-  readonly excludeRef?: RefObject<HTMLElement | null>
-  /** 排除项当前是否生效。 */
-  readonly excludeActive?: boolean
   /** 容器挂载/切换标识；变化时重新测量并观察。 */
   readonly measureKey?: unknown
 }
@@ -79,22 +82,17 @@ export function usePaneLayout<T extends HTMLElement>(
 
   useLayoutEffect(() => {
     const update = () => {
-      const base = containerRef.current?.clientWidth ?? viewportWidth()
-      const excluded = options.excludeActive === true && options.excludeRef?.current
-        ? options.excludeRef.current.offsetWidth
-        : 0
-      setAvailable(Math.max(0, base - excluded))
+      setAvailable(Math.max(0, containerRef.current?.clientWidth ?? viewportWidth()))
     }
     update()
     const ro = new ResizeObserver(update)
     if (containerRef.current) ro.observe(containerRef.current)
-    if (options.excludeActive === true && options.excludeRef?.current) ro.observe(options.excludeRef.current)
     window.addEventListener('resize', update)
     return () => {
       ro.disconnect()
       window.removeEventListener('resize', update)
     }
-  }, [containerRef, options.excludeRef, options.excludeActive, options.measureKey])
+  }, [containerRef, options.measureKey])
 
   const maxListWidth = Math.max(minList, available - minContent - splitter)
   const defaultListWidth = Math.min(maxListWidth, Math.max(minList, PANE_LIST_DEFAULT_REM * rem))
@@ -169,10 +167,10 @@ export function PaneSplitter(props: PaneSplitterProps): ReactNode {
     onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => {
       if (event.key === 'ArrowLeft') {
         event.preventDefault()
-        props.onResize(Math.max(min, props.value - 16))
+        props.onResize(Math.max(min, props.value - KEYBOARD_STEP_PX))
       } else if (event.key === 'ArrowRight') {
         event.preventDefault()
-        props.onResize(Math.min(max, props.value + 16))
+        props.onResize(Math.min(max, props.value + KEYBOARD_STEP_PX))
       }
     },
   })

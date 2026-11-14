@@ -6,9 +6,9 @@
  * document or extra layers (the control core's user layer) pass them in.
  */
 
-import { createInMemoryControlCore } from '../../src/control/memory.ts'
+import { createInMemoryControlCore } from './memory.ts'
 
-import type { InMemoryControlCore, InMemoryControlOptions } from '../../src/control/memory.ts'
+import type { InMemoryControlCore, InMemoryControlOptions } from './memory.ts'
 
 /** The default document: one fenced agent named alpha. */
 export const STANDARD_DOC_TEXT = '---\nname: Alpha\ndescription: first\n---\nAlpha body\n'

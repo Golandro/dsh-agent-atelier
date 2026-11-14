@@ -11,7 +11,7 @@
 ## 公共入口
 
 - 面板入口 `src/dsh/client/index.ts`：导出 `apply`、`inject`（`['slots']`）、`AgentControlPage`、`AgentControlIcon` 与 `ClientContext` 类型（`ClientSlots` 是入口内部形状）。`apply` 经 `ctx.slots.inject` 占 `sidebar.panellist` 行（id `agent-atelier`，order 5）与同 id 的 `main` 面板；页面持有一个 `createHttpControlClient()` 实例，壳只跑 loading / error / retry 状态机。
-- 跨翼共享形状 `src/dsh/client/chunk-contracts.ts`：`ChunkSpecifier`、`EditorChunk` / `ListChunk` / `RegistryChunk`、`PanelFocus` 等。这是主 bundle 与三个 chunk 的唯一共享面；chunk 不反向 import 主 bundle。
+- 跨翼共享形状 `src/dsh/client/chunk-contracts.ts`：`EditorChunk` / `ListChunk` / `RegistryChunk`、`PanelFocus` 等。这是主 bundle 与三个 chunk 的唯一共享面；chunk 不反向 import 主 bundle。
 - chunk 加载缝 `src/dsh/client/chunk-loader.ts`：`loadEditorChunk` / `loadListChunk` / `loadRegistryChunk`。源码体在构建态由 `scripts/build-client.mjs` 换成 `require.async` 转发；未构建时抛「只在成品 bundle 可用」。
 - 三个发布 chunk：`client-editor/index.ts`（`createDocumentEditor`，CodeMirror，无 React）、`client-list/index.tsx`（`AgentListView`，TanStack + `evaluateAgentQuery`）、`client-registry/index.tsx`（`ModelRegistryView` / `PromptRegistryView`）。
 
