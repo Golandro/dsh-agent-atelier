@@ -38,10 +38,12 @@ multi-context (`GLOSSARY-MAP.md` at the root pointing at per-context `GLOSSARY.m
   a report template; an Explore snippet list is not a fact report, and repeating
   the dispatch is not progress.
 - **External sources stay external**: host source such as DSH is checked out with
-  `git worktree` under `$ProjectRoot/.vendor/` (gitignored), not vendored into
-  the tree or committed, but remains searchable. It must be a **real checkout**,
-  never a symlink: the LSP host resolves paths through `realpath`, so a link
-  pointing outside `$ProjectRoot` fails every query. See
+  `git worktree` under `$ProjectRoot/.vendor/`, not vendored into the tree or
+  committed, but remains searchable. It must be a **real checkout**, never a
+  symlink: the LSP host resolves paths through `realpath`, so a link pointing
+  outside `$ProjectRoot` fails every query. The path is a **submodule gitlink**
+  that records only the commit (with `update = none`, so no `submodule update`
+  and no clone); materialize it with `node scripts/vendor-worktree.mjs`. See
   `.agents/rules/agent-lsp-userguide.md`.
 - **Explicit waivers win**: when the user says not to re-check state, skip
   `git status` / `git log`; stage the named paths and proceed.

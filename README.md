@@ -64,13 +64,37 @@ The script probes before it acts and is safe to re-run:
   historical `~/repo/deepseek-harness`;
 - an already-correct worktree is reported and left untouched;
 - a legacy symlink is replaced (only the link is removed);
+- the empty directory git creates for a fresh clone is filled in place;
 - a directory holding unrelated files is refused, not overwritten;
 - only `--clone` reaches the network, and it clones **outside** the workspace.
 
 It also links the source's `node_modules` into the worktree, because a worktree
-holds only version-controlled files. Pass `--ref <ref>` to pin a different
-commit. LSP needs the checkout to be a project root (the directory holding
-`tsconfig.json`), not an ancestor of one.
+holds only version-controlled files. LSP needs the checkout to be a project root
+(the directory holding `tsconfig.json`), not an ancestor of one.
+
+### The pin is tracked; the content is not
+
+`.vendor/deepseek-harness` is a **submodule gitlink** in this repository's index,
+so a clone knows exactly which commit the LSP is supposed to see:
+
+```
+160000 66491b05e3... .vendor/deepseek-harness   # dsh-v0.2.2-rc.1
+```
+
+`.gitmodules` pairs it with `update = none`, which makes `git submodule
+update --init` a no-op — nobody silently clones 200 MB, and the working tree is
+never rewritten under a running session. `ignore = untracked` keeps `git status`
+clean despite the `node_modules` link inside.
+
+A fresh clone therefore gets an **empty** `.vendor/deepseek-harness` directory.
+Run the script: it reads the pinned commit from the index and checks it out from
+whatever local checkout it finds. `--ref` overrides the pin. If the local
+checkout does not contain the pinned commit (a newer pin than your checkout),
+the script says so and falls back to that checkout's `HEAD` rather than failing.
+
+Because `.gitignore` ignores `.vendor/*` and un-ignores this one path, bumping
+the pin is an ordinary `git add .vendor/deepseek-harness` after checking out the
+new commit inside the submodule — no `-f` required.
 
 ## Installing into the profile
 

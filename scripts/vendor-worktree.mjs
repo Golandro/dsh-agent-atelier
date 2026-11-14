@@ -25,9 +25,18 @@
  *   node scripts/vendor-worktree.mjs [--source <path>] [--ref <ref>] [--dry-run] [--clone]
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+} from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /** Repository root: two levels above this file, so callers cannot skew it. */
@@ -43,7 +52,8 @@ const args = process.argv.slice(2)
 const dryRun = args.includes('--dry-run')
 const wantClone = args.includes('--clone')
 const explicitSource = flagValue('--source')
-const ref = flagValue('--ref') ?? 'HEAD'
+const explicitRef = flagValue('--ref')
+const ref = explicitRef ?? pinnedRef() ?? 'HEAD'
 
 /** Read a `--flag value` pair, or `undefined` when absent. */
 function flagValue(name) {
@@ -52,6 +62,29 @@ function flagValue(name) {
   const value = args[index + 1]
   if (value === undefined || value.startsWith('--')) fail(`${name} requires a value`)
   return value
+}
+
+/**
+ * The commit this repository pins for `TARGET`, read from the index gitlink.
+ * A clone that tracks the path as a submodule records the exact commit to check
+ * out, so honouring it by default reproduces the pinned tree instead of whatever
+ * `HEAD` happens to be — and it needs no network.
+ */
+function pinnedRef() {
+  try {
+    const staged = execFileSync('git', ['-C', ROOT, 'ls-files', '--stage', '--', relTarget()], {
+      encoding: 'utf8',
+    }).trim()
+    const match = /^160000 ([0-9a-f]{40}) /.exec(staged)
+    return match === null ? undefined : match[1]
+  } catch {
+    return undefined
+  }
+}
+
+/** `TARGET` relative to the repository root, for git pathspecs. */
+function relTarget() {
+  return relative(ROOT, TARGET)
 }
 
 /** Report a fatal condition and exit non-zero. */
@@ -136,12 +169,31 @@ function isRegisteredWorktree(source) {
   }
 }
 
-/** Classify what currently occupies `TARGET`. */
+/**
+ * Classify what currently occupies `TARGET`.
+ *
+ * `empty-directory` is not an accident: a fresh clone of a repository that
+ * tracks this path as a gitlink gets an EMPTY directory created by git itself
+ * (the submodule placeholder). Treating that as `unrelated-directory` would
+ * refuse the very first run on every clean checkout, so it is filled in place.
+ * `git worktree add` accepts an existing empty directory.
+ */
 function targetState() {
   if (!existsSync(TARGET) && !isLink(TARGET)) return 'missing'
   if (isLink(TARGET)) return 'symlink'
   if (isGitCheckout(TARGET)) return 'checkout'
+  if (isEmptyDirectory(TARGET)) return 'empty-directory'
   return 'unrelated-directory'
+}
+
+/** Whether `path` is a real directory with no entries at all. */
+function isEmptyDirectory(path) {
+  try {
+    if (!lstatSync(path).isDirectory()) return false
+    return readdirSync(path).length === 0
+  } catch {
+    return false
+  }
 }
 
 /** `lstat` link check that tolerates a missing path. */
@@ -179,15 +231,48 @@ function linkNodeModules(source, targetIsReal = !dryRun) {
   say(`linked node_modules -> ${from}`)
 }
 
+/** Whether `source` can resolve `rev` to a commit it actually has. */
+function hasRef(source, rev) {
+  try {
+    execFileSync('git', ['-C', source, 'rev-parse', '--verify', '--quiet', `${rev}^{commit}`], {
+      stdio: 'ignore',
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The revision to check out: the requested one when the source has it, else the
+ * source's `HEAD`. A pin recorded by a newer clone is routinely absent from an
+ * older local checkout, and refusing to run over that would be worse than
+ * checking out the best commit available — so fall back loudly instead.
+ */
+function resolveRef(source) {
+  if (hasRef(source, ref)) return ref
+  const fallback = git(source, ['rev-parse', 'HEAD'])
+  say(
+    `source ${source} has no ${ref}; falling back to its HEAD ${fallback.slice(0, 10)}` +
+      ' (the pinned commit is not in this checkout — fetch it there to reproduce the pin)',
+  )
+  return fallback
+}
+
 /** Create the in-workspace worktree from `source`. */
 function addWorktree(source) {
+  const rev = resolveRef(source)
   if (dryRun) {
-    say(`[dry-run] would run: git -C ${source} worktree add --detach ${TARGET} ${ref}`)
+    say(`[dry-run] would run: git -C ${source} worktree add --detach ${TARGET} ${rev}`)
     return
   }
   mkdirSync(dirname(TARGET), { recursive: true })
-  execFileSync('git', ['-C', source, 'worktree', 'add', '--detach', TARGET, ref], { stdio: 'inherit' })
-  say(`created worktree at ${TARGET} from ${source} (${ref})`)
+  try {
+    execFileSync('git', ['-C', source, 'worktree', 'add', '--detach', TARGET, rev], { stdio: 'inherit' })
+  } catch {
+    fail(`git could not create a worktree at ${TARGET} from ${source} (${rev})`)
+  }
+  say(`created worktree at ${TARGET} from ${source} (${rev})`)
 }
 
 /** Clone the canonical copy outside the workspace, then worktree from it. */
@@ -240,6 +325,10 @@ function main() {
   if (state === 'symlink') {
     say('replacing the legacy symlink with a real worktree')
     if (!dryRun) rmSync(TARGET, { force: true })
+  }
+
+  if (state === 'empty-directory') {
+    say('filling the empty submodule placeholder git created for a fresh clone')
   }
 
   addWorktree(source)

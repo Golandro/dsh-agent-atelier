@@ -3,7 +3,12 @@ lib/
 .npm-cache/
 .pnpm-store/
 .probe/
-.vendor/
+# `.vendor/` holds the external DSH checkout. Everything there stays out of the
+# tree EXCEPT the submodule gitlink below, which is tracked so a fresh clone
+# knows which commit the LSP sees. It is a gitlink, not content:
+# `git submodule update --init` is disabled by `update = none` in `.gitmodules`.
+.vendor/*
+!.vendor/deepseek-harness
 .scratch/
 .dsh-mattskillsdeck-cache/
 *.tsbuildinfo

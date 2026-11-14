@@ -16,8 +16,12 @@ alwaysApply: true
 - **外部参考（如 DSH 源码）必须真实落在 `$ProjectRoot` 之下。** 宿主用
   `realpath` 做包含性判定（`fs.contains`），软链会被解开到链接目标：指向
   工作区外的软链**必然**以 `source "<path>" resolves outside the workspace` 失败。
-  用 `git worktree` 在工作区内检出真实文件（`.vendor/<name>/`，已 gitignore），
-  并补一条 `node_modules` 软链给它（依赖解析沿软链正常生效）。
+  用 `git worktree` 在工作区内检出真实文件（`.vendor/<name>/`），并补一条
+  `node_modules` 软链给它（依赖解析沿软链正常生效）。
+- `.vendor/deepseek-harness` 在本仓索引里是 **submodule gitlink**（只记 commit，
+  不含内容），`.gitmodules` 里 `update = none` ⇒ **不要**跑 `git submodule
+  update --init`，那是空操作，也别手工克隆。新克隆里它是空目录，跑
+  `node scripts/vendor-worktree.mjs` 即按 pin 检出。
 - 查询文档必须是工作区内真实文件；被查询文件的 import 由语言服务器自行解析，
   不受该包含性检查约束。
 

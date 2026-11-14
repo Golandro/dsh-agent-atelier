@@ -48,7 +48,8 @@ Provider（host）：`Service.listService` / `Event.listEvents` / `Config.listCo
 - **必须补 `node_modules` 软链。** worktree 只含受版本控制的文件，不含 `node_modules`；依赖解析会一路找到本仓的 `node_modules`，第三方包（如 `execa`）因此 `TS2307`。补 `ln -s <源仓库>/node_modules .vendor/<name>/node_modules` 后解析正常（`tsc` 通过；依赖解析沿软链生效，不受包含性检查约束）。
 - **根的粒度要够。** 语言服务器需要**工程根**（有 `tsconfig` 的那层）才建索引。实测把根设成源仓库的**父目录**（无 tsconfig 的那层）时，`documentSymbol` / `hover` / `references` 全部**静默返回空**（90 秒静置仍为空）——不报错，比报错更危险。本仓文件挂在祖先根下同样归零，是普遍规律。
 - **worktree 的代价**：在源仓库 `.git/worktrees/<name>/` 注册（`remove`/`prune` 必须回源仓库执行）；只能 detached HEAD（分支已被主 checkout 占用）；是快照，不自动跟随上游；占约 205 MB。
-- **不要把 vendor 源码拷进工作区**：实测得到 6 条假诊断（模块解析全断）。也不要指望 submodule——内容本就不在父仓库远端，无网时无法初始化。
+- **不要把 vendor 源码拷进工作区**：实测得到 6 条假诊断（模块解析全断）。
+- **`.vendor/deepseek-harness` 是指针，不是内容。** 索引里是 submodule gitlink（`160000 66491b05e3…`，即 `dsh-v0.2.2-rc.1`），`.gitmodules` 配 `update = none`（`git submodule update --init` 是空操作：不会偷偷克隆 200 MB，也不会在会话运行时改写工作树）＋ `ignore = untracked`（容忍树内 `node_modules` 软链，`git status` 保持干净）。**新克隆拿到的是空目录**，跑 `node scripts/vendor-worktree.mjs` 即按索引里的 pin 检出；pin 比本地 checkout 新时脚本降级到该 checkout 的 `HEAD` 并明确报告。`.gitignore` 用 `.vendor/*` ＋ `!.vendor/deepseek-harness`，所以升 pin 是普通 `git add .vendor/deepseek-harness`，不需要 `-f`。
 
 ## Web GUI 认证与真机 HTTP 验证（2026-10-19）
 
