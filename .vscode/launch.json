@@ -1,15 +1,91 @@
 {
-    // 使用 IntelliSense 了解相关属性。 
-    // 悬停以查看现有属性的描述。
-    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    // 调试入口点。浏览器类配置需要对应服务已在跑（见 tasks.json 的后台任务）：
+    //   - 原型 4188：`pnpm proto`（任务「vite: 原型开发服务器」）
+    //   - 本机 DSH Web GUI 3080：由 `dsh web` 启动，本仓不代管
     "version": "0.2.0",
     "configurations": [
         {
             "type": "editor-browser",
             "request": "launch",
-            "name": "Prototype Debug",
+            "name": "原型：调试（4188）",
             "url": "http://localhost:4188/",
             "webRoot": "${workspaceFolder}/prototype/settings-ui/"
+        },
+        {
+            "type": "editor-browser",
+            "request": "launch",
+            "name": "原型：顾问面板独立页签",
+            "url": "http://localhost:4188/?advisor=tab",
+            "webRoot": "${workspaceFolder}/prototype/settings-ui/"
+        },
+        {
+            "type": "editor-browser",
+            "request": "launch",
+            "name": "DSH Web GUI（3080）",
+            "url": "http://127.0.0.1:3080/"
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Vitest：当前文件",
+            "program": "${workspaceFolder}/node_modules/vitest/vitest.mjs",
+            "args": ["run", "${relativeFile}"],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Vitest：当前文件（watch）",
+            "program": "${workspaceFolder}/node_modules/vitest/vitest.mjs",
+            "args": ["${relativeFile}"],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Vitest：全部",
+            "program": "${workspaceFolder}/node_modules/vitest/vitest.mjs",
+            "args": ["run"],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "守卫：scripts/check.mjs",
+            "program": "${workspaceFolder}/scripts/check.mjs",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "守卫：check.mjs --verbose",
+            "program": "${workspaceFolder}/scripts/check.mjs",
+            "args": ["--verbose"],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "type": "node",
+            "request": "attach",
+            "name": "Node：附加到 9229",
+            "port": 9229,
+            "skipFiles": ["<node_internals>/**"]
+        }
+    ],
+    "compounds": [
+        {
+            "name": "原型 + 浏览器",
+            "configurations": ["原型：调试（4188）"],
+            "preLaunchTask": "vite: 原型开发服务器"
         }
     ]
 }

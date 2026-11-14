@@ -1,0 +1,54 @@
+{
+    // 后台任务：供 launch.json 的 preLaunchTask 复用，也可单独跑（终端 → 运行任务）。
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "vite: 原型开发服务器",
+            "detail": "pnpm proto —— 原型热更新服务器，4188 端口",
+            "type": "shell",
+            "command": "pnpm proto",
+            "isBackground": true,
+            "problemMatcher": {
+                "pattern": { "regexp": "^$" },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "vite --config prototype",
+                    "endsPattern": "ready in"
+                }
+            },
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        },
+        {
+            "label": "守卫：静态（check.mjs）",
+            "detail": "pnpm run check:static —— 6 项 AST 守卫，不要求 lib/",
+            "type": "shell",
+            "command": "pnpm run check:static",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "守卫：类型（tsc --noEmit）",
+            "detail": "pnpm run typecheck",
+            "type": "shell",
+            "command": "pnpm run typecheck",
+            "group": "test",
+            "problemMatcher": "$tsc"
+        },
+        {
+            "label": "守卫：全量（pnpm run check）",
+            "detail": "静态守卫 + 类型 + 单测，提交前的那一套",
+            "type": "shell",
+            "command": "pnpm run check",
+            "group": { "kind": "test", "isDefault": true },
+            "problemMatcher": "$tsc"
+        },
+        {
+            "label": "构建：bundle + 浏览器产物",
+            "detail": "pnpm run build —— tsc 构建 + 四个 client chunk",
+            "type": "shell",
+            "command": "pnpm run build",
+            "group": "build",
+            "problemMatcher": "$tsc"
+        }
+    ]
+}
