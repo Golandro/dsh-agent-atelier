@@ -9,11 +9,17 @@ alwaysApply: true
 
 ## 1. 工作区
 
-- 每个工作区只 `start_lsp` 一次；切换根或跨仓用 `add_workspace_folder` /
-  `list_workspace_folders`。
-- 外部参考（如 DSH 源码）以 workspace folder 或 `.vendor/` 软链接入，保持
-  gitignore：不入仓库、不 commit，但仍要可检索。
-- 先 `detect_lsp_servers`；服务器缺失就报告缺哪门语言，不猜、不静默降级。
+- LSP 的根**只能有一个**：调用会话的 `$ProjectRoot`（向上最近的 `.git`，
+  找不到回退 cwd）。没有 `add_workspace_folder` / `list_workspace_folders` /
+  `start_lsp` / `detect_lsp_servers` 这些工具——当前 profile 一个都没装，别再
+  照名字找。
+- **外部参考（如 DSH 源码）必须真实落在 `$ProjectRoot` 之下。** 宿主用
+  `realpath` 做包含性判定（`fs.contains`），软链会被解开到链接目标：指向
+  工作区外的软链**必然**以 `source "<path>" resolves outside the workspace` 失败。
+  用 `git worktree` 在工作区内检出真实文件（`.vendor/<name>/`，已 gitignore），
+  并补一条 `node_modules` 软链给它（依赖解析沿软链正常生效）。
+- 查询文档必须是工作区内真实文件；被查询文件的 import 由语言服务器自行解析，
+  不受该包含性检查约束。
 
 ## 2. 符号优先
 
@@ -90,7 +96,10 @@ alwaysApply: true
 
 ## 10. 本仓特化
 
-- TypeScript LSP 根：本仓；DSH 宿主源码 `.vendor/deepseek-harness` →
-  `/home/gg/repo/deepseek-harness`，作为外部 workspace folder。
+- TypeScript LSP 根：`$ProjectRoot`（本仓根）。DSH 宿主源码以 `git worktree`
+  检出到 `$ProjectRoot/.vendor/deepseek-harness/`，**真实文件**而非软链——软链会
+  被 `realpath` 判到工作区外，全部 LSP 调用直接失败。
+- 只读引用外部源码时，可临时把会话工作区指向该仓库本身（此时本仓文件反过来
+  不可用）；两者无法在同一根下同时索引。
 - 验证以 `pnpm run check` 为准（静态守卫 + typecheck + vitest）；LSP 诊断只作
   补充。

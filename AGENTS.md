@@ -37,8 +37,12 @@ multi-context (`GLOSSARY-MAP.md` at the root pointing at per-context `GLOSSARY.m
   before host-API, patch, or subagent fact-checks. Delegate with exact paths and
   a report template; an Explore snippet list is not a fact report, and repeating
   the dispatch is not progress.
-- **External sources stay external**: host source such as DSH is added as an LSP
-  workspace folder, not vendored or committed, but remains searchable.
+- **External sources stay external**: host source such as DSH is checked out with
+  `git worktree` under `$ProjectRoot/.vendor/` (gitignored), not vendored into
+  the tree or committed, but remains searchable. It must be a **real checkout**,
+  never a symlink: the LSP host resolves paths through `realpath`, so a link
+  pointing outside `$ProjectRoot` fails every query. See
+  `.agents/rules/agent-lsp-userguide.md`.
 - **Explicit waivers win**: when the user says not to re-check state, skip
   `git status` / `git log`; stage the named paths and proceed.
 - **Attribution**: AI models and tools are not the responsible party. Commits

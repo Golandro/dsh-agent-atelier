@@ -30,6 +30,7 @@ pnpm run build      # tsc + client bundles -> lib/ (must exist before install)
 pnpm test           # vitest run
 pnpm run test:hook  # vitest run --reporter=minimal (what the pre-commit hook runs)
 pnpm run check      # static guardrail + typecheck + tests (also the pre-commit hook)
+node scripts/vendor-worktree.mjs --dry-run   # show what the DSH source checkout would do
 ```
 
 Commit messages are checked by `.githooks/commit-msg`: no AI-brand attribution
@@ -40,6 +41,36 @@ The installed plugin loads `lib/`, so **re-run `pnpm run build` after any change
 under `src/`** — the profile links this directory, it does not rebuild it. Wire
 the hook once per clone: `git config core.hooksPath .githooks`. The test stage
 buffers vitest: one line on success, the full log on failure.
+
+## Reading the DSH source (vendor checkout)
+
+The LSP host resolves every queried path through `realpath` and rejects anything
+outside the session workspace, so a `.vendor/deepseek-harness` **symlink** to an
+outside checkout fails every query. Keep the canonical checkout outside the
+workspace anyway — several working directories can share it, it stays read-only
+by default, and it is reusable for secondary development — and materialize a
+`git worktree` inside the workspace instead. A worktree shares that checkout's
+object store, so it is a checkout, not a second clone.
+
+```bash
+node scripts/vendor-worktree.mjs --dry-run   # probe only; never touches anything
+node scripts/vendor-worktree.mjs             # create or repair the worktree
+```
+
+The script probes before it acts and is safe to re-run:
+
+- an existing checkout is **reused**, never cloned again — `--source`, `$DSH_SOURCE`,
+  this project's managed clone under `$DSH_HOME/.$ProjectName/vendor/`, then the
+  historical `~/repo/deepseek-harness`;
+- an already-correct worktree is reported and left untouched;
+- a legacy symlink is replaced (only the link is removed);
+- a directory holding unrelated files is refused, not overwritten;
+- only `--clone` reaches the network, and it clones **outside** the workspace.
+
+It also links the source's `node_modules` into the worktree, because a worktree
+holds only version-controlled files. Pass `--ref <ref>` to pin a different
+commit. LSP needs the checkout to be a project root (the directory holding
+`tsconfig.json`), not an ancestor of one.
 
 ## Installing into the profile
 

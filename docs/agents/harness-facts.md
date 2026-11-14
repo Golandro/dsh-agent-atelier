@@ -4,8 +4,9 @@
 
 ## 路径
 
-- **DSH 源码**（核锚点、读实现）：`~/repo/deepseek-harness`，monorepo 布局 `packages/<分组>/<包名>/src`。可用 `DSH_SOURCE` 覆盖。
-- **profile**：`$DSH_HOME/profiles/web`（`DSH_HOME=/home/gg/.dsh`）；装好的 bundle 在 `<profile>/node_modules/<包名>`。
+- **DSH 源码**（核锚点、读实现）：`$ProjectRoot/.vendor/deepseek-harness`（真实 checkout，非软链——见「LSP 与 vendor 树」）。可用 `DSH_SOURCE` 覆盖；`scripts/checklist/paths.mjs` 的默认值是 `~/repo/deepseek-harness`。
+- **profile**：`$DSH_HOME/profiles/$DSH_PROFILE`（本机 `$DSH_HOME`、`$DSH_PROFILE` 由 DSH 注入）；装好的 bundle 在 `<profile>/node_modules/<包名>`。
+- **路径记法**：文档一律写 `$ProjectRoot`（向上最近的 `.git`，找不到回退 cwd）与 `$DSH_HOME/.$ProjectName/`（按项目隔离的 harness 数据目录）。不写绝对路径——它们不可移植，且随本机布局失效。
 - 本插件装入后是**软链**指向本 workspace ⇒ harness 加载的是 `lib/`：**改完 `src/` 必须 `pnpm run build`**，没有自动重编译。静态守卫不读 `lib/`，不受此影响。
 
 ## 读回通道（`cordis_inspect_query`，免审批）
@@ -34,9 +35,20 @@ Provider（host）：`Service.listService` / `Event.listEvents` / `Config.listCo
 
 - 沙箱只允许写本 workspace，所以包管理器的 cache/store 必须落在 workspace 内：`.npmrc` 已设 `cache=.npm-cache`。**pnpm 陷阱**（2026-10-17 迁移后发现）：pnpm 未使用 `.npmrc` 的相对 `store-dir`（`pnpm store path` 仍指全局 `~/.local/share/pnpm/store/v11`）⇒ **DSH 会话沙箱内跑 `pnpm install` 会 `ERR_SQLITE_ERROR`**（全局 store 在 `~` 下不可写）；改依赖的操作在沙箱外跑，或 `--store-dir "$PWD/.pnpm-store"` 落进 workspace。
 - 包管理器 = **pnpm workspace**（2026-10-17 由 npm 迁移：`pnpm-lock.yaml` + `pnpm-workspace.yaml`，check 脚本走 `pnpm run typecheck && pnpm test`）。测试 = vitest（`pnpm test`）；类型 = `pnpm run typecheck`；构建 = `pnpm run build`（tsc → `lib/`）。
-- `.vendor/deepseek-harness` 软链指向 `~/repo/deepseek-harness`（vitest exclude 之，防误拾上游测试套件）。
+- `.vendor/deepseek-harness` **必须是工作区内的真实 checkout**（`git worktree`），不能是软链——软链会让全部 LSP 调用失败。自检：`test -L .vendor/deepseek-harness && echo SYMLINK_BROKEN`。`vitest.config.ts` 已 exclude `.vendor/**`，防误拾上游测试套件。见下节「LSP 与 vendor 树」。
 - Node 内置模块（`node:fs/promises`、`node:path`、`node:os`、`node:url`）的类型来自 devDependency `@types/node`（`^24`）。**运行时依赖纪律（2026-10-17 修订，维护者裁决「我们需要这些依赖」）**：第三方库**允许**进 `dependencies`（install_bundle 装入时随 pnpm add 进 profile，bundle entry 自身的 dependencies 进运行时解析——宿主 publish 纪律）；`@deepseek-ai/*` 宿主包仍**禁**（ADR-0001 import 边界；宿主共享实例走 peerDependencies + devDependencies）。守卫 `bundle` 项据此判定（`scripts/check.mjs` 的 `hostRuntimeDeps`）。
 - **守卫**：`pnpm run check`（静态卫生 + typecheck + 单测）。`scripts/check.mjs` 只读 `src/` 并用 TypeScript AST 判定 import 矩阵，**不要求 `lib/` 已构建**；`.githooks/pre-commit` 依次跑 `node scripts/check.mjs --hook`、typecheck、单测。本仓无 CI、无远端，守卫挂在 `.githooks/pre-commit` 上，一次性接线：`git config core.hooksPath .githooks`。
+
+## LSP 与 vendor 树（2026-11-14，真机实测）
+
+- **闸门是包含性检查，不是沙箱。** 官方 seam（`lsp/lsp-stdio/src/host.ts:91`）与已装的 `dsh-lsp-actions`（其 `lib/host.js` 第 63 行）都有同一道 `if (!fs.contains(workspace.target, target)) throw`。`fs.contains` 比的是 **realpath**（`fs-local/src/fsio.ts:184`），所以**指向工作区外的软链必然失败**：`source "<path>" resolves outside the workspace`。
+- **提权无效。** `fs-sandbox` 的读操作完全透传（`fs-sandbox/src/index.ts:7-8`），`contains` 不看 `sandboxMode`；`danger-full-access` 也不会让软链通过。
+- **可执行入口：`node scripts/vendor-worktree.mjs [--dry-run]`**（幂等、探测优先、默认不联网）。源 checkout 留在工作区外共享；脚本在工作区内物化 `git worktree` 并补 `node_modules` 软链。已有 checkout 直接复用，绝不重复克隆。细节见 README「Reading the DSH source」。
+- **可用形态：`git worktree` 检出到 `$ProjectRoot/.vendor/<name>/`。** 文件真实位于工作区内 ⇒ realpath 在根下 ⇒ 闸门通过。实测：`lsp_diagnostics` 0 条、`lsp_symbols` 39 符号、hover/definition/references 与原仓库完全一致。
+- **必须补 `node_modules` 软链。** worktree 只含受版本控制的文件，不含 `node_modules`；依赖解析会一路找到本仓的 `node_modules`，第三方包（如 `execa`）因此 `TS2307`。补 `ln -s <源仓库>/node_modules .vendor/<name>/node_modules` 后解析正常（`tsc` 通过；依赖解析沿软链生效，不受包含性检查约束）。
+- **根的粒度要够。** 语言服务器需要**工程根**（有 `tsconfig` 的那层）才建索引。实测把根设成源仓库的**父目录**（无 tsconfig 的那层）时，`documentSymbol` / `hover` / `references` 全部**静默返回空**（90 秒静置仍为空）——不报错，比报错更危险。本仓文件挂在祖先根下同样归零，是普遍规律。
+- **worktree 的代价**：在源仓库 `.git/worktrees/<name>/` 注册（`remove`/`prune` 必须回源仓库执行）；只能 detached HEAD（分支已被主 checkout 占用）；是快照，不自动跟随上游；占约 205 MB。
+- **不要把 vendor 源码拷进工作区**：实测得到 6 条假诊断（模块解析全断）。也不要指望 submodule——内容本就不在父仓库远端，无网时无法初始化。
 
 ## Web GUI 认证与真机 HTTP 验证（2026-10-19）
 
