@@ -153,8 +153,8 @@ function snapshotOf(input: {
 
 function pick<T extends { readonly name: string }>(rows: readonly T[], name: string): T {
   const row = rows.find((entry) => entry.name === name)
-  expect(row, `row "${name}" should exist`).toBeDefined()
-  return row as T
+  if (row === undefined) throw new Error(`the fixture has no row named "${name}"`)
+  return row
 }
 
 function baseSnapshot(): ControlSnapshot {

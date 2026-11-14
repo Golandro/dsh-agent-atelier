@@ -93,13 +93,21 @@ describe('alias registry layers', () => {
 
   it('reads only the global layer when no cwd is given', async () => {
     const home = homeDir(USER_LAYER)
-    const workspace = workspaceDir('models:\n  ds-chat: { provider: deepseek, model: deepseek-v4 }\naliases:\n  fast: [ds-reasoner]\n')
 
     const snapshot = await service(home).snapshot()
 
     expect(snapshot.models.map((entry) => entry.model)).toEqual(['deepseek-chat', 'deepseek-reasoner'])
     expect(snapshot.aliases.map((entry) => entry.alias)).toEqual(['smart', 'fast'])
-    await expect(service(home).snapshot({ cwd: workspace })).resolves.toBeDefined()
+  })
+
+  it('lets the same workspace layer win once its cwd is passed in', async () => {
+    const home = homeDir(USER_LAYER)
+    const workspace = workspaceDir('models:\n  ds-chat: { provider: deepseek, model: deepseek-v4 }\naliases:\n  fast: [ds-reasoner]\n')
+
+    const snapshot = await service(home).snapshot({ cwd: workspace })
+
+    expect(snapshot.models.find((entry) => entry.modelName === 'ds-chat')).toMatchObject({ model: 'deepseek-v4', source: 'project-dsh' })
+    expect(snapshot.aliases.find((entry) => entry.alias === 'fast')).toMatchObject({ targets: ['ds-reasoner'], source: 'project-dsh' })
   })
 
   it('drops a broken layer with a diagnostic and still merges the other one', async () => {
@@ -612,14 +620,20 @@ describe('cross-layer inspection (pure, ticket 03 consumes it)', () => {
     expect(findings[0]).toMatchObject({ severity: 'hint', code: 'raw-model-escape', agentName: 'plan' })
   })
 
-  it('is deterministic for the same inputs', () => {
+  it('reports the findings in a fixed order for one mixed snapshot', () => {
+    // A characterisation test, not a self-comparison: the expected list is
+    // written out, so a reordering of the inspector's passes shows up here.
     const snapshot: AliasRegistrySnapshot = {
       models: [model('ds-chat')],
       aliases: [alias('fast', ['ds-chat']), alias('quick', ['ds-chat']), alias('ghost', ['nowhere'])],
     }
     const agents = [{ agentName: 'plan', modelOrder: ['fast', 'nope'], model: [{ provider: 'p', model: 'm' }] }]
 
-    expect(inspectAliasRegistry(snapshot, agents)).toEqual(inspectAliasRegistry(snapshot, agents))
-    expect(inspectAliasRegistry(snapshot, agents).length).toBeGreaterThan(0)
+    expect(inspectAliasRegistry(snapshot, agents).map((finding) => [finding.code, finding.alias ?? finding.agentName])).toEqual([
+      ['unknown-model-target', 'ghost'],
+      ['alias-fan-in', 'fast, quick'],
+      ['unknown-alias', 'nope'],
+      ['raw-model-escape', 'plan'],
+    ])
   })
 })

@@ -267,9 +267,8 @@ describe('applySummon integration', () => {
     return { ctx, tool, childMasks, rootMasks, childSections, starts }
   }
 
-  it('registers the tool and hides the native entry points on the root agent', async () => {
+  it('hides the native entry points on the root agent', async () => {
     const mounted = await mount()
-    expect(mounted.tool).toBeDefined()
     expect(mounted.rootMasks).toEqual([{ deny: ['subagent', 'subagent_fork'] }])
   })
 

@@ -53,7 +53,6 @@ function bridge(core: InMemoryControlCore): typeof fetch {
 }
 
 interface AdapterPair {
-  readonly name: string
   readonly memory: ControlClient
   readonly http: ControlClient
   readonly memoryCore: InMemoryControlCore
@@ -65,7 +64,6 @@ function adapters(): AdapterPair {
   const memoryCore = createCore()
   const httpCore = createCore()
   return {
-    name: 'memory/http',
     memory: createMemoryControlClient(memoryCore, { cwd: PROJECT }),
     http: createHttpControlClient({ baseUrl: 'http://host/agent-atelier', fetchImpl: bridge(httpCore), cwd: PROJECT }),
     memoryCore,

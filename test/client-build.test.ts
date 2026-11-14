@@ -12,7 +12,7 @@
  * 会在真机上以「编辑器/列表永远加载中」的形式爆炸，所以在这里钉死。
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
@@ -22,6 +22,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 const PACKAGE_NAME = 'dsh-agent-atelier'
+/** The loader's on-demand chunk name rule, applied to what the build actually emitted. */
 const CHUNK_NAME_RE = /^client\.[A-Za-z0-9][A-Za-z0-9._-]*\.js$/
 
 let main = ''
@@ -41,6 +42,17 @@ beforeAll(() => {
   editor = read('client.editor.js')
   list = read('client.list.js')
   registry = read('client.registry.js')
+})
+
+describe('产物文件名', () => {
+  it('每个 chunk 产物名都符合 CLIENT_CHUNK 规则', () => {
+    // The rule used to be asserted against string literals written beside it,
+    // which could never fail; here it judges the files the build just emitted.
+    // `client.js` is the shell, not a chunk: the rule covers `client.<name>.js` only.
+    const emitted = readdirSync(join(ROOT, 'lib')).filter((name) => name.startsWith('client.') && name.endsWith('.js') && name !== 'client.js')
+    expect(emitted.length).toBeGreaterThan(0)
+    for (const name of emitted) expect(name, name).toMatch(CHUNK_NAME_RE)
+  })
 })
 
 describe('主 client bundle（轻壳）', () => {
@@ -64,8 +76,7 @@ describe('主 client bundle（轻壳）', () => {
 })
 
 describe('编辑器 chunk（lib/client.editor.js）', () => {
-  it('chunk 名字符合 CLIENT_CHUNK 规则且注册形状完整', () => {
-    expect('client.editor.js').toMatch(CHUNK_NAME_RE)
+  it('以模块加载器注册形状开场，chunk 名写在注册里', () => {
     expect(editor).toContain(`window.__ModuleLoader__.load({`)
     expect(editor).toContain(`id: "${PACKAGE_NAME}"`)
     expect(editor).toContain('chunk: "client.editor.js"')
@@ -85,8 +96,7 @@ describe('编辑器 chunk（lib/client.editor.js）', () => {
 })
 
 describe('列表 chunk（lib/client.list.js）', () => {
-  it('chunk 名字符合 CLIENT_CHUNK 规则且注册形状完整', () => {
-    expect('client.list.js').toMatch(CHUNK_NAME_RE)
+  it('以模块加载器注册形状开场，chunk 名写在注册里', () => {
     expect(list).toContain(`window.__ModuleLoader__.load({`)
     expect(list).toContain(`id: "${PACKAGE_NAME}"`)
     expect(list).toContain('chunk: "client.list.js"')
@@ -108,8 +118,7 @@ describe('列表 chunk（lib/client.list.js）', () => {
 })
 
 describe('registry chunk（lib/client.registry.js）', () => {
-  it('chunk 名字符合 CLIENT_CHUNK 规则且注册形状完整', () => {
-    expect('client.registry.js').toMatch(CHUNK_NAME_RE)
+  it('以模块加载器注册形状开场，chunk 名写在注册里', () => {
     expect(registry).toContain(`window.__ModuleLoader__.load({`)
     expect(registry).toContain(`id: "${PACKAGE_NAME}"`)
     expect(registry).toContain('chunk: "client.registry.js"')

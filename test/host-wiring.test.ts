@@ -9,11 +9,13 @@ import {
   CLIENT_MARKER_HEADER,
   CONTROL_ROUTE_PATHS,
   MAX_BODY_BYTES,
+  MAX_EDITS,
   applyUiHost,
   optionalSelectionPolicy,
   dispatchControlRequest,
   handleControlRequest,
 } from '../src/dsh/host/index.ts'
+import { MAX_AGENT_NAME_LENGTH, MAX_FIELD_ITEMS, MAX_FIELD_VALUE_LENGTH } from '../src/dsh/host/wire.ts'
 import { createControlFixture } from './support/control-fixture.ts'
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -96,12 +98,28 @@ async function call(core: ControlCore, pathname: string, options: CallOptions = 
   return await dispatchControlRequest(input)
 }
 
+/** The wire error code of a dispatched result; the error body shape is frozen. */
+function errorCode(result: ControlDispatchResult): string | undefined {
+  return (result.body as { error?: { code?: string } }).error?.code
+}
+
 const DESCRIPTION_EDIT = {
   kind: 'setFrontmatterField',
   agentName: 'alpha',
   field: 'description',
   value: 'second',
 } as const
+
+/**
+ * The list-valued field the field-value table exercises, derived from the shared
+ * table so a later field-shape change cannot silently turn those rows into
+ * unknown-field rejections that would pass for the wrong reason.
+ */
+const LIST_FIELD = (() => {
+  const field = FRONTMATTER_FIELDS.find((candidate) => candidate.kind === 'array')
+  if (field === undefined) throw new Error('the frontmatter table has no list-valued field to exercise')
+  return field.key
+})()
 
 describe('wire dispatcher', () => {
   it('GET /state returns the snapshot with cwd and scan token', async () => {
@@ -171,7 +189,7 @@ describe('wire dispatcher', () => {
 
     const missing = await call(core, '/agent-atelier/compose', { body: { agentName: 'ghost', cwd: PROJECT } })
     expect(missing.status).toBe(404)
-    expect((missing.body as { error: { code: string } }).error.code).toBe('not-found')
+    expect(errorCode(missing)).toBe('not-found')
   })
 
   it('POST /chain returns the report and keeps exhaustion at 200', async () => {
@@ -191,11 +209,11 @@ describe('wire dispatcher', () => {
     const core = createCore()
     const missing = await call(core, '/agent-atelier/chain', { body: { agentName: 'ghost', cwd: PROJECT } })
     expect(missing.status).toBe(404)
-    expect((missing.body as { error: { code: string } }).error.code).toBe('not-found')
+    expect(errorCode(missing)).toBe('not-found')
 
     const nameless = await call(core, '/agent-atelier/chain', { body: { cwd: PROJECT } })
     expect(nameless.status).toBe(400)
-    expect((nameless.body as { error: { code: string } }).error.code).toBe('invalid-request')
+    expect(errorCode(nameless)).toBe('invalid-request')
 
     const wrongMethod = await call(core, '/agent-atelier/chain', { method: 'GET', headers: {} })
     expect(wrongMethod.status).toBe(405)
@@ -296,7 +314,7 @@ describe('wire dispatcher', () => {
     const result = await call(conflicting, '/agent-atelier/commit', { body: { edits: [DESCRIPTION_EDIT], cwd: PROJECT } })
 
     expect(result.status).toBe(409)
-    expect((result.body as { error: { code: string } }).error.code).toBe('conflict')
+    expect(errorCode(result)).toBe('conflict')
   })
 
   it('POST /commit maps a read-only refusal to 409 with the read-only code', async () => {
@@ -310,7 +328,7 @@ describe('wire dispatcher', () => {
     const result = await call(readOnly, '/agent-atelier/commit', { body: { edits: [DESCRIPTION_EDIT], cwd: PROJECT } })
 
     expect(result.status).toBe(409)
-    expect((result.body as { error: { code: string } }).error.code).toBe('read-only')
+    expect(errorCode(result)).toBe('read-only')
   })
 
   it('POST /registry applies a tuning edit and maps unknown models to 404', async () => {
@@ -325,7 +343,7 @@ describe('wire dispatcher', () => {
       body: { edit: { kind: 'setAvailable', modelName: 'nope', available: false }, cwd: PROJECT },
     })
     expect(missing.status).toBe(404)
-    expect((missing.body as { error: { code: string } }).error.code).toBe('not-found')
+    expect(errorCode(missing)).toBe('not-found')
   })
 
   it('POST /invalidate answers with a fresh scan token', async () => {
@@ -335,33 +353,58 @@ describe('wire dispatcher', () => {
     expect(result.body).toEqual({ ok: true, scanId: 3 })
   })
 
-  it('rejects oversized bodies, missing markers, wrong media types and wrong methods', async () => {
-    const core = createCore()
-    const oversized = await dispatchControlRequest({
-      control: core,
-      method: 'POST',
-      pathname: '/agent-atelier/commit',
-      search: new URLSearchParams(),
-      headers: JSON_HEADERS,
-      bodyText: 'x'.repeat(MAX_BODY_BYTES + 1),
-      scanId: 1,
-    })
-    expect(oversized.status).toBe(413)
+  /** The four body-envelope fences, one request each: status and wire code. */
+  const ENVELOPE_CASES: readonly {
+    readonly label: string
+    readonly dispatch: (core: ControlCore) => Promise<ControlDispatchResult>
+    readonly status: number
+    readonly code: string
+  }[] = [
+    {
+      label: 'an oversized body',
+      dispatch: (core) => dispatchControlRequest({
+        control: core,
+        method: 'POST',
+        pathname: '/agent-atelier/commit',
+        search: new URLSearchParams(),
+        headers: JSON_HEADERS,
+        bodyText: 'x'.repeat(MAX_BODY_BYTES + 1),
+        scanId: 1,
+      }),
+      status: 413,
+      code: 'payload-too-large',
+    },
+    {
+      label: 'a mutation without the client marker',
+      dispatch: (core) => call(core, '/agent-atelier/commit', {
+        body: { edits: [] },
+        headers: { 'content-type': 'application/json' },
+      }),
+      status: 403,
+      code: 'forbidden',
+    },
+    {
+      label: 'a body declared as text/plain',
+      dispatch: (core) => call(core, '/agent-atelier/commit', {
+        body: { edits: [] },
+        headers: { 'content-type': 'text/plain', [CLIENT_MARKER_HEADER]: '1' },
+      }),
+      status: 415,
+      code: 'unsupported-media-type',
+    },
+    {
+      label: 'a GET on a POST-only route',
+      dispatch: (core) => call(core, '/agent-atelier/compose', { method: 'GET' }),
+      status: 405,
+      code: 'method-not-allowed',
+    },
+  ]
 
-    const noMarker = await call(core, '/agent-atelier/commit', {
-      body: { edits: [] },
-      headers: { 'content-type': 'application/json' },
-    })
-    expect(noMarker.status).toBe(403)
+  it.each(ENVELOPE_CASES)('fences $label with $status $code', async ({ dispatch, status, code }) => {
+    const result = await dispatch(createCore())
 
-    const wrongType = await call(core, '/agent-atelier/commit', {
-      body: { edits: [] },
-      headers: { 'content-type': 'text/plain', [CLIENT_MARKER_HEADER]: '1' },
-    })
-    expect(wrongType.status).toBe(415)
-
-    const wrongMethod = await call(core, '/agent-atelier/compose', { method: 'GET' })
-    expect(wrongMethod.status).toBe(405)
+    expect(result.status).toBe(status)
+    expect(errorCode(result)).toBe(code)
   })
 
   it('rejects malformed JSON and non-object bodies', async () => {
@@ -376,7 +419,7 @@ describe('wire dispatcher', () => {
       scanId: 1,
     })
     expect(malformed.status).toBe(400)
-    expect((malformed.body as { error: { code: string } }).error.code).toBe('invalid-request')
+    expect(errorCode(malformed)).toBe('invalid-request')
 
     const array = await call(core, '/agent-atelier/plan', { body: [] })
     expect(array.status).toBe(400)
@@ -392,26 +435,152 @@ describe('wire dispatcher', () => {
       signal: controller.signal,
     })
     expect(result.status).toBe(499)
-    expect((result.body as { error: { code: string } }).error.code).toBe('aborted')
+    expect(errorCode(result)).toBe('aborted')
   })
 })
 
+/** A core whose read throws, to exercise the dispatcher's 500 mapping. */
+function throwingCore(): ControlCore {
+  return {
+    ...createCore(),
+    async snapshot() {
+      throw new Error('snapshot failed')
+    },
+  }
+}
+
+const AGENT_NAME_CASES: readonly (readonly [string, unknown])[] = [
+  ['a NUL byte', 'al\u0000pha'],
+  ['a slash', 'al/pha'],
+  ['a backslash', 'al\\pha'],
+  ['the parent directory', '..'],
+  ['the current directory', '.'],
+  ['an empty name', ''],
+  ['an over-long name', 'a'.repeat(MAX_AGENT_NAME_LENGTH + 1)],
+  ['a non-string name', 7],
+]
+
+const CWD_CASES: readonly (readonly [string, unknown])[] = [
+  ['a number', 7],
+  ['an array', []],
+  ['an object', {}],
+]
+
+const EDIT_CASES: readonly (readonly [string, unknown])[] = [
+  ['a non-array payload', {}],
+  ['more entries than the cap allows', Array.from({ length: MAX_EDITS + 1 }, () => DESCRIPTION_EDIT)],
+]
+
+const FIELD_VALUE_CASES: readonly (readonly [string, string, unknown])[] = [
+  ['a scalar over the value cap', 'description', 'x'.repeat(MAX_FIELD_VALUE_LENGTH + 1)],
+  ['a list over the item cap', LIST_FIELD, Array.from({ length: MAX_FIELD_ITEMS + 1 }, (_, index) => `model-${index}`)],
+  ['a list item over the value cap', LIST_FIELD, ['x'.repeat(MAX_FIELD_VALUE_LENGTH + 1)]],
+  ['a list with a non-string item', LIST_FIELD, ['good', 7]],
+]
+
+const REGISTRY_CASES: readonly (readonly [string, unknown])[] = [
+  ['a space in modelName', { kind: 'setAvailable', modelName: 'gpt 5', available: false }],
+  ['a slash in modelName', { kind: 'setAvailable', modelName: 'gpt/5', available: false }],
+  ['an unknown edit kind', { kind: 'renameModel', modelName: 'gpt5' }],
+]
+
+const DISPATCH_ERROR_CASES: readonly (readonly [string, number, string, () => Promise<ControlDispatchResult>])[] = [
+  ['an unknown route', 404, 'not-found', () => call(createCore(), '/agent-atelier/nope', { body: {} })],
+  [
+    'a throwing core',
+    500,
+    'internal',
+    () => call(throwingCore(), '/agent-atelier/state', {
+      search: new URLSearchParams({ cwd: PROJECT }),
+      headers: {},
+    }),
+  ],
+]
+
+describe('wire validation surface', () => {
+  it.each(AGENT_NAME_CASES)('rejects an agentName with %s as 400 invalid-request', async (_label, agentName) => {
+    const result = await call(createCore(), '/agent-atelier/compose', { body: { agentName, cwd: PROJECT } })
+
+    expect(result.status).toBe(400)
+    expect(errorCode(result)).toBe('invalid-request')
+  })
+
+  it.each(CWD_CASES)('POST /plan rejects a cwd that is %s as 400 invalid-request', async (_label, cwd) => {
+    const result = await call(createCore(), '/agent-atelier/plan', { body: { edits: [DESCRIPTION_EDIT], cwd } })
+
+    expect(result.status).toBe(400)
+    expect(errorCode(result)).toBe('invalid-request')
+  })
+
+  it.each(EDIT_CASES)('POST /plan rejects edits that are %s as 400 invalid-request', async (_label, edits) => {
+    const result = await call(createCore(), '/agent-atelier/plan', { body: { edits, cwd: PROJECT } })
+
+    expect(result.status).toBe(400)
+    expect(errorCode(result)).toBe('invalid-request')
+  })
+
+  it.each(FIELD_VALUE_CASES)(
+    'POST /plan rejects a setFrontmatterField edit with %s as 400 invalid-request',
+    async (_label, field, value) => {
+      const result = await call(createCore(), '/agent-atelier/plan', {
+        body: { edits: [{ kind: 'setFrontmatterField', agentName: 'alpha', field, value }], cwd: PROJECT },
+      })
+
+      expect(result.status).toBe(400)
+      expect(errorCode(result)).toBe('invalid-request')
+    },
+  )
+
+  it.each(REGISTRY_CASES)('POST /registry rejects an edit with %s as 400 invalid-request', async (_label, edit) => {
+    const result = await call(createCore(), '/agent-atelier/registry', { body: { edit, cwd: PROJECT } })
+
+    expect(result.status).toBe(400)
+    expect(errorCode(result)).toBe('invalid-request')
+  })
+
+  it.each(DISPATCH_ERROR_CASES)('maps %s to %i %s', async (_label, status, code, dispatch) => {
+    const result = await dispatch()
+
+    expect(result.status).toBe(status)
+    expect(errorCode(result)).toBe(code)
+  })
+})
+
+/** A context with the control core and a recording web server, for the row tests. */
+function uiHostContext(): { ctx: Context; routes: Map<string, { kind: string; path: string }> } {
+  const ctx = new Context()
+  const routes = new Map<string, { kind: string; path: string }>()
+  ctx.provide(AGENT_CONTROL_SERVICE, createCore())
+  ctx.provide('webServer', {
+    register(route: { kind: string; path: string }) {
+      routes.set(route.path, route)
+      return () => routes.delete(route.path)
+    },
+  })
+  return { ctx, routes }
+}
+
 describe('host row wiring', () => {
-  it('registers seven exact routes and unmounts them with the effect', () => {
-    const ctx = new Context()
-    const routes = new Map<string, { kind: string; path: string }>()
-    ctx.provide(AGENT_CONTROL_SERVICE, createCore())
-    ctx.provide('webServer', {
-      register(route: { kind: string; path: string }) {
-        routes.set(route.path, route)
-        return () => routes.delete(route.path)
-      },
-    })
+  it('registers one exact route per control path', () => {
+    const { ctx, routes } = uiHostContext()
 
     applyUiHost(ctx)
 
     expect([...routes.keys()].sort()).toEqual([...CONTROL_ROUTE_PATHS].sort())
     expect([...routes.values()].every((route) => route.kind === 'exact')).toBe(true)
+  })
+
+  it('unmounts every route when the owning plugin row is disposed', async () => {
+    // The name promises unmounting, so the disposer actually runs: the routes
+    // registered inside `ctx.effect` must be gone once the row's fork disposes.
+    const { ctx, routes } = uiHostContext()
+    const fork = await ctx.plugin({ apply: applyUiHost })
+
+    expect(routes.size).toBe(CONTROL_ROUTE_PATHS.length)
+
+    await fork.dispose()
+
+    expect([...routes.keys()]).toEqual([])
   })
 
   it('turns the host model-selection setting into a policy, read at use time', () => {
@@ -443,20 +612,23 @@ describe('host row wiring', () => {
     expect(optionalSelectionPolicy(new Context())).toBeUndefined()
   })
 
-  it('applies the connection trust fence before dispatching', async () => {
+  it.each([
+    [401, 'unauthorized'],
+    [403, 'forbidden'],
+  ] as const)('applies the connection trust fence before dispatching (%i)', async (rejection, code) => {
     const res = fakeResponse()
     await handleControlRequest(
       { method: 'GET', url: '/agent-atelier/state', headers: {} } as unknown as IncomingMessage,
       res.response,
       {
         control: createCore(),
-        connection: { requestRejection: () => 403 },
+        connection: { requestRejection: () => rejection },
         nextScanId: () => 1,
       },
     )
 
-    expect(res.status()).toBe(403)
-    expect(res.body() as { error: { code: string } }).toMatchObject({ error: { code: 'forbidden' } })
+    expect(res.status()).toBe(rejection)
+    expect(res.body() as { error: { code: string } }).toMatchObject({ error: { code } })
   })
 })
 
@@ -490,7 +662,7 @@ describe('wire scope fallback (ticket 37 / ADR-0007)', () => {
     const result = await call(createCore(), '/agent-atelier/compose', { body: { agentName: 'alpha', cwd: 7 } })
 
     expect(result.status).toBe(400)
-    expect((result.body as { error: { code: string } }).error.code).toBe('invalid-request')
+    expect(errorCode(result)).toBe('invalid-request')
   })
 
   it('state echoes the resolved project root, not just the requested directory', async () => {

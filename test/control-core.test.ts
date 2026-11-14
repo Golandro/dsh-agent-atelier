@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import { evaluateAgentQuery } from '../src/control/index.ts'
 import { createAgentDocPort } from '../src/control/core.ts'
-import { AGENT_SOURCE_RANK } from '../src/contract/index.ts'
 import { createControlFixture } from './support/control-fixture.ts'
 
-import type { AgentRow, DocumentEdit } from '../src/control/index.ts'
+import type { AgentDefinition, AgentSource } from '../src/contract/index.ts'
+import type { AgentListQuery, AgentRow, DocumentEdit } from '../src/control/index.ts'
 import type { InMemoryControlCore } from '../src/control/memory.ts'
 
 const PROJECT_ROOT = '/dsh-proj'
@@ -40,6 +40,45 @@ const {
   registryPath: REGISTRY_PROJECT,
   createCore,
 } = fixture
+
+/**
+ * The project registry after an `addModel` of `sonnet`. It is both the expected
+ * output of the addModel case and the seed the addAlias/deleteModel cases start
+ * from, so the three cases share one worked example instead of three copies.
+ */
+const TWO_MODEL_REGISTRY = 'models:\n'
+  + '  gpt5:\n'
+  + '    provider: openai\n'
+  + '    model: gpt-5\n'
+  + '  sonnet:\n'
+  + '    provider: anthropic\n'
+  + '    model: claude-sonnet\n'
+  + '    sysPrompt: Be terse.\n'
+  + '    available: false\n'
+  + 'aliases:\n'
+  + '  smart: [gpt5]\n'
+
+/** A core whose project registry starts from `registryText` instead of the fixture default. */
+function seededCore(registryText: string): InMemoryControlCore {
+  const core = createCore()
+  core.files.set(REGISTRY_PROJECT, registryText)
+  return core
+}
+
+/** A list row whose definition carries only what the query evaluator reads. */
+function rowAgent(agentName: string, source: AgentSource): AgentDefinition {
+  return {
+    agentName,
+    name: agentName,
+    description: '',
+    body: '',
+    source,
+    origin: source === 'bundled' ? 'built-in' : 'user',
+    providerId: source,
+    extra: {},
+    path: `/rows/${source}/${agentName}.agent.md`,
+  }
+}
 
 describe('control core over the in-memory adapter', () => {
   it('snapshot merges both layers and normalizes findings with origins', async () => {
@@ -203,7 +242,7 @@ describe('control core over the in-memory adapter', () => {
     expect(models.find((model) => model.modelName === 'kimi')?.available).toBe(true)
   })
 
-  it('adds and removes registry entries with the section structure preserved', async () => {
+  it('addModel appends the entry to the models section, fields in order, and reports the file', async () => {
     const core = createCore()
     const added = await core.applyRegistryEdit({
       kind: 'addModel',
@@ -214,26 +253,26 @@ describe('control core over the in-memory adapter', () => {
       available: false,
       source: 'project-dsh',
     })
+
     expect(added.results).toEqual([{ ok: true, file: REGISTRY_PROJECT }])
-    expect(core.files.get(REGISTRY_PROJECT)).toBe(
-      'models:\n'
-      + '  gpt5:\n'
-      + '    provider: openai\n'
-      + '    model: gpt-5\n'
-      + '  sonnet:\n'
-      + '    provider: anthropic\n'
-      + '    model: claude-sonnet\n'
-      + '    sysPrompt: Be terse.\n'
-      + '    available: false\n'
-      + 'aliases:\n'
-      + '  smart: [gpt5]\n',
-    )
+    // A worked example, not a recomputation: the seed text plus the literal
+    // block the writer is expected to produce.
+    expect(core.files.get(REGISTRY_PROJECT)).toBe(TWO_MODEL_REGISTRY)
+  })
+
+  it('addAlias appends the flow-sequence entry under the aliases section and the snapshot lists it', async () => {
+    const core = seededCore(TWO_MODEL_REGISTRY)
     await core.applyRegistryEdit({ kind: 'addAlias', alias: 'fast', target: 'sonnet', source: 'project-dsh' })
-    expect(core.files.get(REGISTRY_PROJECT)).toContain('  fast: [sonnet]\n')
+
+    expect(core.files.get(REGISTRY_PROJECT)).toBe(TWO_MODEL_REGISTRY + '  fast: [sonnet]\n')
     const snapshot = await core.snapshot({ cwd: PROJECT })
     expect(snapshot.aliases.map((alias) => alias.alias)).toEqual(['smart', 'fast'])
+  })
 
+  it('deleteModel removes only that entry and leaves the aliases section intact', async () => {
+    const core = seededCore(TWO_MODEL_REGISTRY + '  fast: [sonnet]\n')
     const removed = await core.applyRegistryEdit({ kind: 'deleteModel', modelName: 'gpt5' })
+
     expect(removed.results).toEqual([{ ok: true, file: REGISTRY_PROJECT }])
     expect(core.files.get(REGISTRY_PROJECT)).toBe(
       'models:\n'
@@ -301,38 +340,161 @@ describe('control core over the in-memory adapter', () => {
     expect(report.results[0]).toMatchObject({ ok: false, code: 'not-found' })
   })
 
-  it('evaluateAgentQuery filters and sorts the rows', async () => {
-    const core = createCore()
-    const snapshot = await core.snapshot({ cwd: PROJECT })
-    const issues = new Map<string, { errors: number; hints: number }>([['beta', { errors: 1, hints: 0 }]])
-    const rows: AgentRow[] = snapshot.agents.map((agent) => ({ agent, errors: issues.get(agent.agentName)?.errors ?? 0, hints: 0 }))
-    expect(evaluateAgentQuery(rows, { layer: 'project' }).map((row) => row.agent.agentName)).toEqual(['alpha'])
-    expect(evaluateAgentQuery(rows, { text: 'ALP' }).map((row) => row.agent.agentName)).toEqual(['alpha'])
-    expect(evaluateAgentQuery(rows, { onlyIssues: true }).map((row) => row.agent.agentName)).toEqual(['beta'])
-    expect(evaluateAgentQuery(rows, { sort: 'issues' }).map((row) => row.agent.agentName)).toEqual(['alpha', 'beta'])
-    expect(evaluateAgentQuery(rows, { sort: 'issues', direction: 'desc' }).map((row) => row.agent.agentName)).toEqual(['beta', 'alpha'])
-    expect(evaluateAgentQuery(rows, { sort: 'layer' }).map((row) => row.agent.agentName)).toEqual(['alpha', 'beta'])
-    expect(evaluateAgentQuery(rows, {})).toHaveLength(2)
+  /**
+   * Three fixture rows laid out so that the name, issue and layer axes each
+   * produce a *different* order. Without that, a broken sort falls back to the
+   * name tie-break and still passes:
+   *
+   *   name  : alpha, mike, zulu
+   *   issues: mike(0), zulu(1), alpha(2)
+   *   layer : mike(project-dsh), zulu(user-dsh), alpha(bundled)
+   */
+  function queryRows(): AgentRow[] {
+    return [
+      { agent: rowAgent('alpha', 'bundled'), errors: 2, hints: 0 },
+      { agent: rowAgent('mike', 'project-dsh'), errors: 0, hints: 0 },
+      { agent: rowAgent('zulu', 'user-dsh'), errors: 1, hints: 0 },
+    ]
+  }
 
-    // The `layer` axis reads the contract's one rank table (簇 F): rows declared
-    // out of order come back in table order, lowest rank first.
-    const layeredSources = ['bundled', 'user-agents', 'user-dsh', 'project-agents', 'project-dsh'] as const
-    const layered: AgentRow[] = layeredSources.map((source) => ({
-      agent: {
-        agentName: source,
-        name: source,
-        description: '',
-        body: '',
-        source,
-        origin: source === 'bundled' ? 'built-in' : 'user',
-        providerId: source,
-        extra: {},
-        path: `/layers/${source}/${source}.agent.md`,
-      },
-      errors: 0,
-      hints: 0,
-    }))
-    const byRank = [...layeredSources].sort((left, right) => AGENT_SOURCE_RANK[left] - AGENT_SOURCE_RANK[right])
-    expect(evaluateAgentQuery(layered, { sort: 'layer' }).map((row) => row.agent.agentName)).toEqual(byRank)
+  const QUERY_CASES: readonly {
+    readonly label: string
+    readonly query: AgentListQuery
+    readonly expected: readonly string[]
+  }[] = [
+    { label: 'the layer filter', query: { layer: 'project' }, expected: ['mike'] },
+    { label: 'the case-insensitive text filter', query: { text: 'MIK' }, expected: ['mike'] },
+    { label: 'the only-issues filter', query: { onlyIssues: true }, expected: ['alpha', 'zulu'] },
+    { label: 'the issues sort ascending', query: { sort: 'issues' }, expected: ['mike', 'zulu', 'alpha'] },
+    { label: 'the issues sort descending', query: { sort: 'issues', direction: 'desc' }, expected: ['alpha', 'zulu', 'mike'] },
+    { label: 'the layer sort', query: { sort: 'layer' }, expected: ['mike', 'zulu', 'alpha'] },
+    { label: 'the layer sort descending', query: { sort: 'layer', direction: 'desc' }, expected: ['alpha', 'zulu', 'mike'] },
+    { label: 'the default name sort', query: {}, expected: ['alpha', 'mike', 'zulu'] },
+  ]
+
+  it.each(QUERY_CASES)('evaluateAgentQuery applies $label', ({ query, expected }) => {
+    const rows = queryRows()
+
+    expect(evaluateAgentQuery(rows, query).map((row) => row.agent.agentName)).toEqual(expected)
+  })
+
+  it('the layer sort follows the contract rank table across all five roots', () => {
+    // 簇 F: the `layer` axis reads the contract's one rank table. The rows are
+    // declared in reverse rank order and the expectation is a literal, so this
+    // fails if the table's order changes (not just if the evaluator reads it).
+    const declared = ['bundled', 'user-agents', 'user-dsh', 'project-agents', 'project-dsh'] as const
+    const rows: AgentRow[] = declared.map((source) => ({ agent: rowAgent(source, source), errors: 0, hints: 0 }))
+
+    expect(evaluateAgentQuery(rows, { sort: 'layer' }).map((row) => row.agent.agentName)).toEqual([
+      'project-dsh',
+      'project-agents',
+      'user-dsh',
+      'user-agents',
+      'bundled',
+    ])
+  })
+})
+
+describe('agent list query evaluator (ticket 27)', () => {
+  /** One list row; only the definition fields the evaluator reads are filled. */
+  function createRow(
+    agentName: string,
+    source: AgentSource,
+    chain: Pick<AgentDefinition, 'modelOrder' | 'model'> = {},
+  ): AgentRow {
+    return { agent: { ...rowAgent(agentName, source), ...chain }, errors: 0, hints: 0 }
+  }
+
+  /** All five discovery roots, one row each. */
+  function layerRows(): AgentRow[] {
+    return [
+      createRow('project-dsh', 'project-dsh'),
+      createRow('project-agents', 'project-agents'),
+      createRow('user-dsh', 'user-dsh'),
+      createRow('user-agents', 'user-agents'),
+      createRow('bundled', 'bundled'),
+    ]
+  }
+
+  const RAW_TARGET = { provider: 'openai', model: 'gpt-5' } as const
+
+  it('the project layer filter selects exactly the two project sources', () => {
+    const rows = layerRows()
+    expect(evaluateAgentQuery(rows, { layer: 'project' }).map((row) => row.agent.agentName)).toEqual([
+      'project-agents',
+      'project-dsh',
+    ])
+  })
+
+  it('the user layer filter selects exactly the two user sources', () => {
+    const rows = layerRows()
+    expect(evaluateAgentQuery(rows, { layer: 'user' }).map((row) => row.agent.agentName)).toEqual([
+      'user-agents',
+      'user-dsh',
+    ])
+  })
+
+  it('the bundled layer filter selects exactly the bundled source', () => {
+    const rows = layerRows()
+    expect(evaluateAgentQuery(rows, { layer: 'bundled' }).map((row) => row.agent.agentName)).toEqual(['bundled'])
+  })
+
+  /** Five rows whose chain sizes are 0, 1, 2, 3 and 4, with names out of size order. */
+  function modelChainRows(): AgentRow[] {
+    return [
+      createRow('zulu', 'project-dsh'),
+      createRow('alpha', 'project-dsh', { modelOrder: ['smart'] }),
+      createRow('mike', 'project-dsh', { modelOrder: ['smart'], model: [RAW_TARGET] }),
+      createRow('bravo', 'project-dsh', { modelOrder: ['smart', 'fast', 'deep'] }),
+      createRow('echo', 'project-dsh', { modelOrder: ['smart', 'fast'], model: [RAW_TARGET, RAW_TARGET] }),
+    ]
+  }
+
+  it('orders rows by the summed alias and legacy chain size ascending', () => {
+    const rows = modelChainRows()
+    expect(evaluateAgentQuery(rows, { sort: 'models' }).map((row) => row.agent.agentName)).toEqual([
+      'zulu',
+      'alpha',
+      'mike',
+      'bravo',
+      'echo',
+    ])
+  })
+
+  it('orders rows by the summed alias and legacy chain size descending', () => {
+    const rows = modelChainRows()
+    expect(evaluateAgentQuery(rows, { sort: 'models', direction: 'desc' }).map((row) => row.agent.agentName)).toEqual([
+      'echo',
+      'bravo',
+      'mike',
+      'alpha',
+      'zulu',
+    ])
+  })
+
+  it('breaks a chain-size tie by agent name, in both directions', () => {
+    const rows = [
+      createRow('zeta', 'project-dsh', { modelOrder: ['smart'], model: [RAW_TARGET] }),
+      createRow('alpha', 'project-dsh', { modelOrder: ['smart', 'fast'] }),
+    ]
+    expect(evaluateAgentQuery(rows, { sort: 'models' }).map((row) => row.agent.agentName)).toEqual(['alpha', 'zeta'])
+    expect(evaluateAgentQuery(rows, { sort: 'models', direction: 'desc' }).map((row) => row.agent.agentName)).toEqual([
+      'alpha',
+      'zeta',
+    ])
+  })
+
+  it('keeps every row for an empty or whitespace-only text query', () => {
+    const rows = [
+      createRow('alpha', 'project-dsh'),
+      createRow('beta', 'user-dsh'),
+      createRow('gamma', 'bundled'),
+    ]
+    const empty = evaluateAgentQuery(rows, { text: '' })
+    const blank = evaluateAgentQuery(rows, { text: '   ' })
+    expect(empty).toHaveLength(3)
+    expect(blank).toHaveLength(3)
+    expect(empty.map((row) => row.agent.agentName)).toEqual(['alpha', 'beta', 'gamma'])
+    expect(blank.map((row) => row.agent.agentName)).toEqual(['alpha', 'beta', 'gamma'])
   })
 })

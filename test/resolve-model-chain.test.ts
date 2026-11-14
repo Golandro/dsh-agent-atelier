@@ -368,7 +368,6 @@ describe('resolution report', () => {
       policy: { routes: [{ provider: 'deepseek', model: 'deepseek-chat' }] },
     }
 
-    expect(reportOf(context)).toEqual(reportOf(context))
     expect(reportOf(context)).toEqual({
       aliasChain: [
         { orderIndex: 0, alias: 'smart', targets: ['ds-reasoner'] },

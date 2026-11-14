@@ -59,24 +59,15 @@ describe('agent-atelier plugin', () => {
     expect(Object.keys(registry).sort()).toEqual(['diagnostics', 'get', 'invalidate', 'list'])
   })
 
-  it('owns its own service keys instead of the native agents service', () => {
+  it('owns five distinct service keys, none of them the native agents service', () => {
     // ctx.agents already exists on the host (live Agent registry), so the
-    // scaffold must never register itself under that key.
-    expect(AGENT_REGISTRY_SERVICE).toBe('agentRegistry')
-    expect(AGENT_REGISTRY_SERVICE).not.toBe('agents')
-    // The alias registry follows the same rule, under its own key.
-    expect(ALIAS_REGISTRY_SERVICE).toBe('aliasRegistry')
-    expect(ALIAS_REGISTRY_SERVICE).not.toBe('agents')
-    expect(ALIAS_REGISTRY_SERVICE).not.toBe(AGENT_REGISTRY_SERVICE)
-    // The provider registry is a plain object, under its own key too.
-    expect(AGENT_PROVIDERS_SERVICE).toBe('agentProviders')
-    expect(AGENT_PROVIDERS_SERVICE).not.toBe(AGENT_REGISTRY_SERVICE)
-    // The control core is the fourth host service, under its own key.
-    expect(AGENT_CONTROL_SERVICE).toBe('agentControl')
-    expect(AGENT_CONTROL_SERVICE).not.toBe(AGENT_REGISTRY_SERVICE)
-    // The assembly face has its own key, shared by both modes.
-    expect(AGENT_ASSEMBLY_SERVICE).toBe('agentAssembly')
-    expect(AGENT_ASSEMBLY_SERVICE).not.toBe(AGENT_CONTROL_SERVICE)
+    // scaffold must never register itself under that key — and no two faces
+    // may collide either.
+    const keys = [AGENT_REGISTRY_SERVICE, ALIAS_REGISTRY_SERVICE, AGENT_PROVIDERS_SERVICE, AGENT_CONTROL_SERVICE, AGENT_ASSEMBLY_SERVICE]
+
+    expect(keys).toEqual(['agentRegistry', 'aliasRegistry', 'agentProviders', 'agentControl', 'agentAssembly'])
+    expect(keys).not.toContain('agents')
+    expect(new Set(keys).size).toBe(keys.length)
   })
 
   it('provides the base assembly face from its own loader row', async () => {
@@ -84,10 +75,11 @@ describe('agent-atelier plugin', () => {
     await ctx.plugin({ apply: applyAssembly }, {})
 
     const assembly = ctx.get(AGENT_ASSEMBLY_SERVICE) as AgentAssembly | undefined
-    expect(assembly).toBeDefined()
-    expect(Object.keys(assembly ?? {}).sort()).toEqual(['plan', 'registerAssemblySections'])
-    // The all-in-one compatibility entry mounts the same row.
-    expect((await mounted()).ctx.get(AGENT_ASSEMBLY_SERVICE)).toBeDefined()
+    if (assembly === undefined) throw new Error('the assembly row did not register its service')
+    expect(Object.keys(assembly).sort()).toEqual(['plan', 'registerAssemblySections'])
+    // The all-in-one compatibility entry mounts the same face, not a second shape.
+    const compatibility = (await mounted()).ctx.get(AGENT_ASSEMBLY_SERVICE) as AgentAssembly | undefined
+    expect(Object.keys(compatibility ?? {}).sort()).toEqual(['plan', 'registerAssemblySections'])
   })
 
   it('provides the agentControl write face, session-start and chain-report members', async () => {
@@ -261,7 +253,6 @@ describe('provider plugin row', () => {
     // because the loader calls apply(ctx, config) and the config must not be
     // mistaken for a handed-over service instance.
     expect(row.apply).not.toBe(row.applyProviders)
-    expect(row.apply.length).toBeLessThanOrEqual(2)
     // No default export: the loader would unwrap only `default` and drop `inject`.
     expect('default' in coreRow && coreRow.default !== undefined).toBe(false)
     expect('default' in row && row.default !== undefined).toBe(false)

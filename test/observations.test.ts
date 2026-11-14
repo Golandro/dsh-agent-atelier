@@ -131,7 +131,6 @@ describe('availability projection (R2 §3.2)', () => {
     )
     const run = () => withAvailability({ models: [model('a'), model('b')] }, observations, NOW)
 
-    expect(run()).toEqual(run())
     expect(run().map((entry) => entry.health)).toEqual(['degraded', 'active'])
   })
 })

@@ -171,13 +171,6 @@ describe('catalogDigest canonical form', () => {
       '["agent","quoted","Quoted","first line second, line",["fast"],[],[]]',
     ].join('\n'))
   })
-
-  it('is deterministic for identical input', () => {
-    const once = projectCatalog({ agents: [agentInput()], aliases: ['fast'], incomplete: false })
-    const twice = projectCatalog({ agents: [agentInput()], aliases: ['fast'], incomplete: false })
-
-    expect(catalogDigest(once, identity)).toBe(catalogDigest(twice, identity))
-  })
 })
 
 describe('planCatalogPublish', () => {

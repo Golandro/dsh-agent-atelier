@@ -205,8 +205,7 @@ describe('切空间与切类别的选中规则', () => {
   it('上下键步进与边界', () => {
     const first = mergedAliases[0]
     const last = mergedAliases[mergedAliases.length - 1]
-    expect(first).toBeDefined()
-    expect(last).toBeDefined()
+    if (first === undefined || last === undefined) throw new Error('this fixture needs at least two aliases')
     const fromFirst = stepSelection(mergedAliases, first?.key ?? null, 1)
     expect(fromFirst?.name).toBe(mergedAliases[1]?.name)
     expect(stepSelection(mergedAliases, last?.key ?? null, 1)?.name).toBe(last?.name)

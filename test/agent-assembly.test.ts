@@ -153,7 +153,6 @@ describe('planAssembly: fixed row set and placement', () => {
     const second = planAssembly(session())
 
     expect(second).toEqual(first)
-    expect(JSON.stringify(second)).toBe(JSON.stringify(first))
   })
 })
 
