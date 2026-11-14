@@ -1,7 +1,7 @@
 /**
  * import 矩阵检查（ticket 16 / 17）：TS AST 判定，不读 `lib/`。
  *
- * 扫描根为 `src/` 与三个 chunk 根（`client-editor/`、`client-list/`、`client-registry/`）。
+ * 扫描根为 `src/`；泛 UI 与三个 chunk 源码统一归 client 层。
  * 跨层只准公共入口；`@deepseek-ai/*` 只在 dsh/host 且 type-only（P1 现状，
  * 运行期放开归 P2/ADR-0004）；node:fs 只在 providers/dsh/host。
  */
@@ -28,11 +28,18 @@ export const PUBLIC_ENTRIES = [
   'src/dsh/host/index.ts',
 ]
 
-/**
- * 三个 chunk 源（`client-editor/`、`client-list/`、`client-registry/`）与宿主翼的全部接触面（ticket 17 / 59）：
- * 打包产物的共享契约 `src/dsh/client/chunk-contracts.ts`，加 control 公共入口
- * （`client-list` 的查询求值走 `evaluateAgentQuery`）。其余 `src/` 深路径一律报错。
- */
+/** client 主壳的跨包接触面：control 公共面加 dsh/client 的三个窄宿主适配入口。 */
+export const CLIENT_ENTRIES = [
+  'src/contract/index.ts',
+  'src/control/index.ts',
+  'src/control/client-errors.ts',
+  'src/control/http-client.ts',
+  'src/dsh/client/chunk-contracts.ts',
+  'src/dsh/client/chunk-loader.ts',
+  'src/dsh/client/observable.ts',
+]
+
+/** 三个发布 chunk 仍各自封口：只读 control 公共入口与 chunk-contracts。 */
 export const CHUNK_ENTRIES = [
   'src/control/index.ts',
   'src/dsh/client/chunk-contracts.ts',
@@ -43,7 +50,7 @@ export const CHUNK_ENTRIES = [
  * `node` 列出允许的 `node:` 模块（true = 全部）；`cordis` = 允许 `@deepseek-ai/cordis`
  * 且仅 type-only（Q5 的运行期 `Service` 例外在 P2 生效）；`external` = 由宿主
  * 平台注入的运行时模块白名单（client 层的 react 由模块加载器提供，打包时保持 external）；
- * `thirdParty` = 浏览器 chunk：第三方库随 chunk 打包（自带 vendor），但宿主包
+ * `thirdParty` = 浏览器 client：第三方库随主包或 chunk 打包（自带 vendor），但宿主包
  * （`@deepseek-ai/*`）与 `node:*` 不许进来——界面翼只与宿主共享 contract（ticket 17）。
  */
 const IMPORT_MATRIX = [
@@ -57,16 +64,18 @@ const IMPORT_MATRIX = [
   { name: 'providers', dir: 'src/providers/', entries: ['src/contract/index.ts', 'src/catalog/ports.ts'], node: true, cordis: false },
   { name: 'agent-assembly', dir: 'src/agent-assembly/', entries: ['src/contract/index.ts'], node: [], cordis: false },
   { name: 'control', dir: 'src/control/', entries: ['src/contract/index.ts', 'src/yaml/index.ts', 'src/catalog/index.ts', 'src/catalog/ports.ts', 'src/resolve/index.ts', 'src/providers/index.ts', 'src/providers/fs/index.ts'], node: ['node:path'], cordis: false },
-  { name: 'dsh/client', dir: 'src/dsh/client/', entries: ['src/contract/index.ts', 'src/catalog/ports.ts', 'src/control/index.ts', 'src/control/client-errors.ts', 'src/control/http-client.ts'], node: [], cordis: false, external: ['react'] },
+  // 发布 chunk 是 client 包的子层而非独立包：保留各自的封口，防止互相或向主壳回流。
+  { name: 'client/chunk-editor', dir: 'src/client/chunks/editor/', entries: CHUNK_ENTRIES, node: [], cordis: false, thirdParty: true },
+  { name: 'client/chunk-list', dir: 'src/client/chunks/list/', entries: CHUNK_ENTRIES, node: [], cordis: false, thirdParty: true },
+  { name: 'client/chunk-registry', dir: 'src/client/chunks/registry/', entries: CHUNK_ENTRIES, node: [], cordis: false, thirdParty: true },
+  { name: 'client', dir: 'src/client/', entries: CLIENT_ENTRIES, node: [], cordis: false, external: ['react'] },
+  { name: 'dsh/client', dir: 'src/dsh/client/', entries: ['src/contract/index.ts', 'src/control/index.ts', 'src/client/index.ts'], node: [], cordis: false, external: ['react'] },
   { name: 'dsh/host', dir: 'src/dsh/host/', entries: ['src/contract/index.ts', 'src/yaml/index.ts', 'src/catalog/index.ts', 'src/catalog/ports.ts', 'src/resolve/index.ts', 'src/providers/index.ts', 'src/providers/fs/index.ts', 'src/agent-assembly/index.ts', 'src/control/index.ts'], node: true, cordis: true },
-  { name: 'chunk-editor', dir: 'client-editor/', entries: CHUNK_ENTRIES, node: [], cordis: false, thirdParty: true },
-  { name: 'chunk-list', dir: 'client-list/', entries: CHUNK_ENTRIES, node: [], cordis: false, thirdParty: true },
-  { name: 'chunk-registry', dir: 'client-registry/', entries: CHUNK_ENTRIES, node: [], cordis: false, thirdParty: true },
   { name: 'entry', dir: null, entries: PUBLIC_ENTRIES, node: [], cordis: false },
 ]
 
-/** 矩阵扫描根：`src/` 加三个发布 chunk 的源码根（ticket 17 起不再只扫 src/）。 */
-const MATRIX_ROOTS = ['src', 'client-editor', 'client-list', 'client-registry']
+/** 矩阵扫描根：所有运行时代码（含发布 chunk 源码）都在 src/ 的领域包内。 */
+const MATRIX_ROOTS = ['src']
 
 /**
  * 用 TypeScript AST 扫一个模块的 import/export-from：静态、副作用、动态。
@@ -130,7 +139,7 @@ function layerOf(file) {
 
 /**
  * import 矩阵判定（ticket 16 / 17），AST 版。
- * 扫描根：`src/`、`client-editor/`、`client-list/`。
+ * 扫描根：`src/`。
  * @returns {{problems: string[], files: number, imports: number, byLayer: Record<string, number>}}
  */
 export function analyzeImportMatrix(root = ROOT) {
@@ -144,7 +153,7 @@ export function analyzeImportMatrix(root = ROOT) {
   for (const rel of sourceFiles) {
     const layer = layerOf(rel)
     if (layer === undefined) {
-      problems.push(`矩阵：${rel} 不在任何层（contract/yaml/catalog/resolve/providers/agent-assembly/control/dsh/client/dsh/host/chunk-editor/chunk-list/chunk-registry，或入口 src/index.ts）`)
+      problems.push(`矩阵：${rel} 不在任何层（contract/yaml/catalog/resolve/providers/agent-assembly/control/client/chunk-*/dsh/client/dsh/host，或入口 src/index.ts）`)
       continue
     }
     files += 1
@@ -198,7 +207,7 @@ export function runMatrix({ root = ROOT, verbose = false } = {}) {
     kind: 'matrix',
     status: ok ? 'ok' : 'fail',
     detail: ok
-      ? `依赖方向零违规（扫描 ${matrix.files} 文件 / ${matrix.imports} 条 import，含 client-editor/client-list/client-registry 三个 chunk 根）`
+      ? `依赖方向零违规（扫描 ${matrix.files} 文件 / ${matrix.imports} 条 import，含 client 三个 chunk 子层）`
       : `${matrix.problems.length} 处违规（扫描 ${matrix.files} 文件 / ${matrix.imports} 条 import）`,
     problems: matrix.problems.map((text) => ({ kind: 'matrix', text })),
     notes,

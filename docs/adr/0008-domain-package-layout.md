@@ -1,6 +1,6 @@
 # 0008 — 领域包布局：src/ 按能力域拆包，跨包只走公共入口
 
-状态：**2026-11-12 落定**（地图 #21 / 票 #71 包抽象 1；维护者同日裁定「清理期间按领域拆 `src/` 子包，`docs/` 以能力域为二级目录同步维护」）。本 ADR 是后续 client 翼、control/assembly/providers 收口切片的裁决依据。
+状态：**2026-11-12 落定**（地图 #21 / 票 #71 包抽象 1；维护者同日裁定「清理期间按领域拆 `src/` 子包，`docs/` 以能力域为二级目录同步维护」）。本 ADR 是 client 翼（2026-11-14 落地）与后续 control/assembly/providers 收口切片的裁决依据。
 
 `src/` 的层名不再按技术分层表达（`core` / `control` / `providers` 这类名字只说明「在流水线的哪一段」），改按**能力域**拆包。每个包一个职责、一个公共入口（`index.ts`，或显式列出的窄子入口），跨包只准落在入口上；包内部可以深引用。依赖方向由 `scripts/checklist/matrix.mjs` 的 AST 矩阵强制执行，矩阵与 self-test 是唯一执行面。
 
@@ -15,8 +15,8 @@
 | control | 写作核心：compose / plan / commit / frontmatter 与 registry 编辑 / session / chain 查询 | `src/control/index.ts`；子入口 `src/control/client-errors.ts`、`src/control/http-client.ts` | contract、yaml、catalog、resolve、providers | `docs/control/` |
 | assembly | 装配规划与目录注入渲染（当前目录 `src/agent-assembly/`，目标名 assembly） | `src/agent-assembly/index.ts` | contract | `docs/assembly/` |
 | providers | `agentProviders` 注册表 + 文件系统 provider | `src/providers/index.ts`；`src/providers/fs/index.ts` | contract、catalog 的 ports 子入口、`node:*` | `docs/providers/` |
-| client | 浏览器界面翼：ui-core / ui-react / features / chunks | 目标 src/client/index.ts（迁移中；当前仍在 dsh/client） | contract、control 的公共入口 | `docs/client/` |
-| dsh | DSH 连接器：宿主插件行、wire、slots、chunk-loader | `src/dsh/host/index.ts`；浏览器侧入口 `src/dsh/client/index.ts` | 宿主翼可读各领域包；界面侧只读 contract、catalog/ports、control 入口 | `docs/dsh/` |
+| client | 浏览器界面翼：ui-core / ui-react / features / chunks | `src/client/index.ts` | contract；control 入口与 `client-errors` / `http-client` 子入口；dsh/client 的 `chunk-contracts` / `chunk-loader` / `observable` 窄入口 | `docs/client/` |
+| dsh | DSH 连接器：宿主插件行、wire、slots、chunk-loader | `src/dsh/host/index.ts`；浏览器侧入口 `src/dsh/client/index.ts` | 宿主翼可读各领域包；浏览器侧只读 contract、control 与 client 公共入口 | `docs/dsh/` |
 
 禁止 `utils/`、`shared/`、`common/` 垃圾抽屉：共享代码必须属于某个领域包（例如原始 YAML 规则归 yaml，文件系统端口归 catalog）；「不知道放哪」意味着包边界还没想清楚，不是新建抽屉的理由。
 
@@ -29,9 +29,14 @@
 - 矩阵删除 `core` 层、新增 `catalog` / `resolve` 层；self-test 补一条「resolve 走 catalog 深路径」越界断言。
 - 行为保持：公共符号名与签名不变（`src/index.ts` 导出名集合不变）；测试 635 / 43 文件与迁移前一致；`package.json` exports 与 `cordis.patch.yml` 行语义未动。
 
-## 后续切片
+## 本票已落地（包抽象 2，2026-11-14）
 
-- **包抽象 2（client 翼）**：`src/dsh/client` 的泛 UI 移入 client 包（ui-core / ui-react / features），三个根 chunk 目录（client-editor / client-list / client-registry）收进 client 包；`dsh/client` 只留 slots / chunk-loader / 宿主服务读取。与簇 G / Q 的先后关系写在新票。
+- 泛 UI 按职责归入 `src/client/ui-core/`、`src/client/ui-react/` 与 `src/client/features/`；三个根 chunk 目录收进 `src/client/chunks/`。
+- 新增 `src/client/index.ts` 公共入口；`src/dsh/client/` 只保留 slots、chunk 契约 / 加载、observable 与 scope 宿主读取面，并 re-export 既有页面符号。
+- 矩阵新增 client 层与三个 client/chunk 子层，收敛为 `src/` 单扫描根；主壳只 external React，chunk 子层各自封口。构建产物名、`package.json` exports、`cordis.patch.yml` 与包根导出面不变。
+- registry 层轴保留视图常量，以 snapshot 层表同序断言守门，不改变查询求值器签名。
+
+## 后续切片
 - **包抽象 3（control / assembly / providers 收口 + docs 全量刷新）**：`src/agent-assembly/` 更名 assembly（若矩阵与导出面允许），providers 的 default / writer 行归位，全部骨架文档写实。与簇 M+N+P 的先后关系写在新票。
 
 ## client 与 dsh 的耦合线

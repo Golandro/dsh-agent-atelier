@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import { CLIENT_MARKER_HEADER, CLIENT_MARKER_VALUE, abortError, isAbortError } from '../src/control/client-errors.ts'
 import { createHttpControlClient } from '../src/control/http-client.ts'
-import { createRegistryWriter } from '../src/dsh/client/registry-writes.ts'
+import { createRegistryWriter } from '../src/client/ui-core/registry-writes.ts'
 
 import type { ControlSnapshot, RegistryEdit } from '../src/control/index.ts'
-import type { RegistryWriteDependencies } from '../src/dsh/client/registry-writes.ts'
+import type { RegistryWriteDependencies } from '../src/client/ui-core/registry-writes.ts'
 
 const PROJECT = '/proj'
 const REGISTRY = `${PROJECT}/.dsh/agents/registry.yaml`

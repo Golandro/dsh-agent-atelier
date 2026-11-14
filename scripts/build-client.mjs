@@ -5,7 +5,7 @@
  *
  * The main bundle stays a light shell: no CodeMirror, no TanStack — those ship
  * as package-local lazy chunks (`scripts/build-chunks.mjs`). This script
- * transpiles every `src/dsh/client/*` module to CommonJS with the declared
+ * transpiles every `src/client/*` and `src/dsh/client/*` module to CommonJS with the declared
  * `typescript` package and wraps them in the same
  * `window.__ModuleLoader__.load` factory shape the in-tree preset emits.
  * `react` stays a platform `require`; local modules resolve through a tiny
@@ -21,7 +21,10 @@ import ts from 'typescript'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PACKAGE_NAME = 'dsh-agent-atelier'
-const CLIENT_DIR = join(ROOT, 'src/dsh/client')
+const CLIENT_DIRS = [
+  { dir: join(ROOT, 'src/client'), prefix: 'client' },
+  { dir: join(ROOT, 'src/dsh/client'), prefix: 'dsh' },
+]
 
 /** Transpile one source file to CommonJS without resolving its imports. */
 function transpile(relativePath) {
@@ -85,25 +88,29 @@ function remapLocalRequires(relativePath, source, map) {
   })
 }
 
-/** All client modules under src/dsh/client, each with its registry id. */
-function collectClientModules() {
+/** All generic client and DSH adapter modules, each with a unique registry id. */
+function collectClientModules(dir, prefix) {
   const files = []
   const walk = (dir) => {
     for (const name of readdirSync(dir)) {
       const path = join(dir, name)
-      if (statSync(path).isDirectory()) walk(path)
+      if (statSync(path).isDirectory()) {
+        // 发布 chunk 由 build-chunks.mjs 独立打包，不能进入主轻壳。
+        if (prefix === 'client' && name === 'chunks') continue
+        walk(path)
+      }
       // .d.ts 只是类型声明，不产生运行时模块。
       else if (!name.endsWith('.d.ts') && /\.(ts|tsx|css)$/.test(name)) files.push(path)
     }
   }
-  walk(CLIENT_DIR)
+  walk(dir)
   return files.sort().map((path) => ({
     path,
-    id: relative(CLIENT_DIR, path).split('\\').join('/'),
+    id: prefix + '/' + relative(dir, path).split('\\').join('/'),
   }))
 }
 
-const modules = collectClientModules()
+const modules = CLIENT_DIRS.flatMap(({ dir, prefix }) => collectClientModules(dir, prefix))
 // Runtime control-layer imports stay limited to the two public sub-entries the
 // import matrix allows; everything else (types) is erased by the transpile.
 modules.push({ path: 'src/control/client-errors.ts', id: 'client-errors' })
@@ -121,7 +128,7 @@ for (const module of modules) {
     continue
   }
   // The chunk-loading seam is provided by the bundle itself, not the source.
-  if (module.id === 'chunk-loader.ts') {
+  if (module.id === 'dsh/chunk-loader.ts') {
     localModules[module.id] = `module.exports = {
   loadEditorChunk: () => localRequire.async('./client.editor.js'),
   loadListChunk: () => localRequire.async('./client.list.js'),
@@ -132,9 +139,9 @@ for (const module of modules) {
   localModules[module.id] = remapLocalRequires(module.path, transpile(module.path), idsByPath)
 }
 
-const entry = localModules['index.ts']
+const entry = localModules['dsh/index.ts']
 if (entry === undefined) throw new Error('client entry src/dsh/client/index.ts not found')
-delete localModules['index.ts']
+delete localModules['dsh/index.ts']
 
 const factories = Object.entries(localModules)
   .map(([id, code]) => `  ${JSON.stringify(id)}: (module, exports, localRequire) => {\n${code}\n  },`)

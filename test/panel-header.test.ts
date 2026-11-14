@@ -10,17 +10,17 @@ import { createElement as h } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { OperationHistory } from '../src/dsh/client/operation-history.tsx'
-import { PanelHeader } from '../src/dsh/client/panel-header.tsx'
-import { panelTabKey, panelViewId } from '../src/dsh/client/panel-types.ts'
-import { USER_CHOICE } from '../src/dsh/client/workspace-scope.ts'
-import { WORKSPACE_LIST_ID, WorkspaceListbox, workspaceChoiceLabel, workspaceOptionId, workspaceSelectKey } from '../src/dsh/client/workspace-select.tsx'
+import { OperationHistory } from '../src/client/features/operation-history.tsx'
+import { PanelHeader } from '../src/client/ui-react/panel-header.tsx'
+import { panelTabKey, panelViewId } from '../src/client/ui-core/panel-types.ts'
+import { USER_CHOICE } from '../src/client/ui-core/workspace-scope.ts'
+import { WORKSPACE_LIST_ID, WorkspaceListbox, workspaceChoiceLabel, workspaceOptionId, workspaceSelectKey } from '../src/client/ui-react/workspace-select.tsx'
 
 import type { WritePlan } from '../src/control/index.ts'
-import type { HistoryEntry } from '../src/dsh/client/operation-history.tsx'
-import type { PanelHeaderScope } from '../src/dsh/client/panel-header.tsx'
-import type { PanelTab } from '../src/dsh/client/panel-types.ts'
-import type { WorkspaceChoice } from '../src/dsh/client/workspace-scope.ts'
+import type { HistoryEntry } from '../src/client/features/operation-history.tsx'
+import type { PanelHeaderScope } from '../src/client/ui-react/panel-header.tsx'
+import type { PanelTab } from '../src/client/ui-core/panel-types.ts'
+import type { WorkspaceChoice } from '../src/client/ui-core/workspace-scope.ts'
 
 const noop = (): void => {}
 

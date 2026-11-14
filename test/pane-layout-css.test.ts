@@ -14,16 +14,16 @@ import {
   PANE_LIST_DEFAULT_REM,
   PANE_LIST_MIN_REM,
   PANE_SPLITTER_REM,
-} from '../src/dsh/client/pane.tsx'
+} from '../src/client/ui-react/pane.tsx'
 import {
   KEYBOARD_STEP_PX as CHUNK_KEYBOARD_STEP_PX,
   PANE_CONTENT_MIN_REM as CHUNK_CONTENT_MIN_REM,
   PANE_LIST_DEFAULT_REM as CHUNK_LIST_DEFAULT_REM,
   PANE_LIST_MIN_REM as CHUNK_LIST_MIN_REM,
   PANE_SPLITTER_REM as CHUNK_SPLITTER_REM,
-} from '../client-registry/pane.tsx'
+} from '../src/client/chunks/registry/pane.tsx'
 
-const CSS_URL = new URL('../src/dsh/client/styles.css', import.meta.url)
+const CSS_URL = new URL('../src/client/features/styles.css', import.meta.url)
 const css = readFileSync(CSS_URL, 'utf8')
 const breakpoint = PANE_LIST_MIN_REM + PANE_CONTENT_MIN_REM + PANE_SPLITTER_REM
 

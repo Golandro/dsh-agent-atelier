@@ -19,9 +19,9 @@ import {
   workspaceChoiceOf,
   scopeNoticeOf,
   writeRemembered,
-} from '../src/dsh/client/workspace-scope.ts'
+} from '../src/client/ui-core/workspace-scope.ts'
 
-import type { SessionListLike, WorkspaceRow, WorkspaceListLike, WriteOnceStorage } from '../src/dsh/client/workspace-scope.ts'
+import type { SessionListLike, WorkspaceRow, WorkspaceListLike, WriteOnceStorage } from '../src/client/ui-core/workspace-scope.ts'
 
 function row(overrides: Partial<WorkspaceRow> & { readonly workspaceId: string }): WorkspaceRow {
   return {

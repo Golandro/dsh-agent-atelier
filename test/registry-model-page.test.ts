@@ -11,8 +11,8 @@ import { describe, expect, it } from 'vitest'
 import {
   INITIAL_MODELS_PAGE_STATE,
   ModelsPageView,
-} from '../client-registry/model-links.tsx'
-import type { ModelsPageState } from '../client-registry/model-links.tsx'
+} from '../src/client/chunks/registry/model-links.tsx'
+import type { ModelsPageState } from '../src/client/chunks/registry/model-links.tsx'
 import {
   effectiveSelection,
   emptyReasonOf,
@@ -22,8 +22,8 @@ import {
   rowRoute,
   sourceTagClass,
   stepSelection,
-} from '../client-registry/model-links.ts'
-import { buildRegistryRows, evaluateRegistryQuery } from '../client-registry/registry-model.ts'
+} from '../src/client/chunks/registry/model-links.ts'
+import { buildRegistryRows, evaluateRegistryQuery } from '../src/client/chunks/registry/registry-model.ts'
 
 import type {
   AgentDefinition,

@@ -12,8 +12,8 @@ import { describe, expect, it } from 'vitest'
 import {
   INITIAL_MODELS_PAGE_STATE,
   ModelsPageView,
-} from '../client-registry/model-links.tsx'
-import type { ModelsPageState } from '../client-registry/model-links.tsx'
+} from '../src/client/chunks/registry/model-links.tsx'
+import type { ModelsPageState } from '../src/client/chunks/registry/model-links.tsx'
 import {
   activeRemapOption,
   aliasCandidatesOf,
@@ -32,11 +32,11 @@ import {
   healthTagClass,
   remapOptionsOf,
   remapPreviewOf,
-} from '../client-registry/alias-detail.ts'
-import { buildRegistryRows } from '../client-registry/registry-model.ts'
+} from '../src/client/chunks/registry/alias-detail.ts'
+import { buildRegistryRows } from '../src/client/chunks/registry/registry-model.ts'
 
-import type { AliasChainReport, AliasChainState, AliasCopyStatus } from '../client-registry/alias-detail.ts'
-import type { AliasRow } from '../client-registry/registry-model.ts'
+import type { AliasChainReport, AliasChainState, AliasCopyStatus } from '../src/client/chunks/registry/alias-detail.ts'
+import type { AliasRow } from '../src/client/chunks/registry/registry-model.ts'
 import type { AgentChainReport, ControlSnapshot } from '../src/control/index.ts'
 import type {
   AgentDefinition,

@@ -4,9 +4,9 @@
  * into the artifact shapes the DSH module loader's on-demand chunk channel
  * expects:
  *
- *   client-editor/index.ts   → lib/client.editor.js   (IIFE, react-free CodeMirror)
- *   client-list/index.tsx    → lib/client.list.js     (CJS, external = react only)
- *   client-registry/index.tsx → lib/client.registry.js (CJS, external = react only)
+ *   src/client/chunks/editor/index.ts   → lib/client.editor.js   (IIFE, react-free CodeMirror)
+ *   src/client/chunks/list/index.tsx    → lib/client.list.js     (CJS, external = react only)
+ *   src/client/chunks/registry/index.tsx → lib/client.registry.js (CJS, external = react only)
  *
  * Q4 ruling (2026-10-19): browser release artifact, local, no CDN, fully lazy.
  * Vite (an existing devDependency) produces the self-contained browser bundle;
@@ -80,7 +80,7 @@ return module.exports;
 }
 
 const editorCode = await buildChunk({
-  entry: 'client-editor/index.ts',
+  entry: 'src/client/chunks/editor/index.ts',
   formats: ['iife'],
   globalName: 'AgentAtelierEditor',
   outDir: join(STAGE_DIR, 'editor'),
@@ -94,7 +94,7 @@ return AgentAtelierEditor;
 })
 
 const listCode = await buildChunk({
-  entry: 'client-list/index.tsx',
+  entry: 'src/client/chunks/list/index.tsx',
   formats: ['cjs'],
   external: ['react'],
   outDir: join(STAGE_DIR, 'list'),
@@ -105,7 +105,7 @@ const listBundle = wrapChunk({
 })
 
 const registryCode = await buildChunk({
-  entry: 'client-registry/index.tsx',
+  entry: 'src/client/chunks/registry/index.tsx',
   formats: ['cjs'],
   external: ['react'],
   outDir: join(STAGE_DIR, 'registry'),

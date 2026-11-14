@@ -6,5 +6,5 @@
     "outDir": "lib"
   },
   "include": ["src"],
-  "exclude": ["src/dsh/client"]
+  "exclude": ["src/client", "src/dsh/client"]
 }

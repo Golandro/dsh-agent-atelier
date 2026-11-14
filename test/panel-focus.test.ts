@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { focusedAgentName, panelTabOfFocus, routeFocusRequest } from '../src/dsh/client/panel-focus.ts'
+import { focusedAgentName, panelTabOfFocus, routeFocusRequest } from '../src/client/ui-core/panel-focus.ts'
 
 import type { PanelFocus } from '../src/dsh/client/chunk-contracts.ts'
 import type { AgentDefinition } from '../src/contract/index.ts'

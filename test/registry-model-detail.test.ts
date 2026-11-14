@@ -12,8 +12,8 @@ import { describe, expect, it } from 'vitest'
 import {
   INITIAL_MODELS_PAGE_STATE,
   ModelsPageView,
-} from '../client-registry/model-links.tsx'
-import type { ModelsPageState, ModelsPageViewProps } from '../client-registry/model-links.tsx'
+} from '../src/client/chunks/registry/model-links.tsx'
+import type { ModelsPageState, ModelsPageViewProps } from '../src/client/chunks/registry/model-links.tsx'
 import {
   EMPTY_ADD_MODEL_DRAFT,
   addModelCheckOf,
@@ -30,10 +30,10 @@ import {
   writeHeadlineOf,
   writeLinesOf,
   writeToneOf,
-} from '../client-registry/model-detail.ts'
-import { buildRegistryRows } from '../client-registry/registry-model.ts'
+} from '../src/client/chunks/registry/model-detail.ts'
+import { buildRegistryRows } from '../src/client/chunks/registry/registry-model.ts'
 
-import type { ModelRow } from '../client-registry/registry-model.ts'
+import type { ModelRow } from '../src/client/chunks/registry/registry-model.ts'
 import type { RegistryWriteOutcome } from '../src/dsh/client/chunk-contracts.ts'
 import type {
   AgentDefinition,

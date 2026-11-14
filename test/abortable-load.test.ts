@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { abortError } from '../src/control/client-errors.ts'
-import { createAbortableLoad } from '../src/dsh/client/abortable-load.ts'
+import { createAbortableLoad } from '../src/client/ui-react/abortable-load.ts'
 
 /** 让机器的一次 promise 链跑完（loader 解析 / 拒绝各占一拍）。 */
 function flush(): Promise<void> {

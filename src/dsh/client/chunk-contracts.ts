@@ -16,9 +16,9 @@
  * main bundle, so the types below are the whole shared surface.
  *
  * These files are the coordination seam: the main bundle consumes the chunks
- * only through these shapes, and the chunk sources (`client-editor/`,
- * `client-list/`, `client-registry/`, outside `src/` so the import matrix keeps
- * treating the main bundle as dependency-free) implement exactly these exports.
+ * only through these shapes, and the chunk sources under
+ * `src/client/chunks/` implement exactly these exports. The main bundle still
+ * excludes that directory so its shell stays free of chunk-only dependencies.
  */
 
 import type { AliasRegistrySource } from '../../contract/index.ts'

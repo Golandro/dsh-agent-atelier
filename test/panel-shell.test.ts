@@ -12,12 +12,12 @@ import { createElement as h } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeAll, describe, expect, it } from 'vitest'
 
-import { AgentsWorkspace } from '../src/dsh/client/page.tsx'
-import { USER_CHOICE } from '../src/dsh/client/workspace-scope.ts'
+import { AgentsWorkspace } from '../src/client/features/page.tsx'
+import { USER_CHOICE } from '../src/client/ui-core/workspace-scope.ts'
 
 import type { AgentDefinition, AliasDefinition, ModelDefinition } from '../src/contract/index.ts'
 import type { ControlClient, ControlSnapshot } from '../src/control/index.ts'
-import type { PanelTab } from '../src/dsh/client/panel-types.ts'
+import type { PanelTab } from '../src/client/ui-core/panel-types.ts'
 
 beforeAll(() => {
   const g = globalThis as unknown as Record<string, unknown>

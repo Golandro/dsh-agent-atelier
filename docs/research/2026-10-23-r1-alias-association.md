@@ -38,7 +38,7 @@
 | W11 | `dsh-default` 在 `models:` 与 `aliases:` **两处都是保留字**（用户写 = schema 错误） | `src/catalog/registry-file.ts:148-151`、`:207-210` |
 | W12 | `inspectAliasRegistry` 逐 target 校验存在性（`unknown-model-target`）；fan-in 按**每个 target** 计数 | `src/catalog/alias-registry.ts:230-257` |
 | W13 | 写面：`remapAlias` 收**单个 target 字符串并整条重写**为 `alias: [target]`；`addAlias` 同样单目标；无池类编辑 | `src/control/types.ts:143-165`、`src/control/registry-edit.ts:186-198`、`:218-230` |
-| W14 | UI 只读 `targets[0]`：顾问面板 `currentTarget` / `setTargetDraft` | `src/dsh/client/advisor.tsx:114`、`:219` |
+| W14 | UI 只读 `targets[0]`：顾问面板 `currentTarget` / `setTargetDraft` | `src/client/features/advisor.tsx:114`、`:219` |
 | W15 | 读器单测把「池」写死为**拒绝**：`smart: [ds-reasoner, ds-chat]` 的错误里必须含 `single` | `test/registry-file.test.ts:122-128` |
 | W16 | 层语义 = 层内同名先声明生效、层间 workspace 胜；**本名粒度、不崩溃合并** | `src/catalog/alias-registry.ts:120-152` |
 | W17 | frontmatter 字段编译器只认字符串数组（`ARRAY_FIELDS`），`modelOrder` 无法携带对象（影响 §5 的 effort 落点论证） | `src/control/frontmatter-edit.ts:18` |
@@ -186,7 +186,7 @@ aliases:                                   # 有序池：模型条目名，顺�
 | `src/catalog/alias-registry.ts:191-210` | 装载时做组级可用性汇总；`withBuiltInAlias` 的单目标结论不变 |
 | `src/resolve/model-chain.ts:245-249` | `AliasChainStep.modelName` 改取「本 step **胜出**的候选」而非第一个同 `orderIndex` 的候选（W7 的既有小 bug，池 >1 时才暴露） |
 | `src/control/registry-edit.ts:186-198`、`:218-230` | `remapAlias` / `addAlias` 放开为多目标，或新增 `setAliasTargets`；避免「整条重写」静默清空池 |
-| `src/dsh/client/advisor.tsx:114`、`:219` | `targets[0]` → 渲染整个池 |
+| `src/client/features/advisor.tsx:114`、`:219` | `targets[0]` → 渲染整个池 |
 | `test/registry-file.test.ts:122-128` | 「拒绝池」翻转为「接受池、拒绝空数组/重复」 |
 
 > **R1-A 落地回注（ticket #35，2026-10-23）**：上表前三行与末行已实施，池语义写入读器与装载；其余行按票面边界留给 R1-B/C/D。

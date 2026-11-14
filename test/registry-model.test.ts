@@ -16,7 +16,7 @@ import {
   healthLabel,
   remapImpact,
   rowKey,
-} from '../client-registry/registry-model.ts'
+} from '../src/client/chunks/registry/registry-model.ts'
 
 import type {
   AgentDefinition,
@@ -565,6 +565,13 @@ describe('唯一查询求值器', () => {
     expect(byLayer.at(-1)).toBe('project-dsh')
   })
 
+  it('层轴排序与 snapshot 层表同序，built-in 恒排末位', () => {
+    const expected = ['project-dsh', 'user-dsh', 'built-in']
+    expect(snapshot.registryLayers.map((layer) => layer.source)).toEqual(expected.slice(0, -1))
+    const sources = evaluateRegistryQuery(aliasRows, { sort: 'layer' }).map((row) => row.source)
+    expect([...new Set(sources)]).toEqual(expected)
+  })
+
   it('过滤与排序不修改输入行，空查询保持数组副本', () => {
     const before = aliasRows.map((row) => row.key)
     const result = evaluateRegistryQuery(aliasRows, { text: 'backup', sort: 'refs' })
@@ -576,9 +583,12 @@ describe('唯一查询求值器', () => {
 
 describe('模块边界', () => {
   it('无 React / host / node IO import', () => {
-    const source = readFileSync(new URL('../client-registry/registry-model.ts', import.meta.url), 'utf8')
+    const source = readFileSync(new URL('../src/client/chunks/registry/registry-model.ts', import.meta.url), 'utf8')
     expect(source).not.toMatch(/from\s+['"]react['"]/)
     expect(source).not.toMatch(/from\s+['"]node:/)
-    expect(source).not.toMatch(/from\s+['"]\.\.\/src\/(?!control\/index\.ts)/)
+    expect(source).not.toMatch(/from\s+['"]@deepseek-ai\//)
+    const relativeSources = [...source.matchAll(/from\s+['"](\.\.?\/[^'"]+)['"]/g)]
+      .flatMap((match) => match[1] === undefined ? [] : [match[1]])
+    expect(relativeSources.filter((specifier) => !specifier.startsWith('./') && specifier !== '../../../control/index.ts')).toEqual([])
   })
 })

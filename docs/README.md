@@ -13,7 +13,7 @@
 | control | 骨架 | `src/control/index.ts` | 写面与编排：compose / plan / commit / registry 编辑 / session / summon / failures | [control/README.md](control/README.md) |
 | assembly | 骨架 | `src/agent-assembly/index.ts` | 五通道组装规划、兼容 sink、目录投影与摘要 | [assembly/README.md](assembly/README.md) |
 | providers | 骨架 | `src/providers/index.ts`；fs 子入口 `src/providers/fs/index.ts` | `agentProviders` 成员注册表与文件系统来源适配器 | [providers/README.md](providers/README.md) |
-| client | 骨架 | `src/dsh/client/index.ts` | 浏览器面板壳、页面状态机与 chunk 契约（目标 client 包迁移中） | [client/README.md](client/README.md) |
+| client | 写实 | `src/client/index.ts` | 浏览器面板壳、页面状态机、泛 UI 与三个 chunk 源码 | [client/README.md](client/README.md) |
 | dsh | 骨架 | `src/dsh/host/index.ts`；浏览器侧 `src/dsh/client/index.ts` | DSH 连接器：宿主插件行、Cordis 服务、wire、slots、chunk-loader | [dsh/README.md](dsh/README.md) |
 
 ## 按任务找入口
@@ -40,7 +40,7 @@
 - `contract` 是零外部 import 的叶子；所有域只经 `src/contract/index.ts` 读它。
 - `yaml` 只读 contract；`catalog` 读 contract 与 yaml，外加 `node:path` / `node:os`；`resolve` 只读 contract。
 - `control` 读 contract、yaml、catalog、resolve、providers；`assembly` 只读 contract。
-- `providers` 读 contract 与 catalog 的 ports 子入口；`dsh/host` 是连接器，读各域公共入口；`dsh/client` 只读 contract、catalog 的 ports 子入口与 control 入口。
+- `providers` 读 contract 与 catalog 的 ports 子入口；client 读 contract、control 与 dsh/client 的窄入口；`dsh/host` 读各域公共入口；`dsh/client` 只读 control 与 client 公共入口。
 - 跨域只准落在对方声明的公共入口或显式子入口；层内可以深引用。唯一执行面是 `scripts/checklist/matrix.mjs` 的 AST 矩阵。
 
 ## 不是能力域的目录
@@ -57,7 +57,7 @@
 ## 维护约定
 
 1. 新增能力域：先在 `src/` 下建 `<domain>/index.ts` 公共入口、矩阵层行与 self-test，再在本页加一行、建分页。
-2. 子入口是显式窄面，不叫 index 的深路径不算入口。当前允许的典型子入口：`src/catalog/ports.ts`、`src/providers/fs/index.ts`、`src/control/client-errors.ts`、`src/control/http-client.ts`、`src/dsh/client/chunk-contracts.ts`。
+2. 子入口是显式窄面，不叫 index 的深路径不算入口。当前允许的典型子入口：`src/catalog/ports.ts`、`src/providers/fs/index.ts`、`src/control/client-errors.ts`、`src/control/http-client.ts`、`src/dsh/client/chunk-contracts.ts`、`src/dsh/client/chunk-loader.ts`、`src/dsh/client/observable.ts`。
 3. 文档里反引号包裹的 `src/...` 令牌会被 anchors 守卫逐条检查，只写已存在的路径；不写 `path:line` 锚点（行号会漂）；不存在的未来路径不要放进反引号。
 4. 移动代码时同步改入口、矩阵、测试 import 与本页链接，不要靠放宽扫描过关。
 5. 禁止 `utils/`、`shared/`、`common/` 垃圾抽屉；共享代码必须归某个能力域。
@@ -77,6 +77,5 @@
 
 - 不复制各域的内部模块清单、符号签名与测试用例；细节读分页。
 - 不把 ADR、协作规则、参考设计或研究记录当能力域；它们不设索引行。
-- 不把目标布局当现实现状：client 的目标目录仍在迁移，路径以当前 `src/dsh/client/` 为准。
 - 不维护 `package.json` 的 exports、`cordis.patch.yml` 的行语义；那是 ADR 与安装面的事。
 - 不替能力域决定内部结构；分页没写清的边界回到该域的收口票。

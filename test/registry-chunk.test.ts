@@ -9,8 +9,8 @@ import { createElement as h } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { ModelRegistryView, PromptRegistryView } from '../client-registry/index.tsx'
-import { RegistryMount } from '../src/dsh/client/registry-mount.tsx'
+import { ModelRegistryView, PromptRegistryView } from '../src/client/chunks/registry/index.tsx'
+import { RegistryMount } from '../src/client/ui-react/registry-mount.tsx'
 
 import type { AliasDefinition, ModelDefinition } from '../src/contract/index.ts'
 import type { ControlSnapshot } from '../src/control/index.ts'
