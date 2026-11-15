@@ -9,7 +9,7 @@
  *
  * The host packages are never imported at runtime (ADR-0001): the event and
  * service shapes below are local structural mirrors, and the SHA-256 function
- * and message ids are supplied here so `agent-assembly` stays pure.
+ * and message ids are supplied here so `assembly` stays pure.
  */
 import { createHash, randomUUID } from 'node:crypto'
 
@@ -21,12 +21,12 @@ import {
   digestCatalogSource,
   planCatalogPublish,
   projectCatalog,
-} from '../../agent-assembly/index.ts'
+} from '../../assembly/index.ts'
 
 import type {
   CatalogAgentInput,
   CatalogMessage,
-} from '../../agent-assembly/index.ts'
+} from '../../assembly/index.ts'
 import type { AgentDefinition, AgentDiagnostic, AgentRegistry, AliasRegistry } from '../../contract/index.ts'
 
 /** One message as the pre-step waterfall carries it (identity + source only). */

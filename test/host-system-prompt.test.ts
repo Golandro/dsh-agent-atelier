@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 
-import { PERSONA_PREFIX_SECTION, createAssemblyService } from '../src/agent-assembly/index.ts'
+import { PERSONA_PREFIX_SECTION, createAssemblyService } from '../src/assembly/index.ts'
 import { keyOf, mintScope, mountPrompt, ownContext } from './support/host.ts'
 
 import type { Scope } from '@deepseek-ai/dsh-scope'

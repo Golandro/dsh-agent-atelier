@@ -21,6 +21,7 @@ prototype/settings-ui/dist/
 lessons
 
 AGENTS.local.md
+.agents/settings.json
 .dsh
 .codebuddy
 .qoder

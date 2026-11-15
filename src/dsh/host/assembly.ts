@@ -11,7 +11,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 
 import { AGENT_ASSEMBLY_SERVICE } from '../../contract/index.ts'
-import { createAssemblyService } from '../../agent-assembly/index.ts'
+import { createAssemblyService } from '../../assembly/index.ts'
 
 import type { AssemblyConfig } from '../../contract/index.ts'
 

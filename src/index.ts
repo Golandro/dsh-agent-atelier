@@ -1,7 +1,7 @@
 /**
  * Compat entry of the bundle. `package.json`'s `main` / `exports` point here,
  * so the install surface stays frozen while the source below it layers into
- * contract / yaml / catalog / resolve / providers / control / client / dsh (ticket 16). Everything is
+ * contract / yaml / catalog / resolve / providers / assembly / control / client / dsh (ticket 16). Everything is
  * re-exported from the public layer entries; no implementation lives in this
  * file.
  */

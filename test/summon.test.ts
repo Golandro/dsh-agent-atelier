@@ -1,7 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 
-import { createAssemblyService } from '../src/agent-assembly/index.ts'
+import { createAssemblyService } from '../src/assembly/index.ts'
 import {
   isDefaultBridge,
   missingRequiredTools,

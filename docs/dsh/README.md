@@ -1,6 +1,6 @@
 # DSH 连接器域
 
-状态：**2026-11-14 浏览器翼随包抽象 2 写实**。本域是 bundle 与 DeepSeek Harness 的唯一接触面：宿主翼是插件行与 wire，浏览器翼只保留 slots 注册、chunk 契约 / 加载与宿主服务读取；泛 UI 归 client 包。
+状态：**2026-11-15 落定（包抽象 2/3）**。本域是 bundle 与 DeepSeek Harness 的唯一接触面：宿主翼是插件行与 wire，浏览器翼只保留 slots 注册、chunk 契约 / 加载与宿主服务读取；泛 UI 归 client 包。
 
 ## 职责
 
@@ -18,7 +18,7 @@
 
 矩阵：
 
-- `src/dsh/host/` entries：`src/contract/index.ts`、`src/yaml/index.ts`、`src/catalog/index.ts`、`src/catalog/ports.ts`、`src/resolve/index.ts`、`src/providers/index.ts`、`src/providers/fs/index.ts`、`src/agent-assembly/index.ts`、`src/control/index.ts`；node 全允许；cordis 只 type-only。
+- `src/dsh/host/` entries：`src/contract/index.ts`、`src/yaml/index.ts`、`src/catalog/index.ts`、`src/catalog/ports.ts`、`src/resolve/index.ts`、`src/providers/index.ts`、`src/providers/fs/index.ts`、`src/assembly/index.ts`、`src/control/index.ts`；node 全允许；cordis 只 type-only。
 - `src/dsh/client/` entries：`src/contract/index.ts`、`src/control/index.ts` 与 `src/client/index.ts`；node 为空；cordis false；`react` 作为平台注入 external。
 
 宿主只经领域入口读实现，不深路径取；浏览器翼不能读 host、不能用 node，也不能共享宿主实现。dsh/client 只剩 slots / chunk-loader / 宿主服务读取，泛 UI 已进 client 包。
@@ -56,7 +56,7 @@
 - 浏览器翼不 import host、不碰 `node:*`、不共享宿主实现；两翼只共享 contract DTO。
 - dsh 不承载泛 UI 组件：那是 client 包的职责（包抽象 2 已落地）。
 
-## 待收口项
+## 后续边界
 
-- TODO（包抽象 3 / ADR-0004）：Cordis 运行期 Service 基类仍属 P2；矩阵现在只放行 type-only，落地时要同时改矩阵、self-test 与 `package.json` peer 面。
-- TODO（docs 收口）：宿主翼随包抽象 3 做最后一轮全量刷新。
+- Cordis 运行期 Service 基类仍属 ADR-0004 的 P2，不属于包抽象 3；矩阵现在只放行 type-only，未来落地时要同时改矩阵、self-test 与 `package.json` peer 面。
+- 宿主翼与浏览器翼均已按当前代码写实；`src/assembly/` 是宿主读取装配域的唯一公共入口。

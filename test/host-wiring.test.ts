@@ -2,7 +2,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
 
 import { AGENT_CONTROL_SERVICE } from '../src/contract/index.ts'
-import { createAssemblyService } from '../src/agent-assembly/index.ts'
+import { createAssemblyService } from '../src/assembly/index.ts'
 import { createInMemoryControlCore } from './support/memory.ts'
 import { FRONTMATTER_FIELDS, FRONTMATTER_FIELD_KEYS } from '../src/yaml/index.ts'
 import {

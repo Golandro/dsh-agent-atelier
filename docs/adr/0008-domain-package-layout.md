@@ -1,6 +1,6 @@
 # 0008 — 领域包布局：src/ 按能力域拆包，跨包只走公共入口
 
-状态：**2026-11-12 落定**（地图 #21 / 票 #71 包抽象 1；维护者同日裁定「清理期间按领域拆 `src/` 子包，`docs/` 以能力域为二级目录同步维护」）。本 ADR 是 client 翼（2026-11-14 落地）与后续 control/assembly/providers 收口切片的裁决依据。
+状态：**2026-11-12 落定，2026-11-15 完成包抽象 3**（地图 #21 / 票 #71、#73；维护者裁定「清理期间按领域拆 `src/` 子包，`docs/` 以能力域为二级目录同步维护」）。本 ADR 记录 client 翼与 control / assembly / providers 收口的裁决依据。
 
 `src/` 的层名不再按技术分层表达（`core` / `control` / `providers` 这类名字只说明「在流水线的哪一段」），改按**能力域**拆包。每个包一个职责、一个公共入口（`index.ts`，或显式列出的窄子入口），跨包只准落在入口上；包内部可以深引用。依赖方向由 `scripts/checklist/matrix.mjs` 的 AST 矩阵强制执行，矩阵与 self-test 是唯一执行面。
 
@@ -13,7 +13,7 @@
 | catalog | 发现、frontmatter / registry.yaml 读器、alias registry、roots、文件系统端口 | `src/catalog/index.ts`；端口窄子入口 `src/catalog/ports.ts` | contract、yaml、`node:path`、`node:os` | `docs/catalog/` |
 | resolve | 纯算法：模型链解析、失败台账投影 | `src/resolve/index.ts` | contract | `docs/resolve/` |
 | control | 写作核心：compose / plan / commit / frontmatter 与 registry 编辑 / session / chain 查询 | `src/control/index.ts`；子入口 `src/control/client-errors.ts`、`src/control/http-client.ts` | contract、yaml、catalog、resolve、providers | `docs/control/` |
-| assembly | 装配规划与目录注入渲染（当前目录 `src/agent-assembly/`，目标名 assembly） | `src/agent-assembly/index.ts` | contract | `docs/assembly/` |
+| assembly | 装配规划与目录注入渲染 | `src/assembly/index.ts` | contract | `docs/assembly/` |
 | providers | `agentProviders` 注册表 + 文件系统 provider | `src/providers/index.ts`；`src/providers/fs/index.ts` | contract、catalog 的 ports 子入口、`node:*` | `docs/providers/` |
 | client | 浏览器界面翼：ui-core / ui-react / features / chunks | `src/client/index.ts` | contract；control 入口与 `client-errors` / `http-client` 子入口；dsh/client 的 `chunk-contracts` / `chunk-loader` / `observable` 窄入口 | `docs/client/` |
 | dsh | DSH 连接器：宿主插件行、wire、slots、chunk-loader | `src/dsh/host/index.ts`；浏览器侧入口 `src/dsh/client/index.ts` | 宿主翼可读各领域包；浏览器侧只读 contract、control 与 client 公共入口 | `docs/dsh/` |
@@ -36,8 +36,12 @@
 - 矩阵新增 client 层与三个 client/chunk 子层，收敛为 `src/` 单扫描根；主壳只 external React，chunk 子层各自封口。构建产物名、`package.json` exports、`cordis.patch.yml` 与包根导出面不变。
 - registry 层轴保留视图常量，以 snapshot 层表同序断言守门，不改变查询求值器签名。
 
-## 后续切片
-- **包抽象 3（control / assembly / providers 收口 + docs 全量刷新）**：`src/agent-assembly/` 更名 assembly（若矩阵与导出面允许），providers 的 default / writer 行归位，全部骨架文档写实。与簇 M+N+P 的先后关系写在新票。
+## 本票已落地（包抽象 3，2026-11-15）
+
+- 旧 agent-assembly 源码目录更名为 `src/assembly/`；公共入口、矩阵层名、dsh/host 与测试 import、文档锚点同步更新，不保留兼容转发层。`package.json` exports 与 `cordis.patch.yml` 未改。
+- control 已位于目标域，不再做额外模块搬迁；公共导出名与签名保持不变。`FrontmatterField` 的定义仍唯一属于 contract，control 的 re-export 只是公共面投影，不复制定义。
+- providers 不新增 default / writer 运行时插件行。Node 写端口继续归 `src/providers/fs/write.ts`，control 消费端口并负责提交算法；默认 provider 模型链若未来需要独立运行时行，必须另立票据与 ADR，先定服务 key、apiVersion、注册顺序和行为契约。
+- 所有能力域文档按当前代码与矩阵写实；未来工作保留为明确的后续边界，不属于包抽象 3 的实施范围。
 
 ## client 与 dsh 的耦合线
 

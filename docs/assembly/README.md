@@ -1,6 +1,6 @@
 # Assembly 装配域
 
-状态：**骨架：2026-11-12 建立，包抽象 2/3 收口时写实**。当前目录名仍是 `src/agent-assembly/`；ADR-0008 的目标名是 assembly，目录改名与文档写实归包抽象 3。本页先把已落地的规划、目录投影与 compat sink 写实。
+状态：**2026-11-15 落定（包抽象 3）**。源码目录与公共入口已统一为 `src/assembly/`；本页按当前代码写实规划、目录投影与 compat sink。
 
 ## 职责
 
@@ -10,7 +10,7 @@ Agent 会话启动时，把「已解析的 agent + 装配配置」变成一份�
 
 ## 公共入口
 
-`src/agent-assembly/index.ts` 是唯一跨包入口，re-export 三组面：
+`src/assembly/index.ts` 是唯一跨包入口，re-export 三组面：
 
 - planner：`planAssembly` 与七个 section 名常量（`MODEL_SYSTEM_SECTION`、`PERSONA_PREFIX_SECTION`、`SKILLS_SECTION`、`TOOLS_CHANNEL_SECTION`、`DIGEST_CHANNEL_SECTION`、`FIRST_MESSAGE_CHANNEL_SECTION`、`PRE_STEP_CHANNEL_SECTION`）。
 - sink：`createAssemblyService` 与 `AssemblyServiceOptions`；返回宿主契约的 `AgentAssembly`。
@@ -29,13 +29,13 @@ Agent 会话启动时，把「已解析的 agent + 装配配置」变成一份�
 
 | 落点 | 关键符号 / 事实 |
 | --- | --- |
-| `src/agent-assembly/planner.ts` | `planAssembly`。行集固定，仅 per-model system 行按 `sysPrompt` 是否缺席条件出现；行序按推荐缓存层级（per-model system → tools → persona → skills → digest → first message → pre-step）。只有 system 行带宿主落点顺序；其余通道是 06/07 或 DSH 的锚点。 |
-| `src/agent-assembly/sink.ts` | `createAssemblyService`。按 scope 挂载，同一 scope 的第二次挂载先 dispose 旧挂载再整组注册；并发挂载串行化，慢的早期调用不能覆盖后来的；`onMount` 交给宿主 `ctx.effect`，`dispose()` 幂等。 |
-| `src/agent-assembly/catalog.ts` | `projectCatalog` 产出按 registry 顺序的 agent / alias 行；描述折空白并截到 500；`catalogDigest` 对 canonical JSON 元组取注入 hash，registry 不变则字节相同，变化恰产出一条替换消息。alias 目标不进 digest。 |
+| `src/assembly/planner.ts` | `planAssembly`。行集固定，仅 per-model system 行按 `sysPrompt` 是否缺席条件出现；行序按推荐缓存层级（per-model system → tools → persona → skills → digest → first message → pre-step）。只有 system 行带宿主落点顺序；其余通道是 06/07 或 DSH 的锚点。 |
+| `src/assembly/sink.ts` | `createAssemblyService`。按 scope 挂载，同一 scope 的第二次挂载先 dispose 旧挂载再整组注册；并发挂载串行化，慢的早期调用不能覆盖后来的；`onMount` 交给宿主 `ctx.effect`，`dispose()` 幂等。 |
+| `src/assembly/catalog.ts` | `projectCatalog` 产出按 registry 顺序的 agent / alias 行；描述折空白并截到 500；`catalogDigest` 对 canonical JSON 元组取注入 hash，registry 不变则字节相同，变化恰产出一条替换消息。alias 目标不进 digest。 |
 
 ## 测试 seam
 
-- `test/agent-assembly.test.ts`：planner 的固定行集、放置顺序、`sectionOrder` 覆盖、断点；sink 的 compat 注册、同 scope 替换与 dispose。
+- `test/assembly.test.ts`：planner 的固定行集、放置顺序、`sectionOrder` 覆盖、断点；sink 的 compat 注册、同 scope 替换与 dispose。
 - `test/control-assemblies.test.ts`：`ControlSnapshot.assemblies` 的投影口径——没有装配服务时为空，不伪造计划。
 - 宿主侧端到端（dsh/host 的装配行与 pre-step）不在本层单测里复制，由 `test/host-system-prompt.test.ts` 与 `test/host-wiring.test.ts` 的宿主侧用例承担。
 
@@ -47,9 +47,9 @@ Agent 会话启动时，把「已解析的 agent + 装配配置」变成一份�
 - 不做模式开关或能力探测：replacement 模式通过 wide subtype 换实现，本层不加 `mode` 字段、不做 probe（ADR-0006）。
 - 不创建 Agent、不启动会话、不写文件。
 
-## 待收口项
+## 收口边界
 
-- TODO（包抽象 3）：把目录 `src/agent-assembly/` 改名为 assembly；同步改矩阵 dir、dsh/host 的相对 import 与本页所有路径，不保留兼容转发层。改名是否放行由票面按「矩阵与导出面」条件确认。
-- TODO（包抽象 3）：写实 planner 的完整行表、断点与 lint 语义，并把「只有哪些 system 行可执行」从代码注释提炼成稳定事实。
-- TODO（包抽象 3）：确认 catalog 的 description 上限与 alias 目标排除策略在票 06 后是否仍是最终口径。
-- TODO（docs 收口）：本页状态转「落定」，与包抽象 3 的 docs 全量刷新同批。
+- 旧 agent-assembly 源码目录已更名为 `src/assembly/`；矩阵、dsh/host、测试 import 与文档锚点同步更新，不保留兼容转发层。包级 `./assembly` exports 仍指向既有 dsh/host 行，没有变化。
+- planner 的固定行集、缓存断点与顺序 lint 以 `src/assembly/planner.ts` 为实现真相；只有 planner 标记为可执行的 system 节由 compat sink 注册，通道锚点不被执行。
+- catalog 描述上限保持 500，alias 目标继续排除在 digest 之外；这些是当前行为契约，不是待实现事项。
+- replacement 模式与未来通道执行仍由各自票据裁决，不在包抽象 3 顺带实现。

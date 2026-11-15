@@ -30,7 +30,7 @@ import {
   projectCatalog,
   readCatalogSource,
   renderCatalog,
-} from '../src/agent-assembly/index.ts'
+} from '../src/assembly/index.ts'
 import { scratchDir, write } from './support/fs.ts'
 
 /** Identity hash: the digest is the canonical text itself, readable in assertions. */

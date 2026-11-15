@@ -1,6 +1,6 @@
 # Providers 来源与文件系统适配
 
-状态：**骨架：2026-11-12 建立，包抽象 2/3 收口时写实**。本页写已落地的 `agentProviders` 注册表与文件系统适配器；模型层 / 默认对等 provider 行尚未落地，留 TODO 给包抽象 3。
+状态：**2026-11-15 落定（包抽象 3）**。本页按当前代码写实 `agentProviders` 注册表与文件系统适配器；包抽象 3 不新增 default / writer 运行时插件行。
 
 ## 职责
 
@@ -46,11 +46,11 @@ providers 是「来源适配」域，两类职责彼此分离：
 - 不解析 frontmatter、不分类、不合并层、不判 trust：这些是 catalog registry 的职责。
 - 不解析项目根、不读环境变量、不碰 `homedir`：根由 dsh/host 行解析后传入。
 - 不做 Service 子类、不 import Cordis；`agentProviders` 故意是 plain object（2026-10-18 探针）。
-- 不做默认 provider 的模型链 / DSH 默认对逻辑（尚未落地，见待收口）。
+- 不提供默认 provider 的模型链 / DSH 默认对独立插件行；现有模型链解析归 resolve / control，未来新增运行时行必须另立 ADR。
 
-## 待收口项
+## 收口边界
 
-- TODO（包抽象 3）：default provider 行（模型层 + DSH 默认对）还没落地；`src/contract/providers.ts` 明确把 model / default 留在设计文档。落地时先定服务 key、apiVersion 与注册顺序，再改矩阵，不得在 providers 里私自扩 `AgentProviders` 形状。
-- TODO（包抽象 3）：writer 行归属未定。目前 Node 写端口由 `createNodeControlFileSystem` 提供、control 直接构造，并无独立插件行；它是否应升为 provider 行、放在本域还是 control，由票面裁决后写实。
-- TODO（包抽象 3）：复核 `src/providers/fs/index.ts` 作为唯一 fs 子入口的导出集合；新增适配器先改入口与矩阵，禁止从 dsh/host 深路径 import。
-- TODO（docs 收口）：本页状态转「落定」，与包抽象 3 的 docs 全量刷新同批。
+- 不新增 default provider 运行时行，也不扩展 `AgentProviders` 形状。未来若确有需要，先以独立 ADR 决定服务 key、apiVersion、注册顺序与行为契约，再改矩阵和安装面。
+- 不新增 writer 插件行：Node 写端口继续由 `src/providers/fs/write.ts` 的 `createNodeControlFileSystem` 提供，control 通过端口执行提交算法；这是包归属，不是待决的安装行。
+- `src/providers/fs/index.ts` 保持唯一 fs 子入口；新增适配器先改入口与矩阵，禁止从 dsh/host 深路径 import。
+- 包抽象 3 不改 `package.json` exports、`cordis.patch.yml` 或任何公共服务 key。

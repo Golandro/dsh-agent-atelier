@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { createAssemblyService } from '../src/agent-assembly/index.ts'
+import { createAssemblyService } from '../src/assembly/index.ts'
 import { createInMemoryControlCore, type InMemoryControlCore } from './support/memory.ts'
 
 import type { ModelSelectionPolicy } from '../src/contract/index.ts'

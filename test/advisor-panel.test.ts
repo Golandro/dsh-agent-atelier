@@ -6,7 +6,7 @@ import { createElement as h } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { planAssembly } from '../src/agent-assembly/index.ts'
+import { planAssembly } from '../src/assembly/index.ts'
 import { AdvisorPanel } from '../src/client/features/advisor.tsx'
 
 import type {

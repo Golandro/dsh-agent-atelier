@@ -10,7 +10,7 @@ import {
   PERSONA_PREFIX_SECTION,
   createAssemblyService,
   planAssembly,
-} from '../src/agent-assembly/index.ts'
+} from '../src/assembly/index.ts'
 
 import type {
   AgentDefinition,

@@ -12,7 +12,7 @@
 1. **插件单位是 Cordis 插件行，不是层。** 一个包可以暴露多个子入口（`name` 允许子路径），一个 bundle patch 可以插入多行；服务 key 是跨 bundle 的唯一契约。把每层强绑成一个插件仍然不做——纯算法留在 module 内部，只有被其他 bundle 消费的能力才 provide。
 2. **六层**：`contract`（types only）、`core`（目录 / 编排 / 写面）、`providers`（来源与写入适配器）、`dsh`（宿主 / 浏览器连接器）、`ui-core`（界面核心）、`ui-react`（React 组件库）。依赖单向指向 `contract`；宿主翼与界面翼不共享实现，只共享 `contract`（wire 是它的投影）。（2026-10-19 落地现状：`src/` 按**五层**矩阵运行——contract / core / providers / control / dsh；`control` 自票 11 起从 core 独立成层（`src/control/`），`ui-core` / `ui-react` 待 05/12。）
 
-   **2026-11-12 现状注记**：实际导入矩阵已按**领域包**运行——`contract`、`yaml`（共享文本手术纯域：行工具、scalar 规则与 frontmatter 字段表）、`catalog`（发现 / frontmatter / registry.yaml / alias registry / roots / 端口）、`resolve`（模型链解析 + 观测投影）、`providers`、`agent-assembly`、`control`、`dsh`。旧 `core` 目录与矩阵层已删除：`src/catalog/` 取代 `core/catalog` 与 `core/ports` 子入口，`src/resolve/` 取代 `core/resolve`，`core/index.ts` 不再存在；各包只经 `index.ts`（或 `src/catalog/ports.ts` 子入口）公共入口互读。裁决与目标布局见 `docs/adr/0008-domain-package-layout.md`，能力域目录见 `docs/README.md`。上面的六层叙述保留为设计目标；目录与依赖以 §2 的实际矩阵为准——`yaml` 不 import `node:*`、不碰宿主，也不承载 YAML schema 或值语义。
+   **2026-11-15 现状注记**：实际导入矩阵已按**领域包**运行——`contract`、`yaml`（共享文本手术纯域：行工具、scalar 规则与 frontmatter 字段表）、`catalog`（发现 / frontmatter / registry.yaml / alias registry / roots / 端口）、`resolve`（模型链解析 + 观测投影）、`providers`、`assembly`、`control`、`client`、`dsh`。旧 `core` 目录与矩阵层已删除：`src/catalog/` 取代 `core/catalog` 与 `core/ports` 子入口，`src/resolve/` 取代 `core/resolve`，`core/index.ts` 不再存在；各包只经 `index.ts`（或 `src/catalog/ports.ts` 子入口）公共入口互读。裁决与目标布局见 `docs/adr/0008-domain-package-layout.md`，能力域目录见 `docs/README.md`。上面的六层叙述保留为历史设计记录；目录与依赖以 ADR-0008 和矩阵为准——`yaml` 不 import `node:*`、不碰宿主，也不承载 YAML schema 或值语义。
 3. **能力切分（Q1 的「部分 A / 部分 B」）**：
 
    | 能力 | A（module 内部） | B（Cordis 服务） | 理由 |
@@ -25,7 +25,7 @@
    | 连接器 sinks / routes | ✔ | — | 每个能力插件自己的效果面 |
    | UI session / view models / 组件 | ✔ | — | 界面 bundle 内部 |
 
-4. **Provider 经 `agentProviders` 服务注册**，镜像原生 `ctx.skills.registerProvider`：provider bundle 在 `apply` 里 `ctx.agentProviders.registerAgentProvider(create)`，工厂拿到 `ProviderControl`（`signal` / `invalidate`）并返回实例；core 的 catalogs 只消费注册表，不认识任何具体 provider 包。默认 provider（文件系统 / 内置 / 模型层 / DSH 默认对）随包提供，拆分到独立行。
+4. **Provider 经 `agentProviders` 服务注册**，镜像原生 `ctx.skills.registerProvider`：provider bundle 在 `apply` 里 `ctx.agentProviders.registerAgentProvider(create)`，工厂拿到 `ProviderControl`（`signal` / `invalidate`）并返回实例；core 的 catalogs 只消费注册表，不认识任何具体 provider 包。文件系统与 bundled 来源由 `providers/fs` 行提供；模型层 / DSH 默认对的独立 default 行未落地，未来新增必须先由独立 ADR 裁决。
 5. **物理形态先单包多插件行**（子路径导出 ＋ patch 多行），拆包由独立发布 / 第三方 provider / 客户端构建触发（§7），不按日期。
 
 ### 0.1 用户词与落点
@@ -79,7 +79,7 @@ dsh/host                                         dsh/client
 | `resolve` | `contract` | `catalog`、`providers`、`dsh`、`ui-*`、I/O | 纯算法：模型链解析 + 观测投影；不 import `node:*` |
 | `providers` | `contract`、`catalog` 的 ports 子入口 | `dsh`、`ui-*` | 只做 I/O 适配；环境策略在这里 |
 | `control` | `contract`、`yaml`、`catalog`、`resolve`、`providers` | `dsh`、`ui-*` | 写核心：compose / plan / commit / registry 编辑 / session / chain；`node:path` 只在此层 |
-| `dsh/host` | `contract`、`yaml`、`catalog`、`resolve`、`providers`、`agent-assembly`、`control` | `ui-*`；其余 `@deepseek-ai/*` | 唯一可运行期 import `@deepseek-ai/cordis` 的层 |
+| `dsh/host` | `contract`、`yaml`、`catalog`、`resolve`、`providers`、`assembly`、`control` | `ui-*`；其余 `@deepseek-ai/*` | 唯一可运行期 import `@deepseek-ai/cordis` 的层 |
 | `ui-core` | `contract` | `core`、`providers`、`dsh`、React / DOM | 浏览器安全；fetch 作为注入端口 |
 | `ui-react` | `contract`、`ui-core` | `core`、`providers`、`dsh` | 纯 props；只有页面 / hook 碰 session |
 | `dsh/client` | `contract`、`ui-core`、`ui-react` | `core`、`providers`、`dsh/host`、`node:*` | 唯一懂 client slots（左侧栏 `sidebar.panellist` ＋ `main` 面板）的层 |
@@ -91,7 +91,7 @@ dsh/host                                         dsh/client
 3. **禁止 `common/`、`utils/`、`shared/` 垃圾抽屉**：共享代码必须属于某个 module。
 4. **禁止跨翼 import**；两翼只通过 `contract` 的 DTO 对齐。
 5. `src/index.ts` 保持为兼容入口（`package.json` 的 `main` 暂不变）：它组合已有插件行或 re-export `dsh/host` 的 all-in-one `apply`；不承载领域逻辑。
-6. **`yaml` 是 contract 之上的共享纯域**：只有 `catalog`、`control`、`dsh/host` 的矩阵允许经 `src/yaml/index.ts` 读取它；`providers`、`agent-assembly` 与界面翼不直接引用（需要同一套 YAML 规则时经这三个消费层之一）。它自身只 import `contract`，不 import `node:*`、宿主或任何 YAML 库；跨层读取新增列必须先改 `scripts/checklist/matrix.mjs`，不得用深路径绕过。
+6. **`yaml` 是 contract 之上的共享纯域**：只有 `catalog`、`control`、`dsh/host` 的矩阵允许经 `src/yaml/index.ts` 读取它；`providers`、`assembly` 与界面翼不直接引用（需要同一套 YAML 规则时经这三个消费层之一）。它自身只 import `contract`，不 import `node:*`、宿主或任何 YAML 库；跨层读取新增列必须先改 `scripts/checklist/matrix.mjs`，不得用深路径绕过。
 
 ### 2.1 部署：插件行与服务
 
@@ -105,7 +105,7 @@ dsh/host                                         dsh/client
 | `ui-host`（12） | HTTP exact route | — | `agentControl`；可选 `agentOrchestrator`、`webServer` |
 | `ui-client` | 左侧栏「智能体工坊」面板（`sidebar.panellist` 行 ＋ 同 id `main` keyed 面板） | — | HTTP fetch（12 的 route；客户端不拿宿主服务） |
 
-行是**能力边界**，不是文件边界；一个行可以很小（只做注册）。**同一个服务只 provide 一次**：patch 在 `src/index.ts` 的 all-in-one 行与 granular 行之间二选一，不能同时插入。`core` ＋ `providers/fs` 已随票 18 落地（两行同票 active，HMR 才能整组替换）；`control` / `summon` / `ui-*` / `providers/default` 随 11/12/07/05 落地；06 的目录注入不新增行，由 `core` 行安装 `agent/pre-step` 监听器，纯投影/摘要/门控/渲染在 `agent-assembly` 层。期间 `src/index.ts` 保持 all-in-one 兼容。
+行是**能力边界**，不是文件边界；一个行可以很小（只做注册）。**同一个服务只 provide 一次**：patch 在 `src/index.ts` 的 all-in-one 行与 granular 行之间二选一，不能同时插入。当前实际安装行以 `cordis.patch.yml` 为准：`core`、`providers/fs`、`assembly`、`summon` 与包根 `ui-host`；没有 `providers/default` 或独立 writer 行。06 的目录注入不新增行，由 `core` 行安装 `agent/pre-step` 监听器，纯投影/摘要/门控/渲染在 `assembly` 层。`src/index.ts` 保持 all-in-one 兼容。
 
 ### 2.2 服务契约
 
@@ -334,7 +334,7 @@ interface ProviderLookupOptions {
 - `control` 行：构造 writer、catalog 依赖、可选 orchestrator；provide `agentControl`。
 - `providers/default` 行（后票）：注册模型层与默认对 provider；`ctx.get('fs')` / `ctx.get('agentDefaultModel')` 按用时读。
 - `summon`（07）：注册 `summon_agent`；`composeSession` → `startActivation({provider,label,request:{…},signal,delivery})`；`agent/created` 挂 assembly 节并对 per-agent `tools.restrict()`；只有本地 provider（有 `prepareContinuable`）才保留 childId、可挂人设；链耗尽 → isError，外部 provider 警告降级。07b 在同一条行内挂失败台账：`agent/request-error` 先委派 `next()` 再记终局、`llm/stream` 只记尝试；`composeSession` 接受 `observations`/`now`，空台账不传以保持无台账时的报告形状。
-- 目录注入（06）：由 `core` 行安装 `agent/pre-step` 监听器（不新增行）；纯投影、摘要门控、渲染与发布规划在 `agent-assembly` 层，宿主适配在 `dsh/host`；会话历史经 `session.deriveMessages()` 读取。
+- 目录注入（06）：由 `core` 行安装 `agent/pre-step` 监听器（不新增行）；纯投影、摘要门控、渲染与发布规划在 `assembly` 层，宿主适配在 `dsh/host`；会话历史经 `session.deriveMessages()` 读取。
 - `ui-host`（12）：`ctx.webServer` exact route；校验请求 → 调 `agentControl` → 序列化；错误 400/404/409/5xx；请求上限。
 - `ui-client`：左侧栏「智能体工坊」面板（`sidebar.panellist` 行 ＋ 同 id `main` keyed 面板，2026-10-19 裁决）；构造 HTTP `AgentDocPort`，创建 session，渲染 `<AgentControlPage>`；加载 / 失败 / 重试兜底。
 - persona 委托原生 `deployment:persona-prefix`，不重复发明。
@@ -441,21 +441,18 @@ src/
   catalog/                 # 01/02：发现 / frontmatter / registry.yaml / alias / roots；ports.ts 端口子入口
   resolve/                 # 03：模型链解析 + 观测投影
   control/                 # 11：写作核心（compose / plan / commit / 编辑 / session）
-  agent-assembly/          # 04：装配规划（目标名 assembly）
+  assembly/                # 04：装配规划、目录投影与兼容 sink
   providers/
     registry.ts            # agentProviders 注册表（票 18）
-    default/               # 默认 provider 行
-    fs/                    # Node / host fs、workspace 解析
-    writer/                # Node 原子写
+    fs/                    # Node / host fs、source provider 与写端口
+  client/                  # 浏览器页面、ui-core / ui-react 与发布 chunk 源码
   dsh/
     host/                  # 共享结构读取 + 各能力行的 apply
-    client/                # 左侧栏「智能体工坊」面板入口（12 后）
-  ui-core/                 # port / session / view models（12 后）
-  ui-react/                # 组件库（05/13）
+    client/                # slots、chunk 契约 / 加载与宿主服务读取
 test/
 ```
 
-`package.json` 的 `exports` 增子路径（`./core`、`./providers/default`、`./control`、`./summon`、`./catalog`、`./ui-host`、`./client`）；`cordis.patch.yml` 按行插入。P2 增 `peerDependencies: { "@deepseek-ai/cordis": "…" }`（devDependencies 已有），Service 子类只在 `src/dsh/host/`。宿主构建 `tsc` 排除 `src/ui-*` / `src/dsh/client`，客户端用 `tsconfig.client.json` ＋ 独立构建（12 票）。
+`package.json` 保持既有 exports 子路径，`cordis.patch.yml` 按当前安装行插入；包抽象 3 不新增 default / writer 行或导出子路径。P2 若引入 Cordis 运行时 Service 基类，再按 ADR-0004 调整 peer 面与矩阵。宿主与浏览器源码由现有构建脚本分别处理。
 
 ### 7.2 拆 workspace 包的触发条件（不按日期）
 
@@ -486,7 +483,7 @@ test/
 | 01 / 02 | `core/catalog` ＋ `providers/fs`（fs / bundled，票 18）＋ `providers/default`（模型层 / 默认对，后票） |
 | 03 | `core/resolve`（内部）→ `agentOrchestrator` |
 | 04 | `core/assemble`（内部）＋ sink 注册在 summon / dsh 行 |
-| 06 | `agent-assembly` 的目录投影/摘要/门控 ＋ `dsh/host` 的 pre-step 适配（core 行内，无独立行） |
+| 06 | `assembly` 的目录投影/摘要/门控 ＋ `dsh/host` 的 pre-step 适配（core 行内，无独立行） |
 | 07 | `agentOrchestrator` 消费 ＋ `summon` 行（tool / subagents / 原生过滤） |
 | 11 | `core/control` → `agentControl` 服务 |
 | 12 | `ui-host` 行 ＋ `ui-client` 入口 ＋ `ui-core` HTTP port |

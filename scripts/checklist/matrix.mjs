@@ -21,7 +21,7 @@ export const PUBLIC_ENTRIES = [
   'src/resolve/index.ts',
   'src/providers/index.ts',
   'src/providers/fs/index.ts',
-  'src/agent-assembly/index.ts',
+  'src/assembly/index.ts',
   'src/control/index.ts',
   'src/control/client-errors.ts',
   'src/control/http-client.ts',
@@ -62,7 +62,7 @@ const IMPORT_MATRIX = [
   // Pure model-chain resolution and failure-ledger projection; injected data only.
   { name: 'resolve', dir: 'src/resolve/', entries: ['src/contract/index.ts'], node: [], cordis: false },
   { name: 'providers', dir: 'src/providers/', entries: ['src/contract/index.ts', 'src/catalog/ports.ts'], node: true, cordis: false },
-  { name: 'agent-assembly', dir: 'src/agent-assembly/', entries: ['src/contract/index.ts'], node: [], cordis: false },
+  { name: 'assembly', dir: 'src/assembly/', entries: ['src/contract/index.ts'], node: [], cordis: false },
   { name: 'control', dir: 'src/control/', entries: ['src/contract/index.ts', 'src/yaml/index.ts', 'src/catalog/index.ts', 'src/catalog/ports.ts', 'src/resolve/index.ts', 'src/providers/index.ts', 'src/providers/fs/index.ts'], node: ['node:path'], cordis: false },
   // 发布 chunk 是 client 包的子层而非独立包：保留各自的封口，防止互相或向主壳回流。
   { name: 'client/chunk-editor', dir: 'src/client/chunks/editor/', entries: CHUNK_ENTRIES, node: [], cordis: false, thirdParty: true },
@@ -70,7 +70,7 @@ const IMPORT_MATRIX = [
   { name: 'client/chunk-registry', dir: 'src/client/chunks/registry/', entries: CHUNK_ENTRIES, node: [], cordis: false, thirdParty: true },
   { name: 'client', dir: 'src/client/', entries: CLIENT_ENTRIES, node: [], cordis: false, external: ['react'] },
   { name: 'dsh/client', dir: 'src/dsh/client/', entries: ['src/contract/index.ts', 'src/control/index.ts', 'src/client/index.ts'], node: [], cordis: false, external: ['react'] },
-  { name: 'dsh/host', dir: 'src/dsh/host/', entries: ['src/contract/index.ts', 'src/yaml/index.ts', 'src/catalog/index.ts', 'src/catalog/ports.ts', 'src/resolve/index.ts', 'src/providers/index.ts', 'src/providers/fs/index.ts', 'src/agent-assembly/index.ts', 'src/control/index.ts'], node: true, cordis: true },
+  { name: 'dsh/host', dir: 'src/dsh/host/', entries: ['src/contract/index.ts', 'src/yaml/index.ts', 'src/catalog/index.ts', 'src/catalog/ports.ts', 'src/resolve/index.ts', 'src/providers/index.ts', 'src/providers/fs/index.ts', 'src/assembly/index.ts', 'src/control/index.ts'], node: true, cordis: true },
   { name: 'entry', dir: null, entries: PUBLIC_ENTRIES, node: [], cordis: false },
 ]
 
@@ -153,7 +153,7 @@ export function analyzeImportMatrix(root = ROOT) {
   for (const rel of sourceFiles) {
     const layer = layerOf(rel)
     if (layer === undefined) {
-      problems.push(`矩阵：${rel} 不在任何层（contract/yaml/catalog/resolve/providers/agent-assembly/control/client/chunk-*/dsh/client/dsh/host，或入口 src/index.ts）`)
+      problems.push(`矩阵：${rel} 不在任何层（contract/yaml/catalog/resolve/providers/assembly/control/client/chunk-*/dsh/client/dsh/host，或入口 src/index.ts）`)
       continue
     }
     files += 1

@@ -10,7 +10,7 @@ import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 
-import { createAssemblyService } from '../src/agent-assembly/index.ts'
+import { createAssemblyService } from '../src/assembly/index.ts'
 import { applySummon } from '../src/dsh/host/summon.ts'
 import { mintScope, ownContext } from './support/host.ts'
 

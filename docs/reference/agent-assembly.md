@@ -39,7 +39,7 @@
 | 注册 scope | 宿主 scoped 提示词注册表的契约切片 | `AssemblyScope`、`SystemPrompt` | 兼容 sink | 已实现 |
 | 宿主提示词面 | 兼容模式直接 extend 的 DSH 原生注册面 | `SystemPrompt`、`PromptSection`、`AssembleContext` | 兼容 sink、07 | 已扩展（原生名） |
 | 基础接口 | 下游只依赖的组装面 | `AgentAssembly` | 06/07/替换包 | 已 provide（assembly 行） |
-| 兼容模式 | 注册进原版 `ctx.systemPrompt` 的默认产品面 | `src/agent-assembly/sink.ts` | 运行时 | 已交付（独立 assembly 行） |
+| 兼容模式 | 注册进原版 `ctx.systemPrompt` 的默认产品面 | `src/assembly/sink.ts` | 运行时 | 已交付（独立 assembly 行） |
 | 替换模式 | 经 patch 激活的额外包，功能更多 | 实现未落 | 运行时 | 已定，不实现 |
 | 宽子类型接口 | 基础成员全保留、只增不改 | `ReplacementAgentAssembly extends AgentAssembly`（规则） | 替换包 | 规则已定 |
 | 面板投影 | 快照里按 Agent 携带的派生规划 | `ControlSnapshot.assemblies` | 顾问面板 | 已接线；缺 key = 不可用 |
@@ -180,8 +180,8 @@
 |---|---|---|---|
 | 契约类型与服务 key | `assembly.ts`、`service-keys.ts` | 契约已落；宿主面已改原生名 | 06/07 按通道 extend |
 | 宿主注册面切片 | `SystemPrompt`、`PromptSection`、`AssembleContext` | 已扩展（原生名） | 06/07 按需加成员 |
-| 纯函数规划器 | `src/agent-assembly/planner.ts` | 已交付 | 06 消费 lint |
-| 兼容注册 sink | `src/agent-assembly/sink.ts` | 已交付 | 07 已挂载（`agent/created`） |
+| 纯函数规划器 | `src/assembly/planner.ts` | 已交付 | 06 消费 lint |
+| 兼容注册 sink | `src/assembly/sink.ts` | 已交付 | 07 已挂载（`agent/created`） |
 | 独立组装插件行 | `src/dsh/host/assembly.ts`、`./assembly` 导出、patch 行 | 已交付 | — |
 | `ComposedAgentSession.model` | 接口字段 + 填充 | 已交付 | 07 消费 |
 | `ControlSnapshot.assemblies` | 快照投影 | 已交付 | 面板消费 |

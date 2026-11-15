@@ -17,7 +17,7 @@ import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deep
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 
-import { createAssemblyService } from '../src/agent-assembly/index.ts'
+import { createAssemblyService } from '../src/assembly/index.ts'
 import { applySummon } from '../src/dsh/host/summon.ts'
 import { ownContext } from './support/host.ts'
 

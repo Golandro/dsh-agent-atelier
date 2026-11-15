@@ -1,6 +1,6 @@
 # Control 写作核心
 
-状态：**骨架：2026-11-12 建立，包抽象 2/3 收口时写实**。面向维护者与实现者：读这一页知道一次编辑从 compose 到落盘经过哪里，以及哪些入口是公共契约、哪些只是内部 seam。
+状态：**2026-11-15 落定（包抽象 3）**。面向维护者与实现者：读这一页知道一次编辑从 compose 到落盘经过哪里，以及哪些入口是公共契约、哪些只是内部 seam。
 
 ## 职责
 
@@ -52,9 +52,9 @@ control 是写作核心域：把一份 agent 文档的原始字节组成编辑�
 - 不解析整份 YAML、不持有独立 registry schema：行 / 标量规则归 yaml，schema 与层语义归 catalog。
 - 不把 chain 解析、列表查询或写计划复制到 UI；所有视图消费 control 的投影或公共函数。
 
-## 待收口项
+## 收口边界
 
-- TODO（包抽象 3）：按票面确认 `src/control/index.ts` 的公共面是否最终冻结为当前导出集合；任何新增 / 收窄先改矩阵与 self-test，禁止用深路径兼容。
-- TODO（包抽象 3）：复核 `test/support/memory.ts`、`src/control/compose.ts`、`src/control/writes.ts` 等内部 seam 的「测试直读」边界，写实本页并补齐与 dsh/host 的职责表。
-- TODO（包抽象 3）：确认 `src/control/types.ts` 对 `FrontmatterField` 的 re-export 是否仍需要（类型唯一真相在 `src/contract/types.ts`），保持单一类型来源、不复制定义。
-- TODO（docs 收口）：本页状态转「落定」，与包抽象 3 的 docs 全量刷新同批；届时把上表的事实与 ADR-0008 的最终布局对齐。
+- `src/control/` 已符合 ADR-0008 的目标布局，包抽象 3 不做额外模块搬迁；公共入口维持当前导出集合，未来新增或收窄必须先改矩阵与 self-test，禁止用深路径兼容。
+- `test/support/memory.ts`、`src/control/compose.ts` 与 `src/control/writes.ts` 保持内部 seam：测试可以直接读取，生产跨包消费者只走公共入口。
+- `FrontmatterField` 的唯一类型定义在 `src/contract/types.ts`；control 的 re-export 只是既有公共面的投影，不复制定义，也不为「去重」删除公共导出名。
+- dsh/host 只负责 HTTP 信封、宿主生命周期与错误映射；本文所列编辑、查询和会话规则均归 control。

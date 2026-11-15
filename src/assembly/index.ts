@@ -1,5 +1,5 @@
 /**
- * Public entry of the agent-assembly layer: ticket 04's pure planner and
+ * Public entry of the assembly layer: ticket 04's pure planner and
  * compat-mode runtime sink, plus ticket 06's catalog projection, digest gate,
  * durable source and renderer. The host rows are the only consumers inside
  * this bundle; everything here reads the contract layer only and never the

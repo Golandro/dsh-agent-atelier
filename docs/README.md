@@ -1,6 +1,6 @@
 # 能力域索引
 
-状态：**2026-11-12 落定**（包抽象 1；裁决见 [ADR-0008](adr/0008-domain-package-layout.md)）。本页是 `docs/` 的二级目录：一个能力域一行，指向该域的 README。分页负责职责、入口、依赖方向、符号与测试 seam；索引不复制分页结论。
+状态：**2026-11-15 全量写实**（包抽象 3；裁决见 [ADR-0008](adr/0008-domain-package-layout.md)）。本页是 `docs/` 的二级目录：一个能力域一行，指向该域的 README。分页负责职责、入口、依赖方向、符号与测试 seam；索引不复制分页结论。
 
 ## 能力域
 
@@ -10,11 +10,11 @@
 | yaml | 写实 | `src/yaml/index.ts` | 在原始文本上做行级 YAML 手术，保留无法识别的字节 | [yaml/README.md](yaml/README.md) |
 | catalog | 写实 | `src/catalog/index.ts`；窄子入口 `src/catalog/ports.ts` | 发现、agent 文档与 registry.yaml 读器、两个注册表、roots、文件系统端口 | [catalog/README.md](catalog/README.md) |
 | resolve | 写实 | `src/resolve/index.ts` | 模型链解析与失败台账投影，纯函数、数据进数据出 | [resolve/README.md](resolve/README.md) |
-| control | 骨架 | `src/control/index.ts` | 写面与编排：compose / plan / commit / registry 编辑 / session / summon / failures | [control/README.md](control/README.md) |
-| assembly | 骨架 | `src/agent-assembly/index.ts` | 五通道组装规划、兼容 sink、目录投影与摘要 | [assembly/README.md](assembly/README.md) |
-| providers | 骨架 | `src/providers/index.ts`；fs 子入口 `src/providers/fs/index.ts` | `agentProviders` 成员注册表与文件系统来源适配器 | [providers/README.md](providers/README.md) |
+| control | 写实 | `src/control/index.ts` | 写面与编排：compose / plan / commit / registry 编辑 / session / summon / failures | [control/README.md](control/README.md) |
+| assembly | 写实 | `src/assembly/index.ts` | 五通道组装规划、兼容 sink、目录投影与摘要 | [assembly/README.md](assembly/README.md) |
+| providers | 写实 | `src/providers/index.ts`；fs 子入口 `src/providers/fs/index.ts` | `agentProviders` 成员注册表与文件系统来源适配器 | [providers/README.md](providers/README.md) |
 | client | 写实 | `src/client/index.ts` | 浏览器面板壳、页面状态机、泛 UI 与三个 chunk 源码 | [client/README.md](client/README.md) |
-| dsh | 骨架 | `src/dsh/host/index.ts`；浏览器侧 `src/dsh/client/index.ts` | DSH 连接器：宿主插件行、Cordis 服务、wire、slots、chunk-loader | [dsh/README.md](dsh/README.md) |
+| dsh | 写实 | `src/dsh/host/index.ts`；浏览器侧 `src/dsh/client/index.ts` | DSH 连接器：宿主插件行、Cordis 服务、wire、slots、chunk-loader | [dsh/README.md](dsh/README.md) |
 
 ## 按任务找入口
 
@@ -26,21 +26,21 @@
 | 改 HTTP route 或编辑器写回 | control → dsh | control 的编辑算法；dsh 的 wire / 路由与错误映射 |
 | 改侧栏面板或页面交互 | client → dsh | client 的页面与 chunk 契约；dsh 的 slots / chunk-loader |
 | 加跨域 DTO 或服务 key | contract | 只加在 `src/contract/index.ts` 的 re-export 面上，不放实现 |
-| 改组装行、通道或目录摘要 | assembly | 规划器与 sink 在 `src/agent-assembly/index.ts` 后面 |
+| 改组装行、通道或目录摘要 | assembly | 规划器与 sink 在 `src/assembly/index.ts` 后面 |
 
 ## 状态怎么读
 
-- **写实**：本页按当前代码逐符号核对；路径、关键符号、测试 seam 可以当事实读，改动前先看分页。
-- **骨架**：可执行骨架——职责、公共入口、依赖方向已落，关键符号与测试 seam 留到该域收口时刷新。ADR-0008 把 control / assembly / providers 的文档写实列进包抽象 3，client 翼列进包抽象 2；dsh 跨两者。
-- 状态描述的是**文档成熟度，不是代码完成度**：五个骨架域的代码都已在运行，只是分页还没按符号逐条核对。
-- 能力域目录名跟着包名走；`src/agent-assembly/` 的文档目录叫 `docs/assembly/`，因为目标包名是 assembly。
+- **写实**：本页按当前代码逐符号核对；路径、关键符号、测试 seam 可以当事实读，改动前先看分页。当前九个能力域均为写实。
+- **骨架**：只用于未来新能力域的过渡状态——职责、公共入口、依赖方向已落，关键符号与测试 seam 尚待核对；不得把骨架当最终文档。
+- 状态描述的是**文档成熟度，不是代码完成度**；未来工作可以保留在分页的后续边界中，但不得伪装成已经落地的能力。
+- 能力域目录名跟着包名走；`src/assembly/` 对应 `docs/assembly/`。
 
 ## 依赖方向
 
 - `contract` 是零外部 import 的叶子；所有域只经 `src/contract/index.ts` 读它。
 - `yaml` 只读 contract；`catalog` 读 contract 与 yaml，外加 `node:path` / `node:os`；`resolve` 只读 contract。
 - `control` 读 contract、yaml、catalog、resolve、providers；`assembly` 只读 contract。
-- `providers` 读 contract 与 catalog 的 ports 子入口；client 读 contract、control 与 dsh/client 的窄入口；`dsh/host` 读各域公共入口；`dsh/client` 只读 control 与 client 公共入口。
+- `providers` 读 contract 与 catalog 的 ports 子入口；client 读 contract、control 与 dsh/client 的窄入口；`dsh/host` 读各域公共入口；`dsh/client` 只读 contract、control 与 client 公共入口。
 - 跨域只准落在对方声明的公共入口或显式子入口；层内可以深引用。唯一执行面是 `scripts/checklist/matrix.mjs` 的 AST 矩阵。
 
 ## 不是能力域的目录
@@ -49,7 +49,7 @@
 | --- | --- | --- |
 | `docs/adr/` | 裁决记录：结构、路径身份、文本手术、双模、作用域、领域包布局 | 一个裁决可以横跨多个能力域，不归属单一域 |
 | `docs/agents/` | 协作规则：issue tracker、triage labels、domain 文档约定、宿主事实 | 是人与 agent 的工作约定，不是产品能力 |
-| `docs/reference/` | 参考设计：core 设计、agent-assembly 过渡索引 | 设计快照，符号真相仍在代码与能力域分页 |
+| `docs/reference/` | 参考设计：core 设计、assembly 过渡索引 | 设计快照，符号真相仍在代码与能力域分页 |
 | `docs/research/` | 带日期的研究记录（R1 / R2 / 07a 等） | 历史证据与推导，不是规范 |
 
 能力域目录之下只放该域的 README；跨域裁决、协作规则、参考设计与研究记录都不塞进能力域目录。
@@ -71,7 +71,9 @@
 
 ## 变更记录
 
-- 2026-11-12：按 ADR-0008 建能力域二级目录；contract / yaml / catalog / resolve 写实，其余五页留可执行骨架，待包抽象 2 / 3 刷新。
+- 2026-11-12：按 ADR-0008 建能力域二级目录；contract / yaml / catalog / resolve 写实，其余五页留可执行骨架。
+- 2026-11-14：client 翼随包抽象 2 写实。
+- 2026-11-15：control / assembly / providers / dsh 随包抽象 3 写实，索引状态与矩阵包表全量对齐。
 
 ## 本页不做的事
 
