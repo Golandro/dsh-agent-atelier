@@ -15,6 +15,7 @@
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, CSSProperties, KeyboardEvent, ReactNode } from 'react'
 import type { PanelFocus, RegistryDestination, RegistryViewProps } from '../../../dsh/client/chunk-contracts.ts'
+import { errorMessage, isAbortError } from '../../../control/index.ts'
 import type { ControlSnapshot, RegistryEdit } from '../../../control/index.ts'
 import { AliasDetailBody } from './alias-detail.tsx'
 import { ListPane } from './list-pane.tsx'
@@ -780,12 +781,4 @@ export function ModelRegistryView(props: RegistryViewProps): ReactNode {
     onAddModel: props.onRegistryWrite === undefined ? undefined : addModel,
     onRequestFocus: props.onRequestFocus,
   })
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

@@ -28,6 +28,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 
+import { errorMessage } from '../../control/index.ts'
 import type { FailureRecorder, FailureRequest, FailureSignal } from '../../control/index.ts'
 
 /** The `LlmFailure` members this row reads (DSH's serializable failure facts). */
@@ -114,7 +115,7 @@ export interface FailureLedgerOptions {
 export function mountFailureLedger(ctx: Context, recorder: FailureRecorder, options: FailureLedgerOptions = {}): () => void {
   const clock = options.now ?? (() => Date.now())
   const warn = options.warn ?? ((message: string, error: unknown) => {
-    ctx.logger.warn(message + ': ' + messageOf(error))
+    ctx.logger.warn(message + ': ' + errorMessage(error))
   })
 
   // Leg A: delegate first, record after, return the action untouched.
@@ -213,9 +214,4 @@ function errorFailureOf(chunk: unknown): HostFailure | undefined {
   const failure = reason.failure as Partial<HostFailure> | undefined
   if (failure === undefined || typeof failure.code !== 'string') return undefined
   return failure as HostFailure
-}
-
-/** One line for a warning even when the thrown value is not an Error. */
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

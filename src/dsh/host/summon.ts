@@ -28,6 +28,7 @@ import type { Context } from '@deepseek-ai/cordis'
 
 import {
   createFailureRecorder,
+  errorMessage,
   missingRequiredTools,
   planSummonStart,
   readSummonArguments,
@@ -406,7 +407,7 @@ async function installRestrictions(
           session: reserved.session as unknown as AssemblySession,
         })
       } catch (error) {
-        throw new Error('summon_agent: cannot mount the assembly for "' + reserved.session.agent.agentName + '": ' + messageOf(error))
+        throw new Error('summon_agent: cannot mount the assembly for "' + reserved.session.agent.agentName + '": ' + errorMessage(error))
       }
     }
   }
@@ -443,7 +444,7 @@ async function installRestrictions(
   } catch (error) {
     // Advisory: a tool-surface edit must not fail Agent creation. The native
     // entries stay visible if it does, so the model can still work.
-    scope.logger.warn('summon_agent: cannot apply the tool surface to agent "' + agent.id + '": ' + messageOf(error))
+    scope.logger.warn('summon_agent: cannot apply the tool surface to agent "' + agent.id + '": ' + errorMessage(error))
   }
 }
 
@@ -456,7 +457,7 @@ async function resolveParentCwd(ctx: Context, parent: HostAgent, signal: AbortSi
       if (typeof cwd === 'string' && cwd !== '') return cwd
     } catch (error) {
       if (signal.aborted) throw error
-      ctx.logger.warn('summon_agent: cannot resolve the caller working directory: ' + messageOf(error))
+      ctx.logger.warn('summon_agent: cannot resolve the caller working directory: ' + errorMessage(error))
     }
   }
   const cwd = parent.session.header.cwd
@@ -468,11 +469,6 @@ function normalizeNativeToolNames(names: readonly string[] | undefined): readonl
   if (!Array.isArray(names)) return DEFAULT_NATIVE_SUBAGENT_TOOLS
   const kept = names.filter(name => typeof name === 'string' && name.trim() !== '')
   return kept.length === 0 ? DEFAULT_NATIVE_SUBAGENT_TOOLS : kept
-}
-
-/** One line for a warning even when the thrown value is not an Error. */
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /** Plugin entry: the loader mounts this module through its named apply. */

@@ -27,6 +27,7 @@ import type {
   CatalogAgentInput,
   CatalogMessage,
 } from '../../assembly/index.ts'
+import { errorMessage } from '../../control/index.ts'
 import type { AgentDefinition, AgentDiagnostic, AgentRegistry, AliasRegistry } from '../../contract/index.ts'
 
 /** One message as the pre-step waterfall carries it (identity + source only). */
@@ -365,9 +366,3 @@ function warnOnce(sink: ((message: string) => void) | undefined): (message: stri
     sink?.(message)
   }
 }
-
-/** One-line error text safe for the log. */
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
