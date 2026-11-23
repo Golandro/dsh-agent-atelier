@@ -242,6 +242,32 @@ describe('control core over the in-memory adapter', () => {
     expect(models.find((model) => model.modelName === 'kimi')?.available).toBe(true)
   })
 
+  it('setSysPrompt lands in the layer file and reads back through the snapshot', async () => {
+    const core = createCore()
+    // 写：新提示词进生效声明所在层（这里是项目层）。
+    const written = await core.applyRegistryEdit({ kind: 'setSysPrompt', modelName: 'gpt5', sysPrompt: '先想, 再答' })
+    expect(written.results).toEqual([{ ok: true, file: REGISTRY_PROJECT }])
+    expect(core.files.get(REGISTRY_PROJECT)).toBe(
+      'models:\n'
+      + '  gpt5:\n'
+      + '    provider: openai\n'
+      + '    model: gpt-5\n'
+      + '    sysPrompt: "先想, 再答"\n'
+      + 'aliases:\n'
+      + '  smart: [gpt5]\n',
+    )
+    // 回读：同一份快照投影出新的 sysPrompt（页面写后只读快照回读走这条路）。
+    const afterWrite = await core.snapshot({ cwd: PROJECT })
+    expect(afterWrite.models.find((model) => model.modelName === 'gpt5')?.sysPrompt).toBe('先想, 再答')
+
+    // 空串 = 移除字段（不是写入空串）。
+    const removed = await core.applyRegistryEdit({ kind: 'setSysPrompt', modelName: 'gpt5', sysPrompt: '' })
+    expect(removed.results).toEqual([{ ok: true, file: REGISTRY_PROJECT }])
+    expect(core.files.get(REGISTRY_PROJECT)).toBe(REGISTRY_PROJECT_TEXT)
+    const afterRemove = await core.snapshot({ cwd: PROJECT })
+    expect(afterRemove.models.find((model) => model.modelName === 'gpt5')?.sysPrompt).toBeUndefined()
+  })
+
   it('addModel appends the entry to the models section, fields in order, and reports the file', async () => {
     const core = createCore()
     const added = await core.applyRegistryEdit({

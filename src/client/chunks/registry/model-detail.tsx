@@ -409,7 +409,7 @@ function PromptSection(props: JumpProps): ReactNode {
       },
       '去系统提示词页',
     ),
-    h('p', { className: 'dim model-avail-note' }, '预览只读；编辑与拼装顺序归系统提示词页（票 68）。'),
+    h('p', { className: 'dim model-avail-note' }, '预览只读；编辑在「系统提示词」页（本条目一张生效层卡片）。'),
   )
 }
 
@@ -628,7 +628,7 @@ function ProblemList(props: { readonly problems: readonly AddModelProblem[] }): 
 
 /* ── 写结果反馈 ─────────────────────────────────────────────────── */
 
-function WriteFeedback(props: { readonly write?: ModelWriteUi | undefined }): ReactNode {
+export function WriteFeedback(props: { readonly write?: ModelWriteUi | undefined }): ReactNode {
   const write = props.write
   if (write === undefined || write.status === 'idle') return null
   if (write.status === 'writing') {

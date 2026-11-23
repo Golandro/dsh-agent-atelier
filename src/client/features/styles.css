@@ -844,6 +844,87 @@ body:not([data-ds-dark-theme]) .agent-atelier-page .doc-editor .cm-editor.cm-foc
   .agent-atelier-page .models-page .pane-splitter { display: none; }
 }
 
+/* ── 系统提示词页（票 68）：每模型名一张生效层卡片 ─────────────────────
+ * 卡片网格按容器宽度自适应：两栏下限 42rem（prompt-model.ts 的
+ * PROMPTS_SINGLE_COLUMN_REM 与这里的断点同源，测试断言两边一致）；窄容器单栏。
+ * 高亮只在「跨页跳转落点」上出现，退场由页面定时器决定，不靠 CSS 动画。 */
+.agent-atelier-page .prompts-page {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  container-type: inline-size;
+  container-name: prompts;
+  background: var(--dsw-alias-bg-base);
+}
+.agent-atelier-page .prompts-page .prompts-list { min-width: 0; }
+.agent-atelier-page .prompts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  gap: 10px;
+  padding: 12px;
+  min-width: 0;
+}
+.agent-atelier-page .prompt-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  scroll-margin-block: 96px;
+}
+.agent-atelier-page .prompt-card.off { opacity: 0.82; }
+.agent-atelier-page .prompt-card.focus {
+  border-color: var(--dsw-alias-state-business-primary);
+  box-shadow: 0 0 0 2px var(--dsw-alias-state-business-tertiary);
+}
+.agent-atelier-page .prompt-card-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.agent-atelier-page .prompt-card-name {
+  flex: 0 1 auto;
+  max-width: 50%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--dsh-font-family-code-default);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+.agent-atelier-page .prompt-card-head > .tag { flex: none; }
+.agent-atelier-page .prompt-card-fill { flex: 1 1 0; min-width: 4px; }
+.agent-atelier-page .prompt-card-route {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.agent-atelier-page .prompt-area {
+  height: auto;
+  min-height: 66px;
+  padding: 6px 10px;
+  font-family: var(--dsh-font-family-code-default);
+  font-size: 12px;
+  line-height: 17px;
+  resize: vertical;
+}
+.agent-atelier-page .prompt-area[readonly] { cursor: default; }
+.agent-atelier-page .prompt-card-foot { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.agent-atelier-page .prompt-card-meta { display: flex; flex: 1 1 auto; align-items: baseline; gap: 8px; min-width: 0; font-size: 11px; line-height: 16px; }
+.agent-atelier-page .prompt-card-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-atelier-page .prompt-card-foot .btn { flex: none; }
+.agent-atelier-page .prompt-card-note { margin: 0; font-size: 11px; line-height: 16px; }
+@container prompts (max-width: 42rem) {
+  .agent-atelier-page .prompts-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* ── 操作历史（原「最近写入」状态栏，升格为页签视图） ───────────────── */
 .agent-atelier-page .history-view { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--dsw-alias-bg-base); }
 .agent-atelier-page .history-view[hidden] { display: none; }

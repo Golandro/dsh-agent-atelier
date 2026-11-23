@@ -1,9 +1,9 @@
 /**
- * 票 59 / 63 registry chunk 的行为锚点（不依赖宿主 DOM）。
+ * 票 59 / 63 / 68 registry chunk 的行为锚点（不依赖宿主 DOM）。
  *
  * 用 react-dom/server 渲染 chunk 视图：模型关联页（票 63）走列表外壳、纯数据
- * 计数与真实行；系统提示词页仍是票 68 的空壳。挂载器首帧是加载态（静态渲染
- * 不执行 effect，也不会真的请求 chunk）。
+ * 计数与真实行；系统提示词页（票 68）走生效层卡片。挂载器首帧是加载态（静态
+ * 渲染不执行 effect，也不会真的请求 chunk）。
  */
 import { createElement as h } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -63,12 +63,18 @@ describe('registry chunk 视图', () => {
     expect(html).toContain('smart')
   })
 
-  it('系统提示词视图仍是空壳，计数同样来自 snapshot', () => {
-    const html = renderToStaticMarkup(h(PromptRegistryView, { snapshot: snapshotWith([]) }))
-    expect(html).toContain('data-registry-view="prompts"')
-    expect(html).toContain('系统提示词')
-    expect(html).toContain('0 条目')
-    expect(html).not.toContain('model-row')
+  it('系统提示词视图：空快照走空态，有模型时出生效层卡片', () => {
+    const empty = renderToStaticMarkup(h(PromptRegistryView, { snapshot: snapshotWith([]) }))
+    expect(empty).toContain('data-registry-view="prompts"')
+    expect(empty).toContain('系统提示词')
+    expect(empty).toContain('0 条目')
+    expect(empty).toContain('还没有任何模型条目')
+    expect(empty).not.toContain('model-row')
+
+    const filled = renderToStaticMarkup(h(PromptRegistryView, { snapshot }))
+    expect(filled).toContain('data-prompt-card="fast"')
+    expect(filled).toContain('1 条目')
+    expect(filled).not.toContain('model-row')
   })
 })
 
