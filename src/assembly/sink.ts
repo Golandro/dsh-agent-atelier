@@ -10,6 +10,7 @@
  * The replacement package implements the same key with a wide subtype; nothing
  * here grows a mode flag or a capability probe.
  */
+import { createPromptLedger } from './ledger.ts'
 import { planAssembly } from './planner.ts'
 
 import type {
@@ -22,6 +23,8 @@ import type {
   AssemblySession,
   PromptSection,
 } from '../contract/index.ts'
+import type { PromptLedger } from './ledger.ts'
+import type { PromptSectionLedgerEntry } from './segments.ts'
 
 /** Construction options of the compat sink. */
 export interface AssemblyServiceOptions {
@@ -33,6 +36,15 @@ export interface AssemblyServiceOptions {
    * ticket 07's ledger re-mounts after the service comes back.
    */
   readonly onMount?: ((dispose: () => Promise<void>) => void) | undefined
+  /**
+   * The registration-side ledger this sink writes into (ticket 84).
+   *
+   * The row owns it so the ledger outlives a single service instance (an HMR
+   * reload replaces the service, and the preview reads the same table). Absent
+   * means the sink keeps a private one, which is enough for tests but invisible
+   * to a consumer.
+   */
+  readonly ledger?: PromptLedger | undefined
 }
 
 /**
@@ -47,6 +59,7 @@ export interface AssemblyServiceOptions {
 export function createAssemblyService(options: AssemblyServiceOptions = {}): AgentAssembly {
   const mounts = new WeakMap<AssemblyScope, AssemblyRegistration>()
   const queues = new WeakMap<AssemblyScope, Promise<void>>()
+  const ledger = options.ledger ?? createPromptLedger()
 
   return {
     plan(session) {
@@ -70,10 +83,13 @@ export function createAssemblyService(options: AssemblyServiceOptions = {}): Age
 
     const plan = planAssembly(session, options.config)
     const disposers: Array<() => void> = []
+    const registered: RegisteredRow[] = []
     try {
       for (const section of plan.sections) {
         if (!section.executable) continue
-        disposers.push(scope.systemPrompt.section(hostSectionOf(section)))
+        const host = hostSectionOf(section)
+        disposers.push(scope.systemPrompt.section(host))
+        registered.push({ row: section, host })
       }
     } catch (error) {
       // A failed mount leaves no half-mounted scope: undo what this call added
@@ -82,7 +98,9 @@ export function createAssemblyService(options: AssemblyServiceOptions = {}): Age
       throw error
     }
 
-    const registration = createRegistration(session.agent.agentName, plan, disposers)
+    const registration = createRegistration(session.agent.agentName, plan, disposers, () => {
+      ledger.forget(scope)
+    })
     try {
       options.onMount?.(() => registration.dispose())
     } catch (error) {
@@ -92,6 +110,10 @@ export function createAssemblyService(options: AssemblyServiceOptions = {}): Age
     // Publish only after the plugin hook accepted the mount: a failing hook
     // must not leave the scope pointing at an already-disposed registration.
     mounts.set(scope, registration)
+    // The ledger records exactly what reached the host registry — the plan's
+    // non-executable rows never did, so recording them would make the preview
+    // invent a segment for something that was never registered.
+    ledger.record(scope, registeredEntries(registered))
     return registration
   }
 }
@@ -101,6 +123,7 @@ function createRegistration(
   agentName: string,
   plan: AssemblyPlan,
   disposers: readonly (() => void)[],
+  onDispose: () => void,
 ): AssemblyRegistration {
   let disposed = false
   return {
@@ -110,8 +133,38 @@ function createRegistration(
       if (disposed) return
       disposed = true
       for (const dispose of disposers) dispose()
+      onDispose()
     },
   }
+}
+
+/** One plan row together with the section it actually registered. */
+interface RegisteredRow {
+  readonly row: AssemblySection
+  readonly host: PromptSection
+}
+
+/**
+ * One registered row as the ledger records it.
+ *
+ * The registrant is this bundle's sink, so every row here is source
+ * `atelier-section` — including the persona row, which reuses the host's
+ * `deployment:persona-prefix` name only so that the scoped registration shadows
+ * the deployment-wide one. Attribution follows the registrant, not the name
+ * (spec §2 / GLOSSARY「来源」).
+ *
+ * `planName` is recorded only when the registered name differs from the plan
+ * row's name. Today `hostSectionOf` passes the row name through unchanged, so
+ * the two always agree and no entry carries it; the comparison is written out
+ * anyway, so a future rename cannot silently change the second-level key the
+ * preview groups by.
+ */
+function registeredEntries(rows: readonly RegisteredRow[]): readonly PromptSectionLedgerEntry[] {
+  return rows.map(({ row, host }) => ({
+    sectionName: host.name,
+    source: 'atelier-section',
+    ...row.name === host.name ? {} : { planName: row.name },
+  }))
 }
 
 /**
