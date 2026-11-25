@@ -6,13 +6,14 @@
 
 ## 公共入口
 
-所有跨域读取只准落在 `src/contract/index.ts`。它按五个文件 re-export：
+所有跨域读取只准落在 `src/contract/index.ts`。它按六个文件 re-export：
 
 | 文件 | 承载 |
 | --- | --- |
 | `src/contract/types.ts` | 目录读面、alias / model 注册表、模型链解析与失败台账的 DTO |
 | `src/contract/layers.ts` | 发现根的层优先级：全仓唯一的 rank 表 |
 | `src/contract/assembly.ts` | 组装规划、注册 sink 的窄切片与 `AgentAssembly` 基础面 |
+| `src/contract/prompt-preview.ts` | 系统提示词预览的分段视图 DTO（来源 / 段 / 组 / 诊断 / 段内块视图） |
 | `src/contract/providers.ts` | provider 契约、`AgentProviders` 服务面与 `SERVICE_API_VERSION` |
 | `src/contract/service-keys.ts` | 四个服务 key 常量 |
 
@@ -44,17 +45,19 @@ key 是跨 bundle 的唯一集成面。宿主 patch 与测试都按字面量读�
 | alias / model 读面 | `src/contract/types.ts` | `AliasRegistry`、`AliasRegistrySnapshot`、`ModelDefinition`、`AliasDefinition`、`AliasFinding` |
 | 模型链与台账 | `src/contract/types.ts` | `ChainResolutionInput`、`ChainResolutionReport`、`ChainResolution`、`ModelRoute`、`RouteObservation`、`RouteHealth` |
 | 组装面 | `src/contract/assembly.ts` | `AssemblyPlan`、`AssemblySection`、`AssemblySession`、`AgentAssembly`、`PromptSection`、`SystemPrompt` |
+| 预览分段视图 | `src/contract/prompt-preview.ts` | `PromptSourceId`、`PromptSegment`、`PromptSourceGroup`、`PromptSegmentsView`、`PromptShadow`、`PromptPart`、`PromptSegmentParts` |
 | provider 面 | `src/contract/providers.ts` | `AgentProviders`、`AgentSourceProvider`、`SourceEntry`、`SourceRead`、`ProviderControl` |
 
 `ChainResolutionContext`、`ChainItemEffort`、`SupportedEfforts` 是解析引擎的**注入上下文**，定义在 `src/resolve/model-chain.ts`，不在 contract；contract 只放跨域传递的输入、结果与报告。`FrontmatterField` 联合定义在 `src/contract/types.ts`，可编辑字段的运行时表在 `src/yaml/frontmatter-fields.ts`。
 
 ## 不在本域的形状
 
-跨域边界容易放错的三组 DTO：
+跨域边界容易放错的几组 DTO：
 
 - **写面与客户端**：`ControlCore` 在 `src/control/core.ts`，`ControlClient` 在 `src/control/client.ts`，`DocumentEdit` / `RegistryEdit` / `WriteReport` 在 `src/control/types.ts`；它们经 `src/control/index.ts` 导出，由 control 域拥有。
 - **文件系统端口**：`AgentFileSystem`、`AgentDirEntry`、`ControlFileSystem`、`FileSystemDependencies` 在 `src/catalog/ports.ts`；这是 catalog 的窄子入口，不是 contract 的形状。
 - **服务实现对象**：`AgentProviders` 的实例由 providers 域构造，contract 只冻结接口；provider 行通过 plain object 注入，不需要 Cordis `Service` 目录。
+- **宿主形状的结构镜像**：`AssembledSection` / `AssembledContext` / `ToolDeclaration` / `HostPromptAssembly` 在 `src/assembly/segments.ts`，是宿主装配产物的镜像（名字带 `Host` 前缀以免与契约同名），不是契约。镜像只服务投影函数的入参，谁要命名宿主产物就自己镜像，不要把它提升成跨域 DTO。
 
 判定规则：形状被**两个以上能力域**共同命名、且属于跨域协议时，才进 contract；某个域的写面、端口或实现细节留在该域入口。不要把 contract 变成「所有类型的垃圾桶」。
 

@@ -14,28 +14,24 @@
  *
  * 二级键是**宿主装配名**（`AssembledSection.name` / context 名 / 工具名）；本仓
  * 规划名作别名标注，两者不一致时记一条 `alias-mismatch` 诊断（以宿主名为准）。
- */
-
-/**
- * 一级来源：按**注册者角色**划分的 7 类贡献者（规格 §2）。
  *
- * 词表与 GLOSSARY.md 的「来源（Source）」一致；新增来源属于契约变更。
+ * 视图 DTO（来源、段、组、诊断、段内块视图）落在契约层
+ * `src/contract/prompt-preview.ts`：它们的消费方横跨宿主读面与浏览器 chunk，
+ * 而 chunk 只准读 contract 与 control，读不到 `src/assembly/`——形状放这里就够不着
+ * 自己的消费者。本模块只保留宿主结构的**镜像**与投影函数。
  */
-export type PromptSourceId =
-  /** ① 宿主 `SystemPrompt` 构造函数内联注册的 identity 段。 */
-  | 'harness-identity'
-  /** ② `system-prompt` 行 config 的 persona 前后缀（部署级）。 */
-  | 'deployment-persona'
-  /** ③ preset scope 注册的同名 persona 段（遮蔽部署级那一条）。 */
-  | 'preset-persona'
-  /** ④ 本仓 sink 注册的装配行（`atelier:` 命名空间）。 */
-  | 'atelier-section'
-  /** ⑤ 工具插件与 executor 注册的工具说明节（`tools:` 命名空间）。 */
-  | 'tool-guidance'
-  /** ⑥ 各插件 `systemPrompt.context()` 的运行时 context。 */
-  | 'runtime-context'
-  /** ⑦ `ToolsService` 唯一 provider 的工具声明（不在 sections 里）。 */
-  | 'tool-declaration'
+import type {
+  PromptPart,
+  PromptSegment,
+  PromptSegmentBase,
+  PromptSegmentDiagnostic,
+  PromptSegmentParts,
+  PromptSegmentSurface,
+  PromptSegmentsView,
+  PromptShadow,
+  PromptSourceId,
+  UnattributedPromptSegment,
+} from '../contract/index.ts'
 
 /** 固定组序：与规格 §2 的编号一致，空组也保留（UI 要如实说「本来源无贡献」）。 */
 export const PROMPT_SOURCE_ORDER: readonly PromptSourceId[] = Object.freeze([
@@ -47,14 +43,6 @@ export const PROMPT_SOURCE_ORDER: readonly PromptSourceId[] = Object.freeze([
   'runtime-context',
   'tool-declaration',
 ])
-
-/**
- * 一段来自装配产物的哪个通道。
- *
- * `section` 与 `context` 是宿主 `assemble()` 的两个文本通道；`tool` 是工具声明，
- * 不在 sections 里（规格 §2 ⑦）。
- */
-export type PromptSegmentSurface = 'section' | 'context' | 'tool'
 
 /** 宿主 `AssembledSection` 的结构镜像：装配产物里的一节（已解析文本，未插值）。 */
 export interface AssembledSection {
@@ -81,34 +69,17 @@ export interface ToolDeclaration {
  * 宿主 `PromptAssembly` 的结构镜像（规格 §4 的产物形状）。
  *
  * 只收本模块要读的四个通道；不 import 宿主包，结构上可被宿主真实产物直接赋值。
+ *
+ * 名字带 `Host` 前缀是刻意的：这是宿主形状的**镜像**，不是契约。契约层的
+ * `PromptAssembly`（若宿主读面需要命名它）由 `src/contract/` 拥有，两者同名但
+ * 不同义会让读者以为可以互相替换（AGENTS.md「Interfaces live in source」）。
  */
-export interface PromptAssembly {
+export interface HostPromptAssembly {
   readonly sections: readonly AssembledSection[]
   readonly contexts: readonly AssembledContext[]
   readonly variables: Readonly<Record<string, string | undefined>>
   readonly tools: readonly ToolDeclaration[]
 }
-
-/** 段内块（Part）：一个节内部的子块，注册方自己记。 */
-export interface PromptPart {
-  readonly name: string
-  readonly text: string
-}
-
-/**
- * 一个二级键上的同名遮蔽记录。
- *
- * 兼容模式下 scoped 注册在求值前就遮蔽全局注册，**产物里只剩赢家**，所以这条
- * 记录挂在赢家那段上，方向由负载说清：
- * - `visible`：账本点名了被本段这条注册顶掉的那条注册的来处（`displaced`）；
- * - `opaque`：知道这个二级键上发生过遮蔽，但看不到被顶掉的那条——UI 必须显示
- *   「遮蔽关系不可见」，不许猜（ADR-0009 后果第 2 条）。
- *
- * 字段名 `shadowedBy` 是票面口径；方向以负载为准，因为产物里只有赢家。
- */
-export type PromptShadow =
-  | { readonly visibility: 'visible'; readonly displaced: string }
-  | { readonly visibility: 'opaque' }
 
 /**
  * 注册侧账本的一条记录：注册方自己记「我注册了哪些节、每节有哪些子块」。
@@ -135,73 +106,6 @@ export interface PromptSectionLedgerEntry {
   readonly parts?: readonly PromptPart[] | undefined
 }
 
-/** 一段的公共字段（有来源与无来源共用）。 */
-export interface PromptSegmentBase {
-  /** 二级键：宿主装配名（context 名 / 工具名）。 */
-  readonly name: string
-  /** 这段来自哪个通道。 */
-  readonly surface: PromptSegmentSurface
-  /** 装配产物里的文本（工具声明取 description）。 */
-  readonly text: string
-  /** 本仓规划名别名；缺席 = 账本没记或与 {@link name} 相同。 */
-  readonly planName?: string | undefined
-  /** 来自哪个配置文件；缺席 = 账本没记。 */
-  readonly layer?: string | undefined
-  /** 已被 waterfall 改写；缺席 = 账本没记（不是「没被改写」）。 */
-  readonly rewrittenByWaterfall?: boolean | undefined
-  /** 遮蔽记录；缺席 = 账本没记（不是「没被遮蔽」）。 */
-  readonly shadowedBy?: PromptShadow | undefined
-  /** 段内块；缺席 = 账本没记块（不是「没有子块」）。 */
-  readonly parts?: readonly PromptPart[] | undefined
-}
-
-/** 段视图里的一段：一条来源下的一个二级键。 */
-export interface PromptSegment extends PromptSegmentBase {
-  /** 一级来源。 */
-  readonly source: PromptSourceId
-}
-
-/**
- * 归不到任何一级来源的一段。
- *
- * 产物里没有贡献者字段，账本也没记这条 → 本模块不猜来源（ADR-0009「不撒谎」），
- * 单独列出来让 UI 如实呈现。
- */
-export interface UnattributedPromptSegment extends PromptSegmentBase {
-  readonly source?: undefined
-}
-
-/** 一条来源分组；空组也保留。 */
-export interface PromptSourceGroup {
-  readonly source: PromptSourceId
-  readonly segments: readonly PromptSegment[]
-}
-
-/** 诊断码。 */
-export type PromptSegmentDiagnosticCode =
-  /** 规划名与宿主装配名不一致：以宿主名为准，本仓规划名降为别名。 */
-  | 'alias-mismatch'
-  /** 账本记了一段，但产物里没有它（例如 `executable: false` 的规划行）。 */
-  | 'missing-from-assembly'
-
-/** 一条诊断信号；不是错误，不抛。 */
-export interface PromptSegmentDiagnostic {
-  readonly code: PromptSegmentDiagnosticCode
-  /** 涉及的二级键（宿主装配名）。 */
-  readonly name: string
-  /** 一行，可直接给面板。 */
-  readonly message: string
-}
-
-/** 投影结果：按来源分组的段视图 + 归不了因的段 + 诊断信号。 */
-export interface PromptSegmentsView {
-  /** 7 组，顺序恒为 {@link PROMPT_SOURCE_ORDER}。 */
-  readonly sources: readonly PromptSourceGroup[]
-  /** 归不到任何一级来源的段（不猜来源，单独列出）。 */
-  readonly unattributed: readonly UnattributedPromptSegment[]
-  readonly diagnostics: readonly PromptSegmentDiagnostic[]
-}
-
 /**
  * 把宿主装配产物与注册侧账本折成分段视图。
  *
@@ -210,7 +114,7 @@ export interface PromptSegmentsView {
  * @returns 按 7 条来源分组的段视图、不可归因段与诊断信号。
  */
 export function buildPromptSegments(
-  assembly: PromptAssembly,
+  assembly: HostPromptAssembly,
   ledger: readonly PromptSectionLedgerEntry[],
 ): PromptSegmentsView {
   const byName = new Map<string, PromptSectionLedgerEntry>()
@@ -321,7 +225,7 @@ function place(
 }
 
 /** 产物里是否有这个二级键（任一通道）。 */
-function presentInAssembly(assembly: PromptAssembly, name: string): boolean {
+function presentInAssembly(assembly: HostPromptAssembly, name: string): boolean {
   return assembly.sections.some((section) => section.name === name)
     || assembly.contexts.some((context) => context.name === name)
     || assembly.tools.some((tool) => tool.name === name)
@@ -343,14 +247,6 @@ function sortDiagnostics(diagnostics: readonly PromptSegmentDiagnostic[]): Promp
 /** code unit 比较：不依赖 locale / ICU，保证同一输入在任何环境下同序。 */
 function compareNames(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
-}
-
-/** 一段的展开视图：能不能展开，以及展开后的块。 */
-export interface PromptSegmentParts {
-  /** 账本记了**多块**才可展开；单块或没记都按整段渲染。 */
-  readonly expandable: boolean
-  /** 展开后的块；不展开时是整段文本的单块（内容不丢）。 */
-  readonly parts: readonly PromptPart[]
 }
 
 /**

@@ -222,3 +222,30 @@ export interface RegistryChunk {
   readonly ModelRegistryView: (props: RegistryViewProps) => unknown
   readonly PromptRegistryView: (props: RegistryViewProps) => unknown
 }
+
+/**
+ * System-prompt preview view, re-exported for the registry chunk (ticket 82/84).
+ *
+ * The projection lives in `src/assembly/`, but a chunk may read only
+ * `control` and this file (import matrix `CHUNK_ENTRIES`), and this file may
+ * read only contract, control and the client entry — so neither side can name
+ * `src/assembly/`. The DTOs therefore live in the contract layer
+ * (`src/contract/prompt-preview.ts`), which both sides may read, and this is
+ * the type-only seam the chunk imports from. No runtime code crosses here: the
+ * projection function stays in assembly, and the host read face returns the
+ * already-projected view as plain data.
+ */
+export type {
+  PromptPart,
+  PromptSegment,
+  PromptSegmentBase,
+  PromptSegmentDiagnostic,
+  PromptSegmentDiagnosticCode,
+  PromptSegmentParts,
+  PromptSegmentSurface,
+  PromptSegmentsView,
+  PromptShadow,
+  PromptSourceGroup,
+  PromptSourceId,
+  UnattributedPromptSegment,
+} from '../../contract/index.ts'

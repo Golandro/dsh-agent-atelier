@@ -4,11 +4,11 @@
  * 每份 fixture 的断言口径是「这条来源只落进自己那一组」——所以每份只放该来源
  * 的贡献，别把它们混成一份大装配（大装配由 {@link FULL_FIXTURE} 负责）。
  *
- * 数据形状照宿主 `PromptAssembly`（`sections` / `contexts` / `variables` /
+ * 数据形状照宿主 `HostPromptAssembly`（`sections` / `contexts` / `variables` /
  * `tools`）；账本条目是注册方自己的记录，不是从产物反推的。
  */
 import type {
-  PromptAssembly,
+  HostPromptAssembly,
   PromptSectionLedgerEntry,
   PromptSegmentSurface,
   PromptSourceId,
@@ -21,12 +21,12 @@ export interface SourceFixture {
   /** 被断言的那一段的二级键（宿主装配名 / context 名 / 工具名）。 */
   readonly name: string
   readonly surface: PromptSegmentSurface
-  readonly assembly: PromptAssembly
+  readonly assembly: HostPromptAssembly
   readonly ledger: readonly PromptSectionLedgerEntry[]
 }
 
 /** 只填需要的通道，其余留空——避免每份 fixture 重复四行空数组。 */
-function assemblyOf(partial: Partial<PromptAssembly>): PromptAssembly {
+function assemblyOf(partial: Partial<HostPromptAssembly>): HostPromptAssembly {
   return { sections: [], contexts: [], variables: {}, tools: [], ...partial }
 }
 
@@ -101,7 +101,7 @@ export const SOURCE_FIXTURES: readonly SourceFixture[] = [
 
 /** 一份完整装配：7 条来源里 6 条有段（② 被同名 preset 顶掉），供标注与诊断断言。 */
 export const FULL_FIXTURE: {
-  readonly assembly: PromptAssembly
+  readonly assembly: HostPromptAssembly
   readonly ledger: readonly PromptSectionLedgerEntry[]
 } = {
   assembly: {
@@ -141,7 +141,7 @@ export const FULL_FIXTURE: {
 
 /** 遮蔽可见：账本点名了遮蔽者。 */
 export const SHADOW_VISIBLE_FIXTURE: {
-  readonly assembly: PromptAssembly
+  readonly assembly: HostPromptAssembly
   readonly ledger: readonly PromptSectionLedgerEntry[]
 } = {
   assembly: assemblyOf({
@@ -158,7 +158,7 @@ export const SHADOW_VISIBLE_FIXTURE: {
  * （一段多块 → 可展开），不主张任何宿主插件现在真的可拆（brief §2.6）。
  */
 export const PARTS_FIXTURE: {
-  readonly assembly: PromptAssembly
+  readonly assembly: HostPromptAssembly
   readonly ledger: readonly PromptSectionLedgerEntry[]
 } = {
   assembly: assemblyOf({
@@ -180,7 +180,7 @@ export const PARTS_FIXTURE: {
  * 本 fixture 按「可能发生」造数据——不是声称现状会触发。
  */
 export const ALIAS_FIXTURE: {
-  readonly assembly: PromptAssembly
+  readonly assembly: HostPromptAssembly
   readonly ledger: readonly PromptSectionLedgerEntry[]
 } = {
   assembly: assemblyOf({ sections: [{ name: 'atelier:model-sys', text: 'Provider deepseek runs deepseek-chat.' }] }),

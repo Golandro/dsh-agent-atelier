@@ -23,10 +23,18 @@ export { PROMPT_SOURCE_ORDER, buildPromptSegments, promptSegmentParts, promptSha
 export type {
   AssembledContext,
   AssembledSection,
-  PromptAssembly,
-  PromptPart,
+  HostPromptAssembly,
   PromptSectionLedgerEntry,
+  ToolDeclaration,
+} from './segments.ts'
+// The view DTOs are defined in the contract layer (their consumers span the host
+// read face and the browser chunk); the assembly barrel re-exports them so a
+// reader of this layer still finds the projection's output shape here. One
+// definition, two entrances — not a second copy.
+export type {
+  PromptPart,
   PromptSegment,
+  PromptSegmentBase,
   PromptSegmentDiagnostic,
   PromptSegmentDiagnosticCode,
   PromptSegmentParts,
@@ -35,9 +43,8 @@ export type {
   PromptShadow,
   PromptSourceGroup,
   PromptSourceId,
-  ToolDeclaration,
   UnattributedPromptSegment,
-} from './segments.ts'
+} from '../contract/index.ts'
 export {
   CATALOG_DESCRIPTION_MAX_LENGTH,
   CATALOG_SOURCE_KIND,

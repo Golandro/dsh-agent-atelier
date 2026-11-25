@@ -17,7 +17,7 @@
 - `src/client/index.ts`：client 包公共入口，导出 `AgentControlPage`、`AgentControlIcon`、页面 props 与范围类型；DSH slots 适配只消费这一份。
 - `src/dsh/client/index.ts`：导出 `apply`、`inject` 与 `ClientContext`，注册 `sidebar.panellist` 行和同 id 的 `main` 面板；为保持既有入口面，re-export 页面组件与 props 类型。
 - `src/dsh/client/agent-control-scope.ts`：把 slots 上下文里的 workspaces / sessions / storage 折成 client 的 `ScopeSource`，是宿主服务读取适配。
-- `src/dsh/client/chunk-contracts.ts`：`EditorChunk` / `ListChunk` / `RegistryChunk`、`PanelFocus` 等跨 bundle 形状。
+- `src/dsh/client/chunk-contracts.ts`：`EditorChunk` / `ListChunk` / `RegistryChunk`、`PanelFocus` 等跨 bundle 形状；外加系统提示词预览的视图 DTO type-only re-export（定义在 `src/contract/prompt-preview.ts`，投影函数留在 `src/assembly/`）。
 - `src/dsh/client/chunk-loader.ts`：`loadEditorChunk` / `loadListChunk` / `loadRegistryChunk`；构建时由 `scripts/build-client.mjs` 换成 `require.async` 转发。
 - `src/dsh/client/observable.ts`：宿主可订阅服务的形状读取，不 import 宿主包。
 
@@ -28,6 +28,8 @@
 client 层只准跨包读取 contract、control 公共入口及 `client-errors` / `http-client` 子入口，加上 dsh/client 的 `chunk-contracts` / `chunk-loader` / `observable` 三个窄入口。node 与 cordis 均为空；第三方库只进入浏览器产物，`@deepseek-ai/*` 仍禁止。
 
 dsh/client 只额外读 contract、control 与 `src/client/index.ts`，不得走 client 深路径。矩阵扫描根已收敛为 `src/`，三个 chunk 作为 client 子层各自封口：只读 control 与 `chunk-contracts`，不能回流主壳或互相引用；构建测试再从产物侧钉住互不依赖。
+
+预览视图类型能到 chunk 手里，靠的是「形状放 contract」而不是放宽围栏：chunk 读不到 `src/assembly/`，`chunk-contracts` 也读不到，所以 DTO 定义在 `src/contract/prompt-preview.ts`，由 `chunk-contracts` 做 type-only re-export。投影函数仍在 assembly，运行期代码不过界（`test/prompt-preview-seam.test.ts` 守着）。
 
 ## 关键符号与落点
 
