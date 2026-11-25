@@ -240,3 +240,9 @@
 - **宿主 0.2.2-rc.1 的接线事实**：`SubagentStartRequest` 已无 `persona`/`toolFilter`；`system-prompt/assemble` 的 `PromptPresentation` 只含 sections/contexts/variables，tools 在 waterfall 之后由 provider 追加。07 因此不用 assemble 过滤 tools，而用 per-agent `tools.restrict()`；子代理的人设/模型节在 `agent/created`（首条 prompt 组装之前）挂到 child scope。已装 rc.1 的 `startActivation` 参数是嵌套 `request`，且子代理 header 的 `origin` 在顶层（详见 [harness-facts](../agents/harness-facts.md) 的「安装包 rc.1 与源码树漂移」）。
 - **文档漂移**：`.scratch/agents-manager/spec.md` 已不存在；当前权威是票面、#5 评论、ADR、GLOSSARY 与本文。
 - **票面旧词**：`includes` 已废弃，现字段是 `skills` / 预置技能；注入方式归 07。
+
+## 9. 预览读面
+
+系统提示词预览是同一装配面的**读侧**：装配产物 `PromptAssembly` → 分段投影 → UI。分段契约、7 条一级来源、双模数据来源与降级矩阵见 [prompt-preview.md](./prompt-preview.md)；数据来源裁决见 [ADR-0009](../adr/0009-prompt-preview-data-source.md)。
+
+预览不重跑装配逻辑，只读宿主产物；被 waterfall 改写的段必须标注，遮蔽关系不可见时必须说「不可见」。
