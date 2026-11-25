@@ -17,6 +17,27 @@ export {
 } from './planner.ts'
 export { createAssemblyService } from './sink.ts'
 export type { AssemblyServiceOptions } from './sink.ts'
+export { createPromptLedger } from './ledger.ts'
+export type { PromptLedger } from './ledger.ts'
+export { PROMPT_SOURCE_ORDER, buildPromptSegments, promptSegmentParts, promptShadowLabel } from './segments.ts'
+export type {
+  AssembledContext,
+  AssembledSection,
+  PromptAssembly,
+  PromptPart,
+  PromptSectionLedgerEntry,
+  PromptSegment,
+  PromptSegmentDiagnostic,
+  PromptSegmentDiagnosticCode,
+  PromptSegmentParts,
+  PromptSegmentSurface,
+  PromptSegmentsView,
+  PromptShadow,
+  PromptSourceGroup,
+  PromptSourceId,
+  ToolDeclaration,
+  UnattributedPromptSegment,
+} from './segments.ts'
 export {
   CATALOG_DESCRIPTION_MAX_LENGTH,
   CATALOG_SOURCE_KIND,
