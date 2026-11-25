@@ -10,7 +10,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-import { buildPromptSegments } from '../../src/assembly/index.ts'
+import { PROMPT_SOURCE_ORDER, buildPromptSegments, promptSegmentParts } from '../../src/assembly/index.ts'
 import { FULL_FIXTURE } from './fixtures.ts'
 
 /** 投影层里属于本票的三个源文件。 */
@@ -69,5 +69,39 @@ describe('buildPromptSegments: 纯函数纪律', () => {
 
     expect(first.sources[0]).not.toBe(second.sources[0])
     expect(first.sources[0]?.segments).not.toBe(second.sources[0]?.segments)
+  })
+})
+
+describe('命名与 GLOSSARY 一致', () => {
+  const glossary = readFileSync(new URL('../../GLOSSARY.md', import.meta.url), 'utf8')
+
+  it('「来源（Source）」词条存在，且它列的 7 类贡献者与本模块的 7 个来源一一对应', () => {
+    const entry = glossary.slice(glossary.indexOf('**来源（Source）**'), glossary.indexOf('**段内块（Part）**'))
+    expect(entry).not.toBe('')
+
+    // 词条按规格 §2 的 ①..⑦ 顺序列七类；每一类在代码里都有且只有一个来源 id。
+    const phrases = [
+      'harness identity',
+      '部署 persona',
+      'preset persona',
+      'atelier 装配行',
+      '工具说明节',
+      '运行时 context',
+      '工具声明',
+    ]
+    for (const phrase of phrases) expect(entry, phrase).toContain(phrase)
+    expect(PROMPT_SOURCE_ORDER).toHaveLength(phrases.length)
+    expect(new Set(PROMPT_SOURCE_ORDER).size).toBe(phrases.length)
+  })
+
+  it('「段内块（Part）」词条存在，本模块按 Part 命名而不是「子节」', () => {
+    expect(glossary).toContain('**段内块（Part）**')
+    // 词条明确避免「子节」（会与宿主 section 混淆）：代码与文案都不用它。
+    expect(glossary).toMatch(/\*\*段内块（Part）\*\*[\s\S]*?_Avoid_: 子节/)
+    const segments = sourceOf('src/assembly/segments.ts')
+    expect(segments).not.toContain('子节')
+    // 段内块的对外名字是 Part，展开视图按它命名。
+    expect(typeof promptSegmentParts).toBe('function')
+    expect(promptSegmentParts({ name: 'x', surface: 'section', text: 'y' }).parts).toEqual([{ name: 'x', text: 'y' }])
   })
 })
