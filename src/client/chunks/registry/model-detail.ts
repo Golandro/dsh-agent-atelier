@@ -7,6 +7,7 @@
  * （#35），本模块不再判一遍可用性。删除 / 新增只产出 RegistryEdit，真正落盘
  * 仍走页面的单一写通道（票 62）。
  */
+import { isReadOnlyModelEntry } from '../../../control/index.ts'
 import type { ControlSnapshot, RegistryEdit } from '../../../control/index.ts'
 import type { RegistryWriteOutcome } from '../../../dsh/client/chunk-contracts.ts'
 import { declaredAvailableOf, layerSourceOf, registryLayerLabel, routeKey } from './registry-model.ts'
@@ -121,7 +122,7 @@ function groupMemberOf(
   model: ControlSnapshot['models'][number],
 ): GroupMemberFacts {
   const declaredAvailable = declaredAvailableOf(snapshot, model.modelName)
-  const readOnly = model.source === 'built-in' || model.synthesized === true
+  const readOnly = isReadOnlyModelEntry(model)
   return {
     name: model.modelName,
     route: routeKey(model),

@@ -409,7 +409,7 @@ function PromptSection(props: JumpProps): ReactNode {
       },
       '去系统提示词页',
     ),
-    h('p', { className: 'dim model-avail-note' }, '预览只读；编辑在「系统提示词」页（本条目一张生效层卡片）。'),
+    h('p', { className: 'dim model-avail-note' }, '预览只读；编辑在「系统提示词」页（本条目一张生效声明卡片）。'),
   )
 }
 

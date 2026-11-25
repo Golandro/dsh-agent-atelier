@@ -1,5 +1,5 @@
 /**
- * 系统提示词页的纯投影（票 68）：把宿主已解析的快照折成「每模型名一张生效层
+ * 系统提示词页的纯投影（票 68）：把宿主已解析的快照折成「每模型名一张生效声明
  * 卡片」，并给出草稿 / 脏标记 / 保存编辑 / 跨页定位的纯判定。
  *
  * 数据纪律：卡片只读合并快照（宿主已按层解析，工作区压过用户）；本模块不重跑
@@ -7,15 +7,19 @@
  * 完成，见 #35）。被覆盖的低层同名条目不会出现在这里——它们的查看入口是「模型
  * 关联」页的层空间。
  *
- * 无 React、无 IO；视图层只消费这里的行与词表。
+ * 草稿按「范围 + 模型名」分桶（票 79）：切工作空间后旧草稿不再命中新快照的卡片，
+ * 既不会被误当成新空间的未保存改动，也不会写进新空间的层文件；切回原空间仍能取回。
+ *
+ * 无 React、无 IO；视图层只消费这里的行、状态转移与词表。
  */
-import type { PanelFocus } from '../../../dsh/client/chunk-contracts.ts'
-import type { ControlSnapshot, RegistryEdit } from '../../../control/index.ts'
+import type { PanelFocus, RegistryWriteOutcome } from '../../../dsh/client/chunk-contracts.ts'
+import { isReadOnlyModelEntry } from '../../../control/index.ts'
+import type { ControlScope, ControlSnapshot, RegistryEdit } from '../../../control/index.ts'
 import { routeKey } from './registry-model.ts'
 
 import type { RegistrySource } from './registry-model.ts'
 
-/** 一张生效层卡片的只读事实；提示词正文由草稿层叠加。 */
+/** 一张生效声明卡片的只读事实；提示词正文由草稿层叠加。 */
 export interface PromptCard {
   /** 模型条目名（合并后唯一）。 */
   readonly name: string
@@ -34,9 +38,11 @@ export interface PromptCard {
   readonly available: boolean
   /** 指向本条目的生效别名名，按名称排序。 */
   readonly aliases: readonly string[]
+  /** 读这份快照的范围键（项目根；空串 = 用户全局）。草稿按它分桶。 */
+  readonly scopeKey: string
 }
 
-/** 草稿层：模型名 → 未保存文本；没有键 = 跟已保存值。 */
+/** 草稿层：分桶键 → 未保存文本；没有键 = 跟已保存值。 */
 export type PromptDrafts = Readonly<Record<string, string>>
 
 export const EMPTY_PROMPT_DRAFTS: PromptDrafts = Object.freeze({})
@@ -51,8 +57,23 @@ export const PROMPT_HIGHLIGHT_MS = 1800
  */
 export const PROMPTS_SINGLE_COLUMN_REM = 42
 
+/**
+ * 范围键：草稿的分桶前缀。取项目根而不是 cwd——写落点由项目根决定
+ * （`aliasRegistryLayers(projectRoot, dshHome)`），同一个项目根下的两个工作空间
+ * 读写同一批层文件，草稿理应共享；项目根缺席即用户全局，用空串表示。
+ */
+export function promptScopeKeyOf(scope: ControlScope): string {
+  return scope.projectRoot ?? ''
+}
+
+/** 草稿键：范围 + 模型名。分隔符取 NUL——路径里不可能出现，键不会串。 */
+export function promptDraftKey(card: PromptCard): string {
+  return card.scopeKey + '\u0000' + card.name
+}
+
 /** 每模型名一张卡片：快照已合并，这里再按名字去重一次并稳定排序。 */
 export function buildPromptCards(snapshot: ControlSnapshot): readonly PromptCard[] {
+  const scopeKey = promptScopeKeyOf(snapshot.scope)
   const aliasesByModel = new Map<string, string[]>()
   for (const alias of snapshot.aliases) {
     for (const target of alias.targets) {
@@ -75,9 +96,10 @@ export function buildPromptCards(snapshot: ControlSnapshot): readonly PromptCard
       source: entry.source,
       ...(entry.path === undefined ? {} : { path: entry.path }),
       prompt: entry.sysPrompt ?? '',
-      readOnly: entry.source === 'built-in' || entry.synthesized === true,
+      readOnly: isReadOnlyModelEntry(entry),
       available: entry.available,
       aliases: [...(aliasesByModel.get(entry.modelName) ?? [])].sort((left, right) => left.localeCompare(right, 'zh-CN')),
+      scopeKey,
     })
   }
   // 排序稳定：名称升序，同名的（不应出现）按路线兜底，保证跨页跳转落点不漂。
@@ -94,7 +116,7 @@ export function promptsEmptyOf(snapshot: ControlSnapshot): boolean {
 
 /** 卡片当前显示的文本：草稿优先，否则已保存值。 */
 export function promptTextOf(card: PromptCard, drafts: PromptDrafts): string {
-  return drafts[card.name] ?? card.prompt
+  return drafts[promptDraftKey(card)] ?? card.prompt
 }
 
 /**
@@ -102,11 +124,11 @@ export function promptTextOf(card: PromptCard, drafts: PromptDrafts): string {
  * （入口在写入时即清掉这种键，这里只兜底判定）。
  */
 export function isPromptDirty(card: PromptCard, drafts: PromptDrafts): boolean {
-  const draft = drafts[card.name]
+  const draft = drafts[promptDraftKey(card)]
   return draft !== undefined && draft !== card.prompt
 }
 
-/** 页面头部与卡片上的未保存计数。 */
+/** 页面头部与卡片上的未保存计数（只数当前快照的卡片，别的范围的草稿不算）。 */
 export function dirtyPromptCount(cards: readonly PromptCard[], drafts: PromptDrafts): number {
   return cards.filter((card) => isPromptDirty(card, drafts)).length
 }
@@ -129,10 +151,42 @@ export function setSysPromptEditOf(card: PromptCard, text: string): RegistryEdit
   return { kind: 'setSysPrompt', modelName: card.name, sysPrompt: value }
 }
 
-/** 卡片第二行的 path 文案：内置与合成条目没有文件。 */
+/* ── 草稿状态转移（纯函数；视图只负责把结果塞回 state） ────────────── */
+
+/** 编辑一笔：文本回到已保存值即删键（不打扰视图，只记账）。 */
+export function draftsAfterEdit(card: PromptCard, drafts: PromptDrafts, text: string): PromptDrafts {
+  const key = promptDraftKey(card)
+  const next: Record<string, string> = { ...drafts }
+  if (text === card.prompt) delete next[key]
+  else next[key] = text
+  return next
+}
+
+/** 回退：删掉本卡草稿，文本回到已保存值；本来没有草稿就原样返回（不造新对象）。 */
+export function draftsAfterRevert(card: PromptCard, drafts: PromptDrafts): PromptDrafts {
+  const key = promptDraftKey(card)
+  if (!(key in drafts)) return drafts
+  const next: Record<string, string> = { ...drafts }
+  delete next[key]
+  return next
+}
+
+/**
+ * 写后是否清草稿：只有新值真的进了快照才算数。回读失败时快照还是旧的，
+ * 此刻清键会让卡片退回旧值、用户改动被静默丢弃（票 79 第 1 条）。
+ */
+export function draftClearedBy(outcome: RegistryWriteOutcome): boolean {
+  return outcome.changedCount > 0 && outcome.reloadError === undefined
+}
+
+/** 写后草稿表：回读成功才删键，否则原样保留等下一次回读。 */
+export function draftsAfterWrite(card: PromptCard, drafts: PromptDrafts, outcome: RegistryWriteOutcome): PromptDrafts {
+  return draftClearedBy(outcome) ? draftsAfterRevert(card, drafts) : drafts
+}
+
+/** 卡片第二行的 path 文案：没有层文件（内置 / 合成）就没有路径可显示。 */
 export function promptPathLabel(card: PromptCard): string {
-  if (card.path !== undefined) return card.path
-  return card.source === 'built-in' ? '（内置，无文件）' : '（合成，无文件）'
+  return card.path ?? '（内置，无文件）'
 }
 
 /**

@@ -1,17 +1,20 @@
 /**
- * 票 68 系统提示词页的行为锚点：生效层卡片、草稿 / 脏标记 / 保存编辑（空串 =
- * 移除字段）/ 跨页定位与高亮。
+ * 票 68 系统提示词页的行为锚点，含票 79 的修复回归：生效声明卡片、草稿按范围
+ * 分桶、脏标记、保存编辑（空串 = 移除字段）、回读失败保留草稿、写反馈只出现一次、
+ * 只读谓词与宿主同源、跨页定位与高亮。
  *
- * 本仓没有 DOM 环境：组件测试只断言 react-dom/server 的可见输出，状态机部分
- * 走 prompt-model 的纯函数；高亮的「消费后不清定时器」由源码级断言钉住（没有
- * 定时器就无法在无 DOM 环境里跑真实退场）。
+ * 本仓没有 DOM 环境：组件测试只断言 react-dom/server 的可见输出，状态机部分走
+ * prompt-model 的纯函数；高亮的「消费后不清定时器」用 TS AST 钉住——源码字符串
+ * 断言会匹配到任意空依赖 effect，AST 才真的定位到那一个 useEffect。
  */
 import { readFileSync } from 'node:fs'
 
 import { createElement as h } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 
+import { isReadOnlyModelEntry } from '../src/control/index.ts'
 import {
   INITIAL_PROMPTS_PAGE_STATE,
   PromptsPageView,
@@ -22,9 +25,15 @@ import {
   buildPromptCards,
   canEditPrompt,
   dirtyPromptCount,
+  draftClearedBy,
+  draftsAfterEdit,
+  draftsAfterRevert,
+  draftsAfterWrite,
   isPromptDirty,
+  promptDraftKey,
   promptFocusTarget,
   promptPathLabel,
+  promptScopeKeyOf,
   promptTextOf,
   promptsEmptyOf,
   setSysPromptEditOf,
@@ -32,6 +41,7 @@ import {
 
 import type { AliasDefinition, ModelDefinition } from '../src/contract/index.ts'
 import type { ControlSnapshot } from '../src/control/index.ts'
+import type { RegistryWriteOutcome } from '../src/dsh/client/chunk-contracts.ts'
 
 const PROJECT_PATH = '/work/.dsh/agents/registry.yaml'
 const USER_PATH = '/home/me/.dsh/agents/registry.yaml'
@@ -45,10 +55,13 @@ function model(
     readonly sysPrompt?: string | undefined
     readonly available?: boolean | undefined
     readonly synthesized?: boolean | undefined
+    readonly path?: string | undefined
   } = {},
 ): ModelDefinition {
   const source = options.source ?? 'project-dsh'
-  const path = source === 'built-in' ? undefined : source === 'project-dsh' ? PROJECT_PATH : USER_PATH
+  const path = 'path' in options
+    ? options.path
+    : source === 'built-in' ? undefined : source === 'project-dsh' ? PROJECT_PATH : USER_PATH
   return {
     modelName,
     provider: options.provider ?? 'acme',
@@ -66,7 +79,11 @@ function alias(name: string, targets: readonly string[], source: AliasDefinition
   return { alias: name, targets, source, ...(path === undefined ? {} : { path }) }
 }
 
-function snapshotOf(models: readonly ModelDefinition[], aliases: readonly AliasDefinition[] = []): ControlSnapshot {
+function snapshotOf(
+  models: readonly ModelDefinition[],
+  aliases: readonly AliasDefinition[] = [],
+  projectRoot: string | null = '/work',
+): ControlSnapshot {
   return {
     agents: [],
     models,
@@ -76,7 +93,7 @@ function snapshotOf(models: readonly ModelDefinition[], aliases: readonly AliasD
     aliasDiagnostics: [],
     findings: [],
     assemblies: {},
-    scope: { cwd: '/work', projectRoot: '/work' },
+    scope: { cwd: projectRoot, projectRoot },
   }
 }
 
@@ -96,10 +113,15 @@ function state(patch: Partial<PromptsPageState> = {}): PromptsPageState {
   return { ...INITIAL_PROMPTS_PAGE_STATE, ...patch }
 }
 
-function render(snapshotValue: ControlSnapshot, pageState: PromptsPageState): string {
+function render(
+  snapshotValue: ControlSnapshot,
+  pageState: PromptsPageState,
+  write?: Parameters<typeof PromptsPageView>[0]['write'],
+): string {
   return renderToStaticMarkup(h(PromptsPageView, {
     snapshot: snapshotValue,
     state: pageState,
+    ...(write === undefined ? {} : { write }),
     onDraft: () => {},
     onSave: () => {},
     onRevert: () => {},
@@ -128,7 +150,16 @@ function cardOf(name: string, snapshotValue: ControlSnapshot = snapshot()) {
   return card
 }
 
-describe('生效层卡片', () => {
+/** 草稿表：只写本卡那一个键，模拟「输入框里敲了字」。 */
+function draftsOf(card: ReturnType<typeof cardOf>, text: string): Record<string, string> {
+  return { [promptDraftKey(card)]: text }
+}
+
+function outcomeOf(patch: Partial<RegistryWriteOutcome> = {}): RegistryWriteOutcome {
+  return { status: 'ok', rows: [], changedCount: 1, ...patch }
+}
+
+describe('生效声明卡片', () => {
   it('每个模型名一张卡，排序稳定（名称升序）', () => {
     const cards = buildPromptCards(snapshot())
     expect(cards.map((card) => card.name)).toEqual(['dsh-default', 'fast', 'slow'])
@@ -136,7 +167,7 @@ describe('生效层卡片', () => {
     expect(buildPromptCards(snapshot()).map((card) => card.name)).toEqual(cards.map((card) => card.name))
   })
 
-  it('只读合并快照的生效层：来源、path、提示词与 available 都照抄', () => {
+  it('只读合并快照的生效声明：来源、path、提示词与 available 都照抄', () => {
     const fast = cardOf('fast')
     expect(fast.source).toBe('project-dsh')
     expect(fast.path).toBe(PROJECT_PATH)
@@ -166,27 +197,93 @@ describe('生效层卡片', () => {
   })
 })
 
+describe('只读谓词与宿主同源（票 79 第 4 条）', () => {
+  it('没有层文件的条目只读，即使来源不是 built-in', () => {
+    // 宿主按 `source === built-in || path === undefined` 拒绝写入；旧 UI 只看
+    // source/synthesized，会把这种条目当成可写并给出保存按钮。
+    expect(isReadOnlyModelEntry({ source: 'project-dsh', path: undefined })).toBe(true)
+    expect(isReadOnlyModelEntry({ source: 'user-dsh', path: undefined })).toBe(true)
+    expect(isReadOnlyModelEntry({ source: 'built-in', path: PROJECT_PATH })).toBe(true)
+    expect(isReadOnlyModelEntry({ source: 'project-dsh', path: PROJECT_PATH })).toBe(false)
+  })
+
+  it('卡片与宿主用同一个判定：无 path 的条目既标只读也不给编辑', () => {
+    const noFile = buildPromptCards(snapshotOf([model('ghost', { path: undefined })]))[0]
+    expect(noFile).toBeDefined()
+    if (noFile === undefined) return
+    expect(noFile.readOnly).toBe(true)
+    expect(canEditPrompt(noFile)).toBe(false)
+    expect(setSysPromptEditOf(noFile, 'x')).toBeNull()
+  })
+
+  it('path 文案没有不可达分支：有文件给路径，没文件给同一句内置文案', () => {
+    expect(promptPathLabel(cardOf('fast'))).toBe(PROJECT_PATH)
+    expect(promptPathLabel(cardOf('dsh-default'))).toBe('（内置，无文件）')
+  })
+})
+
 describe('草稿与脏标记', () => {
   const fast = cardOf('fast')
 
   it('草稿优先于已保存值', () => {
-    expect(promptTextOf(fast, { fast: 'draft' })).toBe('draft')
+    expect(promptTextOf(fast, draftsOf(fast, 'draft'))).toBe('draft')
     expect(promptTextOf(fast, {})).toBe('Be terse.')
   })
 
   it('与已保存值相同的草稿不算脏；不同的才算', () => {
     expect(isPromptDirty(fast, {})).toBe(false)
-    expect(isPromptDirty(fast, { fast: 'Be terse.' })).toBe(false)
-    expect(isPromptDirty(fast, { fast: 'Be terse' })).toBe(true)
-    expect(dirtyPromptCount(buildPromptCards(snapshot()), { fast: 'x', slow: 'y' })).toBe(2)
+    expect(isPromptDirty(fast, draftsOf(fast, 'Be terse.'))).toBe(false)
+    expect(isPromptDirty(fast, draftsOf(fast, 'Be terse'))).toBe(true)
+    const cards = buildPromptCards(snapshot())
+    const slow = cardOf('slow')
+    expect(dirtyPromptCount(cards, { ...draftsOf(fast, 'x'), ...draftsOf(slow, 'y') })).toBe(2)
   })
 
-  it('回退即删键，文本回到已保存值', () => {
-    const drafts: Record<string, string> = { fast: 'draft' }
-    const next: Record<string, string> = { ...drafts }
-    delete next.fast
+  it('编辑回到已保存值即删键', () => {
+    const edited = draftsAfterEdit(fast, draftsOf(fast, 'draft'), 'Be terse.')
+    expect(Object.keys(edited)).toEqual([])
+    expect(draftsAfterEdit(fast, {}, 'other')).toEqual(draftsOf(fast, 'other'))
+  })
+
+  it('回退即删键，文本回到已保存值；没有草稿时原样返回同一个对象', () => {
+    const drafts = draftsOf(fast, 'draft')
+    const next = draftsAfterRevert(fast, drafts)
     expect(promptTextOf(fast, next)).toBe('Be terse.')
     expect(isPromptDirty(fast, next)).toBe(false)
+    expect(draftsAfterRevert(fast, next)).toBe(next)
+    expect(drafts).toEqual(draftsOf(fast, 'draft'))
+  })
+})
+
+describe('草稿按范围分桶（票 79 第 2 条）', () => {
+  const here = cardOf('fast', snapshotOf([model('fast', { sysPrompt: 'Be terse.' })], [], '/work'))
+  const elsewhere = cardOf('fast', snapshotOf([model('fast', { sysPrompt: 'Be terse.' })], [], '/other'))
+
+  it('范围键取项目根，用户全局用空串', () => {
+    expect(promptScopeKeyOf({ cwd: '/work', projectRoot: '/work' })).toBe('/work')
+    expect(promptScopeKeyOf({ cwd: null, projectRoot: null })).toBe('')
+  })
+
+  it('同名模型在不同范围下是不同的草稿键', () => {
+    expect(promptDraftKey(here)).not.toBe(promptDraftKey(elsewhere))
+    // 切空间后旧草稿不再命中新快照：既不显示成未保存改动，也不会写进新空间的层。
+    const stale = draftsOf(here, '旧空间里敲的字')
+    expect(promptTextOf(elsewhere, stale)).toBe('Be terse.')
+    expect(isPromptDirty(elsewhere, stale)).toBe(false)
+    expect(dirtyPromptCount([elsewhere], stale)).toBe(0)
+  })
+
+  it('切回原空间仍能取回原草稿', () => {
+    const drafts = draftsOf(here, 'draft')
+    expect(promptTextOf(here, drafts)).toBe('draft')
+    expect(isPromptDirty(here, drafts)).toBe(true)
+  })
+
+  it('键里带 NUL 分隔，范围与名字不会串（/a 的 b 与 /a-b 的 c 不撞）', () => {
+    const left = cardOf('b', snapshotOf([model('b')], [], '/a'))
+    const right = cardOf('c', snapshotOf([model('c')], [], '/a-b'))
+    expect(promptDraftKey(left)).not.toBe(promptDraftKey(right))
+    expect(promptDraftKey(left)).toBe('/a\u0000b')
   })
 })
 
@@ -211,6 +308,67 @@ describe('保存编辑（setSysPrompt）', () => {
   })
 })
 
+describe('回读失败保留草稿（票 79 第 1 条）', () => {
+  const fast = cardOf('fast')
+  const drafts = draftsOf(fast, 'draft')
+
+  it('写入落地但回读失败 ⇒ 不清草稿', () => {
+    const outcome = outcomeOf({ reloadError: 'GET /agent-atelier/state 503' })
+    expect(draftClearedBy(outcome)).toBe(false)
+    expect(draftsAfterWrite(fast, drafts, outcome)).toBe(drafts)
+  })
+
+  it('回读成功 ⇒ 清草稿（新值已在快照里）', () => {
+    const outcome = outcomeOf({ snapshot: snapshot() })
+    expect(draftClearedBy(outcome)).toBe(true)
+    expect(draftsAfterWrite(fast, drafts, outcome)).toEqual({})
+  })
+
+  it('一笔都没写成功 ⇒ 不清草稿', () => {
+    expect(draftClearedBy(outcomeOf({ status: 'failed', changedCount: 0 }))).toBe(false)
+    expect(draftClearedBy(outcomeOf({ status: 'busy', changedCount: 0 }))).toBe(false)
+  })
+
+  it('其他卡片的草稿不受本次写入影响', () => {
+    const slow = cardOf('slow')
+    const both = { ...drafts, ...draftsOf(slow, 'slow draft') }
+    const next = draftsAfterWrite(fast, both, outcomeOf({ snapshot: snapshot() }))
+    expect(next).toEqual(draftsOf(slow, 'slow draft'))
+  })
+})
+
+describe('写反馈页面级一次（票 79 第 3 条）', () => {
+  const failed = outcomeOf({
+    status: 'failed',
+    changedCount: 0,
+    rows: [{ ok: false, editIndex: 0, file: undefined, code: 'read-only', message: 'nope' }],
+  })
+
+  it('三张卡片也只出一条 role=alert', () => {
+    const html = render(snapshot(), state(), { status: 'done', outcome: failed })
+    expect(html.match(/role="alert"/g)?.length).toBe(1)
+    expect(html.match(/data-model-write="err"/g)?.length).toBe(1)
+  })
+
+  it('反馈在卡片网格之前，卡片内不再重复', () => {
+    const html = render(snapshot(), state(), { status: 'done', outcome: failed })
+    const feedback = html.indexOf('data-model-write=')
+    const grid = html.indexOf('prompts-grid')
+    expect(feedback).toBeGreaterThan(-1)
+    expect(grid).toBeGreaterThan(feedback)
+    for (const name of ['fast', 'slow', 'dsh-default']) {
+      const card = html.slice(html.indexOf('data-prompt-card="' + name + '"'))
+      expect(card.slice(0, card.indexOf('</article>'))).not.toContain('data-model-write=')
+    }
+  })
+
+  it('没有写状态时不出反馈', () => {
+    const html = render(snapshot(), state(), { status: 'idle' })
+    expect(html).not.toContain('data-model-write=')
+    expect(html).not.toContain('role="alert"')
+  })
+})
+
 describe('跨页定位与高亮', () => {
   it('模型目标在快照里才消费；别名 / 智能体目标与缺席条目都不消费', () => {
     expect(promptFocusTarget({ kind: 'model', name: 'fast' }, snapshot())).toBe('fast')
@@ -228,18 +386,76 @@ describe('跨页定位与高亮', () => {
     expect(other).not.toContain('focus')
   })
 
-  it('高亮退场定时器不挂在 effect cleanup 上（原型 SystemPrompts.tsx 的反例）', () => {
+  it('高亮退场定时器挂在空依赖 effect 上，焦点 effect 不返回清理函数', () => {
     const source = readFileSync(new URL('../src/client/chunks/registry/prompts.tsx', import.meta.url), 'utf8')
-    // 只在卸载时清理：cleanup 的 effect 依赖为空数组。
-    expect(source).toContain('useEffect(() => () => {')
-    expect(source).toContain('}, [])')
-    // 焦点 effect 的 return 里不得出现 clearTimeout（那会让高亮永不退场）。
-    const focusEffect = source.slice(source.indexOf('promptFocusTarget(props.focus'))
-    const body = focusEffect.slice(0, focusEffect.indexOf('}, [props.focus'))
-    expect(body).not.toContain('return () =>')
-    expect(body).toContain('setTimeout')
+    const file = ts.createSourceFile('prompts.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+    const effects = useEffectCalls(file)
+    expect(effects.length).toBeGreaterThan(0)
+
+    // 只有卸载 effect 的依赖数组为空，且它的回调真的返回清理函数。
+    const unmount = effects.filter((entry) => entry.deps === 0)
+    expect(unmount.length).toBe(1)
+    expect(unmount[0]?.returnsCleanup).toBe(true)
+    expect(unmount[0]?.body).toContain('clearTimeout')
+
+    // 焦点 effect 会重排定时器（重设前清旧的），但它绝不能返回清理函数：
+    // 消费焦点会立刻把 focus 置空，cleanup 里清定时器等于高亮永不退场。
+    const focus = effects.filter((entry) => entry.body.includes('promptFocusTarget'))
+    expect(focus.length).toBe(1)
+    expect(focus[0]?.body).toContain('setTimeout')
+    expect(focus[0]?.returnsCleanup).toBe(false)
+    expect(focus[0]?.deps).toBeGreaterThan(0)
   })
 })
+
+/**
+ * 每个 `useEffect(...)` 调用：回调源码、依赖数组长度（-1 = 没有依赖数组）、
+ * 回调里是否有「带值的 return」（= 返回清理函数）。按 AST 取，注释与相邻
+ * effect 不会互相串味，空依赖的箭头函数也不会被误当成清理函数。
+ */
+interface EffectCall {
+  readonly body: string
+  readonly deps: number
+  readonly returnsCleanup: boolean
+}
+
+function useEffectCalls(file: ts.SourceFile): readonly EffectCall[] {
+  const found: EffectCall[] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'useEffect') {
+      const [callback, deps] = node.arguments
+      found.push({
+        body: callback === undefined ? '' : callback.getText(file),
+        deps: deps !== undefined && ts.isArrayLiteralExpression(deps) ? deps.elements.length : -1,
+        returnsCleanup: callback !== undefined && returnsValue(callback),
+      })
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(file)
+  return found
+}
+
+/**
+ * 回调是否返回清理函数：表达式体箭头（`() => () => …`）看返回值是不是函数，
+ * 块体看有没有 `return <expr>`。只看回调自己的函数体——嵌套的箭头函数是
+ * setTimeout 之类的回调，不算；`return` 空值也不算。
+ */
+function returnsValue(root: ts.Node): boolean {
+  if (ts.isArrowFunction(root) && !ts.isBlock(root.body)) return ts.isFunctionLike(root.body)
+  let found = false
+  const visit = (node: ts.Node): void => {
+    if (found) return
+    if (node !== root && ts.isFunctionLike(node)) return
+    if (ts.isReturnStatement(node) && node.expression !== undefined) {
+      found = true
+      return
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(root)
+  return found
+}
 
 describe('系统提示词页静态输出', () => {
   it('每张卡带名称、层、路线、提示词与别名计数，只读条目标注只读', () => {
@@ -261,7 +477,8 @@ describe('系统提示词页静态输出', () => {
   })
 
   it('未保存计数进标题，脏卡片带「未保存」，保存可用 / 回退可用', () => {
-    const html = render(snapshot(), state({ drafts: { fast: 'draft' } }))
+    const fast = cardOf('fast')
+    const html = render(snapshot(), state({ drafts: draftsOf(fast, 'draft') }))
     expect(html).toContain('1 未保存')
     const card = html.slice(html.indexOf('data-prompt-card="fast"'))
     expect(card.slice(0, card.indexOf('</article>'))).toContain('未保存')
@@ -282,6 +499,45 @@ describe('系统提示词页静态输出', () => {
     const html = render(snapshotOf([]), state())
     expect(html).toContain('还没有任何模型条目')
     expect(html).not.toContain('prompts-grid')
+  })
+})
+
+describe('写后清草稿的接线（票 79 第 1 条的结构侧）', () => {
+  it('save 的写后回调经 draftsAfterWrite 落草稿，不自己判 changedCount', () => {
+    // 判定本身在「回读失败保留草稿」一节按行为测；这里只钉「视图真的用了那个判定」——
+    // 没有 DOM 环境驱动不了 click → promise → setState，结构断言是剩下的那一层。
+    const source = readFileSync(new URL('../src/client/chunks/registry/prompts.tsx', import.meta.url), 'utf8')
+    const save = source.slice(source.indexOf('const save = (card: PromptCard)'))
+    const body = save.slice(0, save.indexOf('\n  }', save.indexOf('runWrite([')))
+    expect(body).toContain('draftsAfterWrite(card, previous.drafts, outcome)')
+    expect(body).not.toContain('changedCount')
+  })
+})
+
+describe('文档与词表跟代码一致（票 79 第 6 / 7 条）', () => {
+  it('registry chunk 两页共享私有件，README 不得声称两页各自封口', () => {
+    const prompts = readFileSync(new URL('../src/client/chunks/registry/prompts.tsx', import.meta.url), 'utf8')
+    // 事实：系统提示词页确实跨页引模型关联页的私有件（写反馈与来源词表）。
+    expect(prompts).toContain("from './model-detail.tsx'")
+    expect(prompts).toContain("from './model-links.ts'")
+    const readme = readFileSync(new URL('../docs/client/README.md', import.meta.url), 'utf8')
+    // chunk 级封口（不互相 import、不回流主壳）仍然成立，只否掉「页与页各自封口」。
+    expect(readme).not.toContain('两个页各自封口')
+    expect(readme).toContain('共用同一份 chunk 私有件')
+  })
+
+  it('「生效层」已退役，系统提示词页的代码与文档不再用它', () => {
+    // GLOSSARY 的「来源」词条把 生效层 记为退役、改「生效声明 + 来源」；页面沿用
+    // 旧词会让读者以为那是层轴上的第四种层。
+    const files = [
+      '../src/client/chunks/registry/prompts.tsx',
+      '../src/client/chunks/registry/prompt-model.ts',
+      '../src/client/chunks/registry/model-detail.tsx',
+      '../docs/client/README.md',
+    ]
+    for (const file of files) {
+      expect(readFileSync(new URL(file, import.meta.url), 'utf8'), file).not.toContain('生效层')
+    }
   })
 })
 

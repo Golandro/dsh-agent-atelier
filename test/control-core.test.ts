@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { evaluateAgentQuery } from '../src/control/index.ts'
+import { evaluateAgentQuery, isReadOnlyModelEntry } from '../src/control/index.ts'
 import { createAgentDocPort } from '../src/control/core.ts'
 import { createControlFixture } from './support/control-fixture.ts'
 
@@ -358,6 +358,19 @@ describe('control core over the in-memory adapter', () => {
     const broken = await core.applyRegistryEdit({ kind: 'setAvailable', modelName: 'kimi', available: true })
     expect(broken.results[0]).toMatchObject({ ok: false, code: 'invalid-content' })
     expect(core.files.get(REGISTRY_USER)).toBe('models: [broken\n')
+  })
+
+  it('refuses setSysPrompt on the synthesised built-in entry (same predicate as the UI)', async () => {
+    // 默认模型对匹配不到任何声明时，宿主合成 dsh-default；它没有层文件，
+    // 写入必须被拒。UI 的只读徽标走同一个 isReadOnlyModelEntry，两边不会分叉。
+    const core = createCore({ readDefaultPair: () => ({ provider: 'deepseek', model: 'deepseek-chat' }) })
+    const snapshot = await core.snapshot({ cwd: PROJECT })
+    const synthesized = snapshot.models.find((entry) => entry.modelName === 'dsh-default')
+    expect(synthesized).toMatchObject({ source: 'built-in', synthesized: true })
+    expect(isReadOnlyModelEntry(synthesized!)).toBe(true)
+
+    const report = await core.applyRegistryEdit({ kind: 'setSysPrompt', modelName: 'dsh-default', sysPrompt: 'x' })
+    expect(report.results[0]).toMatchObject({ ok: false, code: 'read-only' })
   })
 
   it('reports an unknown registry entry as not-found', async () => {

@@ -20,6 +20,7 @@ import { blockEnd, indentOf, KEY_NAME_RE, splitKeyLine } from '../yaml/index.ts'
 import type { AliasRegistry } from '../contract/index.ts'
 import type { ControlFileSystem } from '../catalog/ports.ts'
 import { errorMessage } from './client-errors.ts'
+import { isReadOnlyModelEntry } from './model-entry.ts'
 import { serializeFrontmatterScalar } from './frontmatter-edit.ts'
 import { atomicWriteFile } from './writes.ts'
 import type { RegistryEdit, WriteReport, WriteResult } from './types.ts'
@@ -115,10 +116,13 @@ async function resolveEditFile(
     const name = isAliasEdit ? edit.alias : edit.modelName
     return refusalResult('not-found', `registry has no entry named "${name}"`)
   }
-  if (lookup.source === 'built-in' || lookup.path === undefined) {
+  // 只读判定与 UI 同源（isReadOnlyModelEntry）；path 的收窄在这里显式补一次，
+  // 因为谓词是函数调用，TS 不再从它的返回值推出 lookup.path 存在。
+  const file = lookup.path
+  if (isReadOnlyModelEntry(lookup) || file === undefined) {
     return refusalResult('read-only', `"${lookup.source}" entries are not user-editable`)
   }
-  return { ok: true, file: lookup.path }
+  return { ok: true, file }
 }
 
 function refusalResult(code: 'invalid-edit' | 'not-found' | 'read-only', message: string): { readonly ok: false; readonly result: WriteResult } {

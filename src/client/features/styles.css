@@ -844,7 +844,7 @@ body:not([data-ds-dark-theme]) .agent-atelier-page .doc-editor .cm-editor.cm-foc
   .agent-atelier-page .models-page .pane-splitter { display: none; }
 }
 
-/* ── 系统提示词页（票 68）：每模型名一张生效层卡片 ─────────────────────
+/* ── 系统提示词页（票 68）：每模型名一张生效声明卡片 ───────────────────
  * 卡片网格按容器宽度自适应：两栏下限 42rem（prompt-model.ts 的
  * PROMPTS_SINGLE_COLUMN_REM 与这里的断点同源，测试断言两边一致）；窄容器单栏。
  * 高亮只在「跨页跳转落点」上出现，退场由页面定时器决定，不靠 CSS 动画。 */
@@ -858,11 +858,13 @@ body:not([data-ds-dark-theme]) .agent-atelier-page .doc-editor .cm-editor.cm-foc
   background: var(--dsw-alias-bg-base);
 }
 .agent-atelier-page .prompts-page .prompts-list { min-width: 0; }
+.agent-atelier-page .prompts-body { display: flex; flex-direction: column; gap: 10px; padding: 12px; min-width: 0; }
+.agent-atelier-page .prompts-body .model-write { margin: 0; }
 .agent-atelier-page .prompts-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
   gap: 10px;
-  padding: 12px;
+  padding: 0;
   min-width: 0;
 }
 .agent-atelier-page .prompt-card {

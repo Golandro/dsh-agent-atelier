@@ -13,6 +13,7 @@
  * 类型，而不 import src/contract 的深路径。健康字段是契约 RouteHealth 的结构
  * 镜像：当前 /state wire 不携带健康，缺省读作「未判定」，厚度留给 #66。
  */
+import { isReadOnlyModelEntry } from '../../../control/index.ts'
 import type { ControlSnapshot } from '../../../control/index.ts'
 
 /** 合并快照里的模型条目（结构投影，不依赖 contract 深路径）。 */
@@ -586,7 +587,7 @@ function buildModelRow(
     source,
     ...(path === undefined ? {} : { path }),
     layer,
-    readOnly: effective.source === 'built-in' || effective.synthesized === true,
+    readOnly: isReadOnlyModelEntry(effective),
     // 层空间里 raw 停用不会被覆盖隐藏；merged 行同时看生效面，组折叠可见。
     hasIssues: declaredAvailable === false || !effective.available,
     declaration,

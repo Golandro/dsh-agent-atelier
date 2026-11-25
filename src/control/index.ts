@@ -6,6 +6,7 @@
  * in-memory test adapter stay internal — tests import their modules directly.
  */
 export { createAgentDocPort, createControlCore, planDirtyEdits } from './core.ts'
+export { isReadOnlyModelEntry } from './model-entry.ts'
 export type { AgentDocPort, ControlCore, ControlDependencies } from './core.ts'
 export { ChainExhaustedError } from './session-agent.ts'
 export { classify, createFailureRecorder } from './failures.ts'

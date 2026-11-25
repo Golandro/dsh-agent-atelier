@@ -2,7 +2,7 @@
  * 系统提示词页（票 68）：per-model sysPrompt 调优。
  *
  * 模型条目的身份、available 开关与别名映射统一归「模型关联」页；本页只负责
- * 提示词内容，所以每个模型名只出现一张卡片，且只展示**生效层**（工作区覆盖
+ * 提示词内容，所以每个模型名只出现一张卡片，且只展示**生效声明**（工作区覆盖
  * 用户后的赢家）。被覆盖的低层声明在模型关联页的层空间查看。
  *
  * 两层结构：
@@ -13,10 +13,14 @@
  * 高亮不随焦点清空而退场：消费焦点会立刻把 `focus` 置空，若在 effect 的
  * cleanup 里清定时器，高亮就永远不会消失（原型 SystemPrompts.tsx 的反例）。
  * 定时器只在卸载时清理。
+ *
+ * 写反馈是页面级一次（票 79）：卡片只报告自己的写状态，`role=alert` 不该随卡片
+ * 数量翻倍；回读失败时草稿保留，等下一次回读把新值带进快照再清。
  */
 import { createElement as h, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
 import type { RegistryViewProps } from '../../../dsh/client/chunk-contracts.ts'
+import type { RegistryWriteOutcome } from '../../../dsh/client/chunk-contracts.ts'
 import { errorMessage, isAbortError } from '../../../control/index.ts'
 import type { ControlSnapshot, RegistryEdit } from '../../../control/index.ts'
 import { ListPane } from './list-pane.tsx'
@@ -29,6 +33,9 @@ import {
   buildPromptCards,
   canEditPrompt,
   dirtyPromptCount,
+  draftsAfterEdit,
+  draftsAfterRevert,
+  draftsAfterWrite,
   isPromptDirty,
   promptActionLabel,
   promptFocusTarget,
@@ -57,8 +64,8 @@ export interface PromptsPageViewProps {
   readonly state: PromptsPageState
   readonly write?: ModelWriteUi | undefined
   readonly writeBusy?: boolean | undefined
-  /** 草稿变化；文本回到已保存值时调用方应删键。 */
-  readonly onDraft?: ((name: string, text: string) => void) | undefined
+  /** 草稿变化；文本回到已保存值时实现方应删键。 */
+  readonly onDraft?: ((card: PromptCard, text: string) => void) | undefined
   readonly onSave?: ((card: PromptCard) => void) | undefined
   readonly onRevert?: ((card: PromptCard) => void) | undefined
 }
@@ -104,19 +111,24 @@ function promptsBody(props: PromptsPageViewProps, cards: readonly PromptCard[]):
   }
   return h(
     'div',
-    { className: 'prompts-grid' },
-    cards.map((card) => h(PromptCardView, {
-      key: card.name,
-      card,
-      draft: promptTextOf(card, props.state.drafts),
-      dirty: isPromptDirty(card, props.state.drafts),
-      highlighted: props.state.highlighted === card.name,
-      write: props.write,
-      writeBusy: props.writeBusy === true,
-      onDraft: props.onDraft,
-      onSave: props.onSave,
-      onRevert: props.onRevert,
-    })),
+    { className: 'prompts-body' },
+    // 写反馈页面级一次：一批写入只有一份结果，逐卡复制只会造出 N 条 role=alert。
+    props.write === undefined ? null : h(WriteFeedback, { write: props.write }),
+    h(
+      'div',
+      { className: 'prompts-grid' },
+      cards.map((card) => h(PromptCardView, {
+        key: card.name,
+        card,
+        draft: promptTextOf(card, props.state.drafts),
+        dirty: isPromptDirty(card, props.state.drafts),
+        highlighted: props.state.highlighted === card.name,
+        writeBusy: props.writeBusy === true,
+        onDraft: props.onDraft,
+        onSave: props.onSave,
+        onRevert: props.onRevert,
+      })),
+    ),
   )
 }
 
@@ -125,9 +137,8 @@ interface PromptCardViewProps {
   readonly draft: string
   readonly dirty: boolean
   readonly highlighted: boolean
-  readonly write?: ModelWriteUi | undefined
   readonly writeBusy: boolean
-  readonly onDraft?: ((name: string, text: string) => void) | undefined
+  readonly onDraft?: ((card: PromptCard, text: string) => void) | undefined
   readonly onSave?: ((card: PromptCard) => void) | undefined
   readonly onRevert?: ((card: PromptCard) => void) | undefined
 }
@@ -165,7 +176,7 @@ function PromptCardView(props: PromptCardViewProps): ReactNode {
       placeholder: '（无 sysPrompt —— 未调优）',
       'aria-label': card.name + ' 的 sysPrompt',
       'data-prompt-area': card.name,
-      onChange: (event: ChangeEvent<HTMLTextAreaElement>) => props.onDraft?.(card.name, event.target.value),
+      onChange: (event: ChangeEvent<HTMLTextAreaElement>) => props.onDraft?.(card, event.target.value),
     }),
     h(
       'div',
@@ -205,7 +216,6 @@ function PromptCardView(props: PromptCardViewProps): ReactNode {
     props.onSave === undefined
       ? h('p', { className: 'dim prompt-card-note' }, '当前没有接入写通道，提示词只读。')
       : null,
-    props.write === undefined ? null : h(WriteFeedback, { write: props.write }),
   )
 }
 
@@ -220,7 +230,6 @@ function findCardElement(root: HTMLElement | null, name: string): HTMLElement | 
 export function PromptRegistryView(props: RegistryViewProps): ReactNode {
   const [state, setState] = useState<PromptsPageState>(INITIAL_PROMPTS_PAGE_STATE)
   const [write, setWrite] = useState<ModelWriteUi>({ status: 'idle' })
-  const cards = useMemo(() => buildPromptCards(props.snapshot), [props.snapshot])
 
   // 高亮定时器：只在卸载时清理，绝不在「焦点被消费」引起的重跑里清（反例见文件头）。
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -228,34 +237,26 @@ export function PromptRegistryView(props: RegistryViewProps): ReactNode {
     if (highlightTimer.current !== null) clearTimeout(highlightTimer.current)
   }, [])
 
-  const changeDraft = (name: string, text: string): void => {
-    const card = cards.find((entry) => entry.name === name)
-    setState((previous) => {
-      const next = { ...previous.drafts }
-      // 回到已保存值即不算未保存改动（不打扰视图，只记账）。
-      if (card !== undefined && text === card.prompt) delete next[name]
-      else next[name] = text
-      return { ...previous, drafts: next }
-    })
+  const changeDraft = (card: PromptCard, text: string): void => {
+    setState((previous) => ({ ...previous, drafts: draftsAfterEdit(card, previous.drafts, text) }))
   }
 
   const revertDraft = (card: PromptCard): void => {
-    setState((previous) => {
-      if (!(card.name in previous.drafts)) return previous
-      const next = { ...previous.drafts }
-      delete next[card.name]
-      return { ...previous, drafts: next }
-    })
+    setState((previous) => ({ ...previous, drafts: draftsAfterRevert(card, previous.drafts) }))
   }
 
-  const runWrite = (edits: readonly RegistryEdit[], label: string, afterOk?: () => void): void => {
+  const runWrite = (
+    edits: readonly RegistryEdit[],
+    label: string,
+    afterOk?: (outcome: RegistryWriteOutcome) => void,
+  ): void => {
     const handler = props.onRegistryWrite
     if (handler === undefined) return
     setWrite({ status: 'writing', label })
     handler(edits)
       .then((outcome) => {
         setWrite({ status: 'done', outcome })
-        if (outcome.changedCount > 0) afterOk?.()
+        afterOk?.(outcome)
       })
       .catch((error: unknown) => {
         if (isAbortError(error)) {
@@ -270,14 +271,9 @@ export function PromptRegistryView(props: RegistryViewProps): ReactNode {
     const text = promptTextOf(card, state.drafts)
     const edit = setSysPromptEditOf(card, text)
     if (edit === null) return
-    runWrite([edit], '保存 ' + card.name + ' 的 sysPrompt', () => {
-      // 写后回读会让新值进入快照；此刻清掉草稿，卡片直接显示已保存值。
-      setState((previous) => {
-        if (!(card.name in previous.drafts)) return previous
-        const next = { ...previous.drafts }
-        delete next[card.name]
-        return { ...previous, drafts: next }
-      })
+    runWrite([edit], '保存 ' + card.name + ' 的 sysPrompt', (outcome) => {
+      // 只有回读成功、新值真的进了快照，草稿才清；回读失败时保留，卡片继续显示用户改动。
+      setState((previous) => ({ ...previous, drafts: draftsAfterWrite(card, previous.drafts, outcome) }))
     })
   }
 
