@@ -56,5 +56,6 @@ export function RegistryMount(props: RegistryMountProps): ReactNode {
     onRegistryWrite: props.onRegistryWrite,
     registryWriteBusy: props.registryWriteBusy,
     onChainReport: props.onChainReport,
+    onPreviewRequest: props.onPreviewRequest,
   }))
 }

@@ -925,7 +925,155 @@ body:not([data-ds-dark-theme]) .agent-atelier-page .doc-editor .cm-editor.cm-foc
 .agent-atelier-page .prompt-card-note { margin: 0; font-size: 11px; line-height: 16px; }
 @container prompts (max-width: 42rem) {
   .agent-atelier-page .prompts-grid { grid-template-columns: minmax(0, 1fr); }
+  /* 预览的头部与新鲜度条在窄容器里换行，不压缩成两行文字挤在一起。
+   * 断点复用上面那一个（prompt-model.ts 的 PROMPTS_SINGLE_COLUMN_REM），不新增常量。 */
+  .agent-atelier-page .preview-head { flex-wrap: wrap; }
+  .agent-atelier-page .preview-freshness-row { flex-wrap: wrap; }
 }
+
+/* ── 系统提示词预览（票 85）：来源分组 / 段内块 / 新鲜度条 / 降级态 ─────
+ * 全部挂在 .agent-atelier-page 下，颜色只消费宿主 token（--dsw-* / --dsh-*）；
+ * 响应式只走容器查询（上面那个 @container prompts 块）。
+ * 类名在 JS 侧写裸局部名（chunk 不经过 nsClass，与 prompts 页其余卡片同法）。 */
+.agent-atelier-page .prompt-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+}
+.agent-atelier-page .preview-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.agent-atelier-page .preview-title { margin: 0; font-size: 13px; font-weight: 600; line-height: 20px; color: var(--dsw-alias-label-primary); }
+.agent-atelier-page .preview-note { min-width: 0; font-size: 11px; line-height: 16px; }
+.agent-atelier-page .preview-head-fill { flex: 1 1 0; min-width: 4px; }
+.agent-atelier-page .preview-agent { flex: none; max-width: 16rem; }
+.agent-atelier-page .preview-freshness {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-2);
+}
+.agent-atelier-page .preview-freshness-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 11.5px; line-height: 17px; }
+.agent-atelier-page .preview-freshness-label { flex: none; min-width: 7.5em; }
+.agent-atelier-page .preview-freshness-value { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--dsw-alias-label-primary); font-family: var(--dsh-font-family-code-default); }
+.agent-atelier-page .preview-freshness-note { flex: 1 1 auto; min-width: 0; }
+.agent-atelier-page .preview-side-effect {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--dsw-alias-state-warn-primary);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-state-warn-bg);
+  font-size: 11.5px;
+  line-height: 17px;
+  color: var(--dsw-alias-label-secondary);
+}
+.agent-atelier-page .preview-side-effect strong { color: var(--dsw-alias-state-warn-primary); }
+.agent-atelier-page .preview-side-effect-list { flex-basis: 100%; margin: 2px 0 0; padding-left: 1.1em; }
+.agent-atelier-page .preview-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.agent-atelier-page .preview-empty,
+.agent-atelier-page .preview-status { margin: 0; font-size: 12px; line-height: 18px; }
+.agent-atelier-page .preview-error { display: flex; flex-direction: column; gap: 6px; font-size: 12px; line-height: 18px; color: var(--dsw-alias-state-error-primary); }
+.agent-atelier-page .preview-tier {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-2);
+  font-size: 11.5px;
+  line-height: 17px;
+}
+.agent-atelier-page .preview-tier-text { flex: 1 1 auto; min-width: 0; color: var(--dsw-alias-label-secondary); }
+.agent-atelier-page .preview-tier-reason { flex-basis: 100%; }
+.agent-atelier-page .preview-sub-title { font-size: 11.5px; font-weight: 600; line-height: 17px; color: var(--dsw-alias-label-secondary); }
+.agent-atelier-page .preview-missing,
+.agent-atelier-page .preview-chain,
+.agent-atelier-page .preview-diagnostics { flex-basis: 100%; min-width: 0; }
+.agent-atelier-page .preview-missing-list,
+.agent-atelier-page .preview-chain-list,
+.agent-atelier-page .preview-diagnostics-list { margin: 2px 0 0; padding-left: 1.1em; font-size: 11.5px; line-height: 17px; }
+.agent-atelier-page .preview-groups { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.agent-atelier-page .preview-group {
+  min-width: 0;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-base);
+}
+.agent-atelier-page .preview-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: var(--dsw-alias-label-primary);
+}
+.agent-atelier-page .preview-group-head:hover { background: var(--dsw-alias-bg-layer-2); }
+.agent-atelier-page .preview-group-caret { flex: none; width: 1em; color: var(--dsw-alias-label-tertiary); }
+.agent-atelier-page .preview-group-heading { flex: none; font-size: 12.5px; font-weight: 600; line-height: 18px; }
+.agent-atelier-page .preview-group-registrant { flex: 1 1 auto; min-width: 0; font-size: 11px; line-height: 16px; }
+.agent-atelier-page .preview-group-body { display: flex; flex-direction: column; gap: 6px; padding: 0 8px 8px; min-width: 0; }
+.agent-atelier-page .preview-group-empty { margin: 0; padding: 0 8px 8px; font-size: 11.5px; line-height: 17px; }
+.agent-atelier-page .preview-group.empty { background: var(--dsw-alias-bg-layer-2); }
+.agent-atelier-page .preview-segment {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+}
+.agent-atelier-page .preview-segment-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; min-width: 0; }
+.agent-atelier-page .preview-segment-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--dsh-font-family-code-default);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+.agent-atelier-page .preview-segment-head > .tag { flex: none; }
+.agent-atelier-page .preview-text {
+  margin: 0;
+  max-height: 14rem;
+  overflow: auto;
+  padding: 6px 8px;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-2);
+  font-family: var(--dsh-font-family-code-default);
+  font-size: 11.5px;
+  line-height: 17px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-secondary);
+}
+.agent-atelier-page .preview-parts { min-width: 0; }
+.agent-atelier-page .preview-parts summary { cursor: pointer; font-size: 11.5px; line-height: 17px; color: var(--dsw-alias-label-secondary); }
+.agent-atelier-page .preview-parts-body { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; min-width: 0; }
+.agent-atelier-page .preview-part { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.agent-atelier-page .preview-part-name { font-size: 11px; line-height: 16px; }
+.agent-atelier-page .preview-notes { margin: 0; padding-left: 1.1em; font-size: 11px; line-height: 16px; }
 
 /* ── 操作历史（原「最近写入」状态栏，升格为页签视图） ───────────────── */
 .agent-atelier-page .history-view { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--dsw-alias-bg-base); }
