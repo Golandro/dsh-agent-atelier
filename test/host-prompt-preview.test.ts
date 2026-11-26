@@ -198,6 +198,52 @@ describe('prompt-preview ①：宿主面可用 + agent 可解析', () => {
     expect(atelier?.source).toBe('atelier-section')
   })
 
+  it('① 档的 context provider 拿得到 context.agent：文本非空，投影后也非空', async () => {
+    /**
+     * 这条守卫钉的是一个真实缺陷的回归面：宿主侧 provider 与 waterfall handler
+     * 都判 `context.agent === undefined` 就跳过自己（先例：
+     * `packages/session/working-directory/src/index.ts` 的 provider 直接回空串、
+     * handler 直接 `return next()`）。读面若不传 `agent`，⑥ 组拿到的会是**空文本**
+     * ——不是「这次没贡献」，是本仓没把宿主需要的东西递过去。
+     *
+     * 现有用例此前完全没断言 contexts，所以这个缺陷一路漏到 review。
+     *
+     * 测试台只挂了 SystemPrompt + tools（没有 working-directory 插件），所以这里
+     * 自己注册一个**同形** provider：只有拿到 `context.agent` 才产出文本。这样断言
+     * 的是读面有没有传 agent，而不是某个宿主插件在不在场。
+     */
+    const mounted = await mountHost()
+    mounted.ctx.provide(AGENT_CONTROL_SERVICE, controlOf(async () => composed()))
+
+    const seen: unknown[] = []
+    const scope = mounted.agent.ctx as unknown as { systemPrompt: { context(entry: unknown): () => void } }
+    scope.systemPrompt.context({
+      name: 'test:agent-aware-context',
+      order: 900,
+      interpolate: false,
+      // 与 working-directory 同形：拿不到 agent 就回空串。
+      text: (context: { agent?: unknown }) => {
+        seen.push(context.agent)
+        return context.agent === undefined ? '' : 'cwd=/work/atlas'
+      },
+    })
+
+    const response = await preview(mounted)
+
+    // provider 真的被调用了，且拿到的是那个真实 Agent（不是 undefined、不是别的对象）。
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen[0]).toBe(mounted.agent)
+
+    const entry = response.assembly?.contexts.find((item) => item.name === 'test:agent-aware-context')
+    expect(entry, '读面没把 provider 的 context 带回来').toBeDefined()
+    expect(entry?.text, 'context provider 没拿到 context.agent，回了空串').toBe('cwd=/work/atlas')
+
+    // 投影后的 ⑥ 组同样非空——投影不该丢掉内容。
+    const runtimeContext = response.segments.sources.find((group) => group.source === 'runtime-context')
+    const segment = runtimeContext?.segments.find((item) => item.name === 'test:agent-aware-context')
+    expect(segment?.text).toBe('cwd=/work/atlas')
+  })
+
   it('把副作用写进返回值，而不是只写在文档里', async () => {
     const mounted = await mountHost()
     mounted.ctx.provide(AGENT_CONTROL_SERVICE, controlOf(async () => composed()))
@@ -414,6 +460,45 @@ describe('降级档不伪造分段（②③④ 装配没发生，骨架必须是
 
     expect(response.degraded?.tier).toBe('empty')
     expectEmptySkeleton(response.segments)
+  })
+})
+
+describe('③ 预设遮蔽：读面观测到 preset 在 compose 时如实标注', () => {
+  /**
+   * 预设与部署级 persona 在产物里同名同形，光看产物分不出谁遮蔽了谁。宿主读面能
+   * 多知道一件事：这个 Agent 的 scope 上有没有 preset 在 compose。这条测试钉住
+   * 「观测到就标、没观测到就不标」——两边都不猜。
+   */
+  it('有 preset 在 compose：deployment:persona-* 带 opaque 遮蔽标注', async () => {
+    const mounted = await mountHost()
+    mounted.ctx.provide(AGENT_CONTROL_SERVICE, controlOf(async () => composed()))
+    mounted.ctx.provide('agentPresets', { composedPreset: () => 'planner' })
+
+    const response = await preview(mounted)
+
+    const persona = response.segments.sources
+      .find((group) => group.source === 'deployment-persona')
+      ?.segments ?? []
+    expect(persona.length).toBeGreaterThan(0)
+    for (const segment of persona) {
+      // opaque = 「被遮蔽了，但遮蔽者长什么样我们看不见」——不编一个遮蔽者。
+      expect(segment.shadowedBy).toEqual({ visibility: 'opaque' })
+    }
+  })
+
+  it('没有 preset 在 compose：不标遮蔽（没观测到 ≠ 没发生）', async () => {
+    const mounted = await mountHost()
+    mounted.ctx.provide(AGENT_CONTROL_SERVICE, controlOf(async () => composed()))
+    mounted.ctx.provide('agentPresets', { composedPreset: () => undefined })
+
+    const response = await preview(mounted)
+
+    const persona = response.segments.sources
+      .find((group) => group.source === 'deployment-persona')
+      ?.segments ?? []
+    for (const segment of persona) {
+      expect(segment.shadowedBy).toBeUndefined()
+    }
   })
 })
 

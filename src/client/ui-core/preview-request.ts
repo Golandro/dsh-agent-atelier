@@ -16,11 +16,14 @@
  * 不假装可用，也不在客户端发明一次装配。
  */
 import type { PromptPreviewHandler, PromptPreviewView } from '../../dsh/client/chunk-contracts.ts'
+import type { PromptPreviewPort } from '../../control/index.ts'
 
-/** 预览读面在客户端上的结构切片（`ControlClient` 的可选扩展，不是它的成员）。 */
-export interface PromptPreviewPort {
-  promptPreview(agentName: string, options?: { readonly cwd?: string | undefined; readonly signal?: AbortSignal | undefined }): Promise<PromptPreviewView>
-}
+/**
+ * 预览读面的结构切片由 `src/control/preview.ts` 拥有（`PromptPreviewPort`），
+ * 这里只 re-export 给主壳用——**不保留第二份定义**。client 本来就可以读 control
+ * 的公共入口（import 矩阵 `CLIENT_ENTRIES`），没有理由在 ui-core 再抄一份。
+ */
+export type { PromptPreviewPort }
 
 /** 客户端是否带了预览读面（结构判定，不看实现类型）。 */
 export function hasPromptPreview(client: unknown): client is PromptPreviewPort {

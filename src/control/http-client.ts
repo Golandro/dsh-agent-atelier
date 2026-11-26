@@ -42,7 +42,7 @@ export interface HttpControlClientOptions {
 
 type JsonRecord = Record<string, unknown>
 
-/** The HTTP adapter: one `ControlClient` over the seven exact routes. */
+/** The HTTP adapter: one `ControlClient` over the eight exact routes. */
 export function createHttpControlClient(options: HttpControlClientOptions = {}): PreviewCapableControlClient {
   const baseUrl = trimTrailingSlash(options.baseUrl ?? DEFAULT_BASE_URL)
   const fetchImpl = options.fetchImpl ?? globalThis.fetch

@@ -24,6 +24,7 @@ export type {
   AssembledContext,
   AssembledSection,
   HostPromptAssembly,
+  PromptProjectionObservations,
   PromptSectionLedgerEntry,
   ToolDeclaration,
 } from './segments.ts'

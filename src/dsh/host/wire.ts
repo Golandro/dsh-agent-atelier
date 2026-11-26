@@ -1,6 +1,7 @@
 /**
- * The agent-atelier wire contract (ticket 12): request validation, the six
- * exact routes, per-edit rejection semantics, and the status mapping. The
+ * The agent-atelier wire contract (ticket 12): request validation, the eight
+ * exact routes (state / compose / chain / plan / commit / registry / invalidate /
+ * prompt-preview), per-edit rejection semantics, and the status mapping. The
  * handler only validates the envelope → calls the ticket-11 control core →
  * serializes the result; no domain rule is re-implemented here.
  *

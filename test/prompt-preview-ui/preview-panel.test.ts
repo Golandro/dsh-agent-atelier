@@ -31,6 +31,7 @@ import type { PromptPreviewView } from '../../src/dsh/client/chunk-contracts.ts'
 import type { ControlSnapshot } from '../../src/control/index.ts'
 import {
   chainExhaustedView,
+  degradedView,
   emptyStateView,
   emptyView,
   fullView,
@@ -280,6 +281,54 @@ describe('四档降级各有可见态', () => {
     const html = renderPanel(readyState(fullView({ segments: emptyView() })))
     expect(html).toContain('data-preview-source="harness-identity"')
     expect(html).toContain('这一来源本次没有贡献任何段')
+  })
+
+  it('段数徽标只在 ① 档出现；降级档说「本次未装配」', () => {
+    // 降级档报「0 段 / 7 来源」会被读成「装配了但都没贡献」——那是另一种事实。
+    const full = renderPanel(readyState(fullView()))
+    expect(full).toContain('data-preview-count="1"')
+    expect(full).not.toContain('data-preview-unassembled="1"')
+
+    for (const view of [chainExhaustedView(), staticView(), emptyStateView()]) {
+      const html = renderPanel(readyState(view))
+      expect(html).not.toContain('data-preview-count="1"')
+      expect(html).toContain('data-preview-unassembled="1"')
+      expect(html).toContain('本次未装配')
+    }
+  })
+
+  it('③ 档把本仓 plan 与生效 config 摊开（那是「还知道什么」的全部内容）', () => {
+    const html = renderPanel(readyState(degradedView(
+      {
+        tier: 'static',
+        reason: '该 agent 当前没有活跃会话',
+        missing: [{ item: 'live-agent', reason: '该 agent 当前没有活跃会话' }],
+      },
+      undefined,
+      {
+        plan: {
+          agentName: 'fast-agent',
+          sections: [
+            { channel: 'system', name: 'atelier:model-sys', order: 10, variesWith: [], text: 'route', executable: true },
+            { channel: 'system', name: 'atelier:skills', order: 20, variesWith: [], text: '', executable: false },
+          ],
+        } as never,
+        staticConfig: [{ id: 'row-1', name: 'system-prompt', config: { personaPrefix: 'hi' } }],
+      },
+    )))
+
+    expect(html).toContain('data-preview-plan="1"')
+    expect(html).toContain('data-preview-plan-row="atelier:model-sys"')
+    // 不可执行的行如实标注，不假装它会注册。
+    expect(html).toContain('规划行，不进宿主注册表')
+    expect(html).toContain('data-preview-config="1"')
+    expect(html).toContain('personaPrefix')
+  })
+
+  it('⑤ 组的 registrant 明说「非本仓注册，只按名字前缀归类」', () => {
+    const html = renderPanel(readyState(fullView()))
+    expect(html).toContain('非本仓注册')
+    expect(html).toContain('只按名字前缀')
   })
 
   it('四档的档位标签两两不同（每一档都看得出是哪一档）', () => {

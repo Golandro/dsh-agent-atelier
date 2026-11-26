@@ -24,7 +24,7 @@
  * 2. **abort 不留半装配状态**：`ResolvedToolSet` 在 `finally` 里 dispose；取消
  *    原样抛出，不折成降级。
  */
-import { AGENT_CONTROL_SERVICE, PROMPT_PREVIEW_SIDE_EFFECTS } from '../../contract/index.ts'
+import { AGENT_ASSEMBLY_SERVICE, AGENT_CONTROL_SERVICE, PROMPT_PREVIEW_SIDE_EFFECTS } from '../../contract/index.ts'
 import { buildPromptSegments, emptyPromptSegments, planAssembly } from '../../assembly/index.ts'
 import {
   ChainExhaustedError,
@@ -77,9 +77,19 @@ interface HostTools {
   }): Promise<{ dispose(): void }>
 }
 
-/** 宿主 `SystemPrompt.assemble` 的结构切片。 */
+/**
+ * 宿主 `SystemPrompt.assemble` 的结构切片。
+ *
+ * `agent` 不能省：宿主侧多个 context provider 与 waterfall handler 直接判
+ * `context.agent === undefined` 就跳过自己（先例
+ * `vendor/packages/session/working-directory/src/index.ts:95` 的 provider 回空串、
+ * `:98` 的 handler 直接 `return next()`）。少了这个字段，预览拿到的 ⑥ 运行时
+ * context 会是**空文本**——那不是「这次没贡献」，是本仓没把宿主需要的东西递过去。
+ * 真实回合里它由 `assembleContextFor(agent, signal)` 填（同形：`{ agent, scope: agent }`）。
+ */
 interface HostSystemPrompt {
   assemble(context: {
+    readonly agent: object
     readonly scope: object
     readonly modelSelection: Readonly<HostModelSelection>
     readonly toolSet: object
@@ -137,7 +147,7 @@ async function previewOnce(ctx: Context, request: PromptPreviewRequest): Promise
   }
   throwIfAborted(signal)
 
-  const plan = safePlan(session)
+  const plan = safePlan(ctx, session)
   const live = ctx.get(AGENT_LIVE_AGENTS_SERVICE) as LiveAgents | undefined
   const agent = live?.get(request.agentName)
   if (agent === undefined) {
@@ -174,7 +184,9 @@ async function previewOnce(ctx: Context, request: PromptPreviewRequest): Promise
 
   let assembly: PromptPreviewAssembly
   try {
-    assembly = await systemPrompt.assemble({ scope: agent, modelSelection: selection, toolSet, signal })
+    // `agent` 必须传真实 Agent（与宿主 `assembleContextFor` 同形）：provider 与
+    // waterfall handler 靠它取 session / 工作目录，缺了它们会静默跳过自己。
+    assembly = await systemPrompt.assemble({ agent, scope: agent, modelSelection: selection, toolSet, signal })
   } catch (error) {
     if (isAbortError(error)) throw error
     // handler 是任意插件代码，它可以在回合之外抛；route 必须降级而不是冒 500。
@@ -195,7 +207,10 @@ async function previewOnce(ctx: Context, request: PromptPreviewRequest): Promise
     // 读不到它，所以由这里把产物 + 账本折成分段视图，随回答一起送出。
     // 档位 ②③④ 走各自的降级构造函数，那里**没有** segments —— 没装配就没有分段，
     // 不拿「7 个空组」冒充「装配了但这次没贡献」（那是另一种事实）。
-    segments: buildPromptSegments(assembly, ledger as readonly PromptSectionLedgerEntry[]),
+    segments: buildPromptSegments(assembly, ledger as readonly PromptSectionLedgerEntry[], {
+      // ③ 预设遮蔽：产物里看不见，只有读面能观测（先例：catalog.ts 的 readPresetMode）。
+      presetComposed: presetComposedIn(ctx, agentCtx),
+    }),
     plan,
     sideEffects: PROMPT_PREVIEW_SIDE_EFFECTS,
     notes: [
@@ -321,6 +336,26 @@ function readStaticConfig(ctx: Context): readonly PromptPreviewStaticRow[] | und
   return rows.length === 0 ? undefined : rows
 }
 
+/**
+ * 该 Agent 的 scope 上有没有 preset 在 compose（票 82 §2 ③）。
+ *
+ * 宿主 `agentPresets.composedPreset(ctx)` 是唯一口径（先例：
+ * `src/dsh/host/catalog.ts` 的 readPresetMode）。取不到服务时返回 false 而不是
+ * undefined：那表示「没观测到 preset」，投影据此不标遮蔽——不猜。
+ */
+function presetComposedIn(ctx: Context, agentCtx: object): boolean {
+  const candidate: unknown = ctx.get('agentPresets')
+  if (typeof candidate !== 'object' || candidate === null) return false
+  const composedPreset = (candidate as { composedPreset?: unknown }).composedPreset
+  if (typeof composedPreset !== 'function') return false
+  try {
+    const mode: unknown = composedPreset.call(candidate, agentCtx)
+    return typeof mode === 'string' && mode !== ''
+  } catch {
+    return false
+  }
+}
+
 /** 注册侧账本：与 sink 写入时用的同一个 scope 键（Agent 的 scoped context）。 */
 function ledgerOf(ctx: Context, agentCtx: object): readonly PromptPreviewLedgerEntry[] {
   const ledger = ctx.get(PROMPT_LEDGER_SERVICE) as { of(scope: object): readonly PromptPreviewLedgerEntry[] } | undefined
@@ -328,8 +363,25 @@ function ledgerOf(ctx: Context, agentCtx: object): readonly PromptPreviewLedgerE
   return ledger.of(agentCtx)
 }
 
-/** 规划失败不该毁掉一次预览：规划是纯函数，真抛了就当没有。 */
-function safePlan(session: ComposedAgentSession): AssemblyPlan | undefined {
+/**
+ * 本仓规划：**优先问装配服务**，与注册走同一份 `plan()`。
+ *
+ * 为什么不能自己再算一遍：装配行可以带 `AssemblyServiceOptions.config`（节序覆盖），
+ * 那会让 `planAssembly(session, config)` 与本仓直算的结果不同。预览若自己算，
+ * 就会展示一份「注册时并不生效」的规划——两处口径必须同源。
+ *
+ * 服务不在（没有装配行）时才回落到直算：那时没有 config 可覆盖，直算与注册一致。
+ * 规划失败不该毁掉一次预览：规划是纯函数，真抛了就当没有。
+ */
+function safePlan(ctx: Context, session: ComposedAgentSession): AssemblyPlan | undefined {
+  const service = ctx.get(AGENT_ASSEMBLY_SERVICE) as { plan?: unknown } | undefined
+  if (service !== undefined && typeof service.plan === 'function') {
+    try {
+      return (service.plan as (value: unknown) => AssemblyPlan)(session)
+    } catch {
+      return undefined
+    }
+  }
   try {
     return planAssembly(session as unknown as AssemblySession)
   } catch {

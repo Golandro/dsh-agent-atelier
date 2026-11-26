@@ -51,7 +51,7 @@ export const PREVIEW_SOURCE_LABELS: Readonly<Record<PromptSourceId, PreviewSourc
   'deployment-persona': { ordinal: '②', title: '部署 persona', registrant: 'system-prompt 行 config 的 persona 前后缀' },
   'preset-persona': { ordinal: '③', title: 'preset persona', registrant: 'preset scope 注册的同名段（遮蔽部署那份）' },
   'atelier-section': { ordinal: '④', title: 'atelier 装配行', registrant: '本仓 sink 注册的节（atelier: 前缀）' },
-  'tool-guidance': { ordinal: '⑤', title: '工具说明节', registrant: '工具插件与 executor 注册的说明（tools: 前缀）' },
+  'tool-guidance': { ordinal: '⑤', title: '工具说明节', registrant: '非本仓注册，只按名字前缀（tools:）归类；真实注册方本仓看不到' },
   'runtime-context': { ordinal: '⑥', title: '运行时 context', registrant: '各插件 systemPrompt.context()' },
   'tool-declaration': { ordinal: '⑦', title: '工具声明', registrant: 'ToolsService 唯一 provider 的工具 schema' },
 }
@@ -116,6 +116,16 @@ export interface PreviewSegmentRow {
   /** 段内块视图（多块才可展开）。 */
   readonly parts: PromptSegmentParts
 }
+
+/**
+ * 本版没有段内块数据源的固定说法（票 82 §3 / brief §2.6）。
+ *
+ * 兼容模式下宿主 `assemble()` 会丢弃节的扩展字段，工具说明节的子块又由 PTC
+ * 注册（本仓账本收不到）——两条路都断了。所以「段内块」这个标注位在本版**永远
+ * 不会亮**。与其留一个不亮的位子让人以为「没数据＝没子块」，不如在 UI 里说清楚
+ * 缺的是数据源。将来宿主开放扩展字段时，改的是这条文案与投影，不是这里的判定。
+ */
+export const PREVIEW_PARTS_UNAVAILABLE = '本版没有段内块数据源：兼容模式下宿主装配会丢弃节的扩展字段，工具说明节的子块又由 PTC 注册（本仓账本收不到）。'
 
 /** 一段的行；`groupKey` 只参与 React key，不进可见文案。 */
 export function previewSegmentRowOf(segment: PromptSegmentBase, groupKey: string): PreviewSegmentRow {

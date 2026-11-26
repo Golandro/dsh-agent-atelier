@@ -103,6 +103,14 @@ export interface PromptSectionLedgerEntry {
    * （兼容模式下宿主 `assemble()` 丢弃扩展字段，见规格 §3）。
    */
   readonly parts?: readonly PromptPart[] | undefined
+  /**
+   * 注册时刻的原文（注册方自己写下去的那份文本）。
+   *
+   * 与产物里的文本一比就知道 waterfall 有没有改写这一节：宿主 handler 拿到的是一份
+   * 可改写的 `PromptPresentation`，改写后产物文本与注册原文不同。注册时还看不到
+   * 改写，所以这里存**原文**，比较发生在投影时——两边都是真数据，不猜。
+   */
+  readonly registeredText?: string | undefined
 }
 
 /**
@@ -121,15 +129,38 @@ export function emptyPromptSegments(): PromptSegmentsView {
 }
 
 /**
+ * 读面能观测到、但产物里看不见的事实（票 82 §2 ③）。
+ *
+ * 预设（preset）与部署级 persona 在产物里**同名同形**，光看产物分不出谁遮蔽了
+ * 谁。宿主读面能多知道一件事：这个 Agent 的 scope 上有没有 preset 在 compose
+ * （`agentPresets.composedPreset(agent.ctx)`）。把它传进来，投影就能如实标注
+ * 「这一段被遮蔽了，但遮蔽者长什么样我们看不见」——而不是假装没发生，也不是
+ * 编一个遮蔽者出来。
+ */
+export interface PromptProjectionObservations {
+  /**
+   * 该 Agent 的 scope 上有 preset 在 compose。
+   *
+   * 为 true 时，`deployment:persona-*` 节带 `shadowedBy: { visibility: 'opaque' }`：
+   * 预设的同名段把它遮住了，而预设那段文本不在本次装配产物里（兼容模式下宿主
+   * 只交出胜出的那一份），所以只能说「不可见」。
+   */
+  readonly presetComposed?: boolean | undefined
+}
+
+/**
  * 把宿主装配产物与注册侧账本折成分段视图。
  *
  * @param assembly - 宿主 `assemble()` 的产物（结构镜像）。
  * @param ledger - 注册侧账本；缺席项按「没记」处理，不按「没有」。
+ * @param observations - 读面观测到的、产物里看不见的事实（见
+ *   {@link PromptProjectionObservations}）；缺席表示读面没观测，不表示「没有」。
  * @returns 按 7 条来源分组的段视图、不可归因段与诊断信号。
  */
 export function buildPromptSegments(
   assembly: HostPromptAssembly,
   ledger: readonly PromptSectionLedgerEntry[],
+  observations: PromptProjectionObservations = {},
 ): PromptSegmentsView {
   const byName = new Map<string, PromptSectionLedgerEntry>()
   for (const entry of ledger) {
@@ -147,7 +178,14 @@ export function buildPromptSegments(
     // 账本声明优先：同名节（②/③）在产物里不可区分，只能靠注册方自己说。
     const declared = entry?.source
     const source = declared ?? sourceOf(section.name, 'section')
-    place(source === undefined ? base : { ...base, source }, buckets, unattributed)
+    // 预设遮蔽：账本没说、但读面观测到有 preset 在 compose 时，如实标「不可见」。
+    // 只标部署级 persona（规格 §2 ③ 说的就是这一对同名节），不扩散到别的来源。
+    const shadow = base.shadowedBy === undefined && observations.presetComposed === true
+      && section.name.startsWith('deployment:persona-')
+      ? { shadowedBy: { visibility: 'opaque' as const } }
+      : {}
+    const annotated = { ...base, ...shadow }
+    place(source === undefined ? annotated : { ...annotated, source }, buckets, unattributed)
   }
   for (const context of assembly.contexts) {
     const entry = byName.get(context.name)
@@ -206,6 +244,19 @@ function sourceOf(name: string, surface: PromptSegmentSurface): PromptSourceId |
   return undefined
 }
 
+/**
+ * 这一节有没有被 waterfall 改写。
+ *
+ * 优先级：注册方显式声明 > 注册原文与产物文本的实际比较。后者是本版新增的真数据
+ * 来源——注册时存下原文，投影时与产物一比就知道。两者都没有时返回 `undefined`
+ * （「不知道」），不是 `false`（「没改写」）：缺席与否定必须分得开。
+ */
+function rewriteOf(entry: PromptSectionLedgerEntry | undefined, productText: string): boolean | undefined {
+  if (entry?.rewrittenByWaterfall !== undefined) return entry.rewrittenByWaterfall
+  if (entry?.registeredText === undefined) return undefined
+  return entry.registeredText !== productText
+}
+
 /** 一节的账本标注；只有账本真的记了才带上对应字段。 */
 function annotatedOf(
   surface: PromptSegmentSurface,
@@ -219,7 +270,9 @@ function annotatedOf(
     text,
     ...entry?.planName === undefined ? {} : { planName: entry.planName },
     ...entry?.layer === undefined ? {} : { layer: entry.layer },
-    ...entry?.rewrittenByWaterfall === undefined ? {} : { rewrittenByWaterfall: entry.rewrittenByWaterfall },
+    // 改写与否是**算出来**的：注册原文 vs 产物文本，两边都是真数据。
+    // 注册方显式声明时以它为准（它可能知道更多，例如自己就在 handler 里改的）。
+    ...rewriteOf(entry, text) === undefined ? {} : { rewrittenByWaterfall: rewriteOf(entry, text) },
     ...entry?.shadowedBy === undefined ? {} : { shadowedBy: entry.shadowedBy },
     ...entry?.parts === undefined ? {} : { parts: entry.parts },
   }

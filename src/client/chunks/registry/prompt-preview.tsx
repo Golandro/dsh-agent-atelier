@@ -32,6 +32,7 @@ import {
   previewDiagnosticLines,
   previewFreshnessLines,
   previewMissingLines,
+  PREVIEW_PARTS_UNAVAILABLE,
   previewPartCount,
   previewSegmentCount,
   previewTierBanner,
@@ -85,11 +86,17 @@ function previewHead(props: PromptPreviewPanelProps): ReactNode {
     'div',
     { className: 'preview-head' },
     h('h3', { className: 'preview-title' }, '系统提示词预览'),
+    // 段数徽标只在 ① 档出现：降级档装配没发生，报一个「0 段」会被读成
+    // 「装配了但什么都没产出」。降级档换成「本次未装配」的措辞。
     view === undefined
       ? null
-      : h('span', { className: 'tag tag-dim', 'data-preview-count': '1' },
-          String(previewSegmentCount(view.segments)) + ' 段 / 7 来源'),
+      : previewTierOf(view.degraded) === 'full'
+        ? h('span', { className: 'tag tag-dim', 'data-preview-count': '1' },
+            String(previewSegmentCount(view.segments)) + ' 段 / 7 来源')
+        : h('span', { className: 'tag tag-dim', 'data-preview-unassembled': '1' }, '本次未装配'),
     h('span', { className: 'dim preview-note' }, '按来源分段：谁注册的、来自哪个文件、有没有被改写或遮蔽。'),
+    // 段内块标注位在本版永不亮（没有数据源）；说清楚，别让人读成「没有子块」。
+    h('span', { className: 'dim preview-note', 'data-preview-parts-note': '1' }, PREVIEW_PARTS_UNAVAILABLE),
     h('span', { className: 'preview-head-fill' }),
     props.agents.length === 0
       ? h('span', { className: 'dim preview-note' }, '快照里没有 agent，没有可预览的对象。')
@@ -210,6 +217,10 @@ function tierBanner(tier: ReturnType<typeof previewTierOf>, view: PromptPreviewV
     tier === 'static' ? h('span', { className: 'tag tag-warn' }, PREVIEW_STATIC_NOTICE) : null,
     missingBlock(view),
     chainBlock(view),
+    // ③ 档的两块证据：本仓规划 + 生效 config。①②④ 档 plan 也可能在（②③ 有），
+    // 但只有 ③ 档需要它来解释「宿主不可用」；按需渲染，不按档位硬编码。
+    tier === 'static' ? planBlock(view) : null,
+    tier === 'static' ? staticConfigBlock(view) : null,
   )
 }
 
@@ -232,6 +243,48 @@ function chainBlock(view: PromptPreviewView): ReactNode {
     { className: 'preview-chain', 'data-preview-chain': '1' },
     h('div', { className: 'preview-sub-title' }, '链解析报告（引擎原样，未改写）'),
     h('ul', { className: 'preview-chain-list' }, lines.map((line, index) => h('li', { key: index }, line))),
+  )
+}
+
+/**
+ * ③ 档的 plan 行：本仓规划**不依赖宿主**，所以宿主面不可用时它仍然是真的。
+ *
+ * 这是「宿主装配跑不了，但本仓知道该装什么」的证据面——不摊开它，③ 档就只剩
+ * 一句「不可用」，读者无法判断是缺宿主还是缺声明。
+ */
+function planBlock(view: PromptPreviewView): ReactNode {
+  const plan = view.plan
+  if (plan === undefined) return null
+  return h(
+    'div',
+    { className: 'preview-plan', 'data-preview-plan': '1' },
+    h('div', { className: 'preview-sub-title' }, '本仓装配规划（不依赖宿主，' + String(plan.sections.length) + ' 行）'),
+    h('ul', { className: 'preview-plan-list' }, plan.sections.map((row) => h(
+      'li',
+      { key: row.name, 'data-preview-plan-row': row.name, className: row.executable ? '' : 'dim' },
+      row.name + (row.executable ? '' : '（规划行，不进宿主注册表）'),
+    ))),
+  )
+}
+
+/**
+ * ③ 档的生效 config 行：补丁合成后、`!!js` 已求值的那份。
+ *
+ * 拿不到时读面已经在 `missing` 里说了 `host-config`，这里就什么都不渲染——
+ * 不拿未求值的原文顶替（那是在撒谎）。
+ */
+function staticConfigBlock(view: PromptPreviewView): ReactNode {
+  const rows = view.staticConfig
+  if (rows === undefined || rows.length === 0) return null
+  return h(
+    'div',
+    { className: 'preview-config', 'data-preview-config': '1' },
+    h('div', { className: 'preview-sub-title' }, '生效 system-prompt 行 config（补丁合成后，!!js 已求值）'),
+    h('ul', { className: 'preview-config-list' }, rows.map((row) => h(
+      'li',
+      { key: row.id, 'data-preview-config-row': row.id },
+      row.name + '：' + JSON.stringify(row.config),
+    ))),
   )
 }
 

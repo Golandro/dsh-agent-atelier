@@ -35,7 +35,7 @@
 | `src/dsh/host/failures.ts` | `mountFailureLedger`。腿 A（`agent/request-error`）先 `await next()` 再记录，返回原 action；腿 B（`llm/stream`）只记 attempt 级。路由从 `session.requestContext()` 读，绝不从下一次选择反推。 |
 | `src/dsh/host/catalog.ts` | `installAgentCatalog`。pre-step waterfall 监听器；structurally 读 registry 与宿主能力面，注入 SHA-256 / 消息 id，失败探测只降级为 warning，不阻断 turn。 |
 | `src/dsh/host/ui-host.ts` | `applyUiHost`、`handleControlRequest`。在 `ctx.webServer` 注册一组 exact 路由；补 origin / host fence、请求大小上限、response-close → AbortController；缺服务时 warning 且不挂路由。 |
-| `src/dsh/host/wire.ts` | `dispatchControlRequest`、`CONTROL_BASE_PATH = '/agent-atelier'`、`CONTROL_ROUTE_PATHS`。固定路由（state / compose / chain / plan / commit / registry / invalidate）；mutation 要 JSON content-type + `x-dsh-agent-atelier: 1`；cwd 缺失/坏值退用户全局，非字符串才是 400。 |
+| `src/dsh/host/wire.ts` | `dispatchControlRequest`、`CONTROL_BASE_PATH = '/agent-atelier'`、`CONTROL_ROUTE_PATHS`。固定路由（state / compose / chain / plan / commit / registry / invalidate / prompt-preview，共 8 条）；mutation 要 JSON content-type + `x-dsh-agent-atelier: 1`；cwd 缺失/坏值退用户全局，非字符串才是 400。 |
 | `src/dsh/host/fs.ts` | `optionalFileSystem`：没有宿主 `fs` 服务时返回 `undefined`，发现回退 Node。 |
 | `src/dsh/client/index.ts` | `apply` / `inject`。两个 slots 注册（`sidebar.panellist` 行 + `main` 面板）；页面实现由 client 公共入口注入。 |
 | `src/dsh/client/agent-control-scope.ts` | `createAgentControlScope`：惰性读 workspaces / sessions，并接 sessionStorage 记忆。 |

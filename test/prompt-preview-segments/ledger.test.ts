@@ -100,16 +100,29 @@ describe('createAssemblyService: 注册侧账本', () => {
     expect(names).not.toContain('channel:tools')
   })
 
-  it('账本不记注册时还不知道的事（waterfall 改写 / 遮蔽 / 配置文件）', async () => {
+  it('账本记注册时刻确知的 layer 与原文，但不记当时还看不到的事', async () => {
+    /**
+     * 分工（票 82 复审后收紧）：
+     * - **注册时确知**的照记：`layer`（这份配置来自哪个文档）与 `registeredText`
+     *   （本仓写下去的原文）——后者让读面能算出 waterfall 有没有改写。
+     * - **注册时看不到**的不记：`rewrittenByWaterfall`（要等产物出来才能比）、
+     *   `shadowedBy`（遮蔽关系在宿主侧）、`parts`（兼容模式丢弃扩展字段，
+     *   本版没有数据源）。缺席就是「不知道」，不是「没有」。
+     */
     const { service, ledger } = mounted()
     const { scope } = fakeScope()
 
     await service.registerAssemblySections({ scope, session: session() })
 
-    for (const entry of ledger.of(scope)) {
+    const entries = ledger.of(scope)
+    expect(entries.length).toBeGreaterThan(0)
+    for (const entry of entries) {
+      // 注册时确知：记了。
+      expect(entry.layer, 'layer 在注册时刻可得，应记').toBeTruthy()
+      expect(entry.registeredText, '注册原文应记（改写判定要用）').toBeTypeOf('string')
+      // 注册时看不到：不记。
       expect(entry.rewrittenByWaterfall).toBeUndefined()
       expect(entry.shadowedBy).toBeUndefined()
-      expect(entry.layer).toBeUndefined()
       expect(entry.parts).toBeUndefined()
     }
   })

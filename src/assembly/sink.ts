@@ -113,7 +113,13 @@ export function createAssemblyService(options: AssemblyServiceOptions = {}): Age
     // The ledger records exactly what reached the host registry — the plan's
     // non-executable rows never did, so recording them would make the preview
     // invent a segment for something that was never registered.
-    ledger.record(scope, registeredEntries(registered))
+    //
+    // 票 82 复审曾提议把 `executable: false` 的规划行也记成「已知未注册」，以便
+    // `missing-from-assembly` 有真实来源。**没有采纳**：账本的语义是「注册方记下
+    // 自己注册了什么」，把没注册的记进去会污染这个语义，而且每个锚点行都会让那条
+    // 诊断常亮——从信号变成噪声。本版没有这些行，UI 里已如实说明（见
+    // `PREVIEW_PARTS_UNAVAILABLE` 与 ⑤ 组 registrant 文案）。
+    ledger.record(scope, registeredEntries(registered, session))
     return registration
   }
 }
@@ -159,12 +165,21 @@ interface RegisteredRow {
  * anyway, so a future rename cannot silently change the second-level key the
  * preview groups by.
  */
-function registeredEntries(rows: readonly RegisteredRow[]): readonly PromptSectionLedgerEntry[] {
-  return rows.map(({ row, host }) => ({
+function registeredEntries(
+  rows: readonly RegisteredRow[],
+  session: AssemblySession,
+): readonly PromptSectionLedgerEntry[] {
+  // 注册时刻能确知的两件事：这份配置来自哪个文档（layer），以及本仓写下去的原文
+  // （registeredText）。后者让读面能算出 waterfall 有没有改写（产物文本 vs 原文）。
+  const layer = session.agent.path
+  const registered: PromptSectionLedgerEntry[] = rows.map(({ row, host }) => ({
     sectionName: host.name,
     source: 'atelier-section',
     ...row.name === host.name ? {} : { planName: row.name },
+    ...typeof layer === 'string' && layer !== '' ? { layer } : {},
+    ...typeof host.text === 'string' ? { registeredText: host.text } : {},
   }))
+  return registered
 }
 
 /**

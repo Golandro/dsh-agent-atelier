@@ -96,14 +96,6 @@ export type PromptPreviewTier = 'chain-exhausted' | 'static' | 'empty'
  */
 export const PROMPT_PREVIEW_TIERS: readonly PromptPreviewTier[] = ['chain-exhausted', 'static', 'empty']
 
-/** 请求体：wire 只收这两个字段。 */
-export interface PromptPreviewRequestBody {
-  /** atelier 的 agent 名字（不是宿主会话 id）。 */
-  readonly agentName: string
-  /** 扫描起点；缺席/null 表示用户全局（ADR-0007 的软边界）。 */
-  readonly cwd?: string | null | undefined
-}
-
 /** 静态回退时逐项列出的缺口。 */
 export type PromptPreviewMissingItem =
   | 'session'
@@ -182,7 +174,13 @@ export interface PromptPreviewResponse {
   readonly segments: PromptSegmentsView
   /** 注册侧账本；档位 ②③④ 为空表（不是「没有节」，是「这次没装配」）。 */
   readonly ledger: readonly PromptPreviewLedgerEntry[]
-  /** 本仓的装配规划；档位 ①②③ 都在（纯函数，不依赖宿主）。 */
+  /**
+   * 本仓的装配规划；**只有档位 ①③**（纯函数，不依赖宿主）。
+   *
+   * ② 没有：链耗尽发生在 `composeSession` 里，读面拿不到 session，也就没有规划可算。
+   * ④ 没有：连文档都读不到。这里的口径与实现一致——不要按「①②③ 都有」写文档，
+   * 那会让 UI 在 ② 档期待一个永远不会来的字段。
+   */
   readonly plan?: AssemblyPlan | undefined
   /** 补丁合成后生效的 `system-prompt` 行 config；只有档位 ③ 且读得到时才有。 */
   readonly staticConfig?: readonly PromptPreviewStaticRow[] | undefined
@@ -209,10 +207,14 @@ export const PROMPT_PREVIEW_SIDE_EFFECTS: readonly string[] = [
  * - `PromptPreviewView` 是**渲染信封**：只装 UI 要摆的东西，且 `segments` 必填——
  *   UI 只渲染已经投影好的分段，它没有、也不该有投影能力（chunk 读不到装配层）。
  *
- * 为什么信封里 `segments` 必填而线缆上可选：降级档 ②③④ 没有装配产物，就没有
- * 分段可言。那种情况下读面**不**回这个信封（它回带 `degraded` 的线上回答），
- * 由客户端的控制端口把「没有 segments」如实翻成降级态——所以能构造出
- * `PromptPreviewView` 这件事本身，就等价于「这一次真的装配了」。
+ * `segments` **恒在**，但含义分两档：档位 ① 是真投影（宿主 `buildPromptSegments`
+ * 的结果），②③④ 是**空骨架**（7 条来源、组内无段）。空骨架不表示「装配了但 7 条
+ * 来源都没贡献」——那个区别**只由 `degraded` 的在场表达**，UI 在降级档不摆来源组，
+ * 所以骨架不会被渲染成假事实。
+ *
+ * `plan` 与 `staticConfig` 是**渲染字段**：档位 ③ 的 UI 要把本仓规划与生效 config
+ * 摊开给人看（那正是「宿主面不可用但本仓还知道什么」的全部内容），所以它们必须
+ * 随信封到达，而不是只留在线上回答里。
  */
 export interface PromptPreviewView {
   /** 本次回答对应的 agent 名（请求原样回显）。 */
@@ -227,6 +229,18 @@ export interface PromptPreviewView {
   readonly segments: PromptSegmentsView
   /** 哪一档回答的；缺席 = 完整装配（档位 ①）。 */
   readonly degraded?: PromptPreviewDegradation | undefined
+  /**
+   * 本仓的装配规划（agent 声明面，纯函数产物）。
+   *
+   * 只有档位 ①③ 有：② 链耗尽拿不到 session（规划算不出来），④ 连文档都读不到。
+   */
+  readonly plan?: AssemblyPlan | undefined
+  /**
+   * 补丁合成后生效的 `system-prompt` 行 config；只有档位 ③ 且读得到时才有。
+   *
+   * 这是「宿主面不可用，但配置还能看见」的唯一证据来源，UI 在 ③ 档把它摊开。
+   */
+  readonly staticConfig?: readonly PromptPreviewStaticRow[] | undefined
   /** 读面自己的副作用声明；UI 必须展示，因为预览不是免费的。 */
   readonly sideEffects: readonly string[]
   /** 其余事实（新鲜度口径、账本注意事项）。 */

@@ -132,8 +132,9 @@ export function fullView(overrides: Partial<PromptPreviewView> = {}): PromptPrev
 export function degradedView(
   degraded: PromptPreviewDegradation,
   segments: PromptSegmentsView = emptyView(),
+  overrides: Partial<PromptPreviewView> = {},
 ): PromptPreviewView {
-  return fullView({ segments, degraded })
+  return fullView({ segments, degraded, ...overrides })
 }
 
 /** ② 链耗尽：引擎原样报告。 */

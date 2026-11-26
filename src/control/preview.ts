@@ -45,6 +45,9 @@ export function previewViewOf(response: PromptPreviewResponse, agentName: string
     scanId: response.scanId,
     segments: response.segments,
     ...response.degraded === undefined ? {} : { degraded: response.degraded },
+    // 渲染字段原样搬：③ 档的 UI 要靠它们把 plan 行与 config 行摊开。
+    ...response.plan === undefined ? {} : { plan: response.plan },
+    ...response.staticConfig === undefined ? {} : { staticConfig: response.staticConfig },
     sideEffects: response.sideEffects,
     notes: response.notes,
   }

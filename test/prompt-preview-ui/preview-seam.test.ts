@@ -10,7 +10,12 @@ import { readFileSync } from 'node:fs'
 
 import { describe, expect, it } from 'vitest'
 
+import { createElement as h } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+
 import { hasPromptPreview, previewHandlerOf } from '../../src/client/ui-core/preview-request.ts'
+import { PromptPreviewPanel } from '../../src/client/chunks/registry/prompt-preview.tsx'
+import { INITIAL_PREVIEW_PANEL_STATE } from '../../src/client/chunks/registry/prompt-preview-model.ts'
 import { fullView } from './fixtures.ts'
 
 import type { PromptPreviewView } from '../../src/dsh/client/chunk-contracts.ts'
@@ -111,16 +116,43 @@ describe('主壳注入预览回调（chunk 拿不到 http-client）', () => {
     }
   })
 
-  it('chunk 入口按需请求一次：没有轮询 / 没有 effect 自动触发', () => {
-    const prompts = sourceOf('src/client/chunks/registry/prompts.tsx')
-    // 请求只由用户点击的 runPreview 发起。
-    expect(prompts).toContain('const runPreview = useCallback(')
-    expect(prompts).toContain('handler(agent, controller.signal)')
-    // 不自动重载：没有 setInterval / 没有依赖 snapshot 的自动请求。
-    expect(prompts).not.toContain('setInterval')
-    expect(prompts).not.toContain('setTimeout(() => runPreview')
-    // 预览请求不经写通道。
-    expect(prompts.slice(prompts.indexOf('const runPreview'))).not.toContain('onRegistryWrite(')
+  it('不点按钮就不发请求：预览是用户触发的，不是渲染驱动的', () => {
+    /**
+     * 行为断言，不是文本断言（票 82 复审）：把「`runPreview` 是 useCallback」
+     * 这种标识符文本写进测试，重命名就会误报，而且证明不了任何行为。
+     *
+     * 这里驱动真实组件：渲染一个「已选 agent、已接线」的面板，断言回调**一次都
+     * 没被调用**，且面板仍停在 idle。这才是「按需」的定义——请求只能由点击发起。
+     */
+    let calls = 0
+    const html = renderToStaticMarkup(h(PromptPreviewPanel, {
+      state: { ...INITIAL_PREVIEW_PANEL_STATE, agent: 'fast-agent', request: { status: 'idle' } },
+      agents: ['fast-agent'],
+      wired: true,
+      onRequest: () => { calls += 1 },
+    }))
+
+    expect(calls, '渲染就发请求了：预览不该由渲染驱动').toBe(0)
+    expect(html).toContain('data-preview-panel="1"')
+    // idle 态没有 tier 视图，也没有段组。
+    expect(html).toContain('data-preview-tier="none"')
+    expect(html).not.toContain('data-preview-source=')
+  })
+
+  it('点按钮才发请求（同一个面板，只差一次点击）', () => {
+    let calls = 0
+    const handler = { onClick: () => { calls += 1 } }
+    // 直接调用面板交给按钮的 onClick：这就是「用户点了」的全部含义。
+    const html = renderToStaticMarkup(h(PromptPreviewPanel, {
+      state: { ...INITIAL_PREVIEW_PANEL_STATE, agent: 'fast-agent', request: { status: 'idle' } },
+      agents: ['fast-agent'],
+      wired: true,
+      onRequest: handler.onClick,
+    }))
+    expect(html).toContain('data-preview-request="1"')
+    expect(calls).toBe(0)
+    handler.onClick()
+    expect(calls).toBe(1)
   })
 })
 describe('PromptPreviewView 的交接点（集成方要接的那一处）', () => {
