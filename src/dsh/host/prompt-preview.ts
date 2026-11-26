@@ -3,8 +3,9 @@
  *
  * 一次预览就是**把真实装配路径跑一遍**（规格 §4）：解析 agent → 取 `agent.ctx`
  * 作 `AssemblyScope` → `tools.resolve()` → `systemPrompt.assemble()`，然后把产物、
- * 注册侧账本与本仓 `AssemblyPlan` 原样交出去。这里不重跑层合并、不在服务端做
- * 分段投影、也不替宿主补任何一节——分段投影是票 84 的纯函数，客户端拼。
+ * 注册侧账本与本仓 `AssemblyPlan` 原样交出去。这里不重跑层合并、也不替宿主补任何
+ * 一节。分段投影（票 84 的纯函数）**在宿主侧跑**：它在装配层，浏览器 chunk 按
+ * import 矩阵读不到，所以由这里折成 `segments` 随回答送出，客户端只渲染。
  *
  * ## 四档降级（规格 §5）
  *
@@ -205,8 +206,10 @@ async function previewOnce(ctx: Context, request: PromptPreviewRequest): Promise
     ledger,
     // 投影在宿主侧发生（票 82/85）：投影函数在装配层，浏览器 chunk 按 import 矩阵
     // 读不到它，所以由这里把产物 + 账本折成分段视图，随回答一起送出。
-    // 档位 ②③④ 走各自的降级构造函数，那里**没有** segments —— 没装配就没有分段，
-    // 不拿「7 个空组」冒充「装配了但这次没贡献」（那是另一种事实）。
+    // 档位 ②③④ 走各自的降级构造函数，那里给的是**空骨架**（`emptyPromptSegments`）：
+    // 没装配就没有分段，空骨架组内无段，UI 在降级档也不摆来源组，所以它不会被读成
+    // 「装配了但这次没贡献」（那是另一种事实）。形状恒定是为了让消费方只按 `degraded`
+    // 判档位，不必每处写 `?.segments ?? 空`。
     segments: buildPromptSegments(assembly, ledger as readonly PromptSectionLedgerEntry[], {
       // ③ 预设遮蔽：产物里看不见，只有读面能观测（先例：catalog.ts 的 readPresetMode）。
       presetComposed: presetComposedIn(ctx, agentCtx),

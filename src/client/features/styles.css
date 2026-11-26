@@ -998,10 +998,19 @@ body:not([data-ds-dark-theme]) .agent-atelier-page .doc-editor .cm-editor.cm-foc
 .agent-atelier-page .preview-sub-title { font-size: 11.5px; font-weight: 600; line-height: 17px; color: var(--dsw-alias-label-secondary); }
 .agent-atelier-page .preview-missing,
 .agent-atelier-page .preview-chain,
-.agent-atelier-page .preview-diagnostics { flex-basis: 100%; min-width: 0; }
+.agent-atelier-page .preview-diagnostics,
+.agent-atelier-page .preview-plan,
+.agent-atelier-page .preview-config { flex-basis: 100%; min-width: 0; }
 .agent-atelier-page .preview-missing-list,
 .agent-atelier-page .preview-chain-list,
-.agent-atelier-page .preview-diagnostics-list { margin: 2px 0 0; padding-left: 1.1em; font-size: 11.5px; line-height: 17px; }
+.agent-atelier-page .preview-diagnostics-list,
+.agent-atelier-page .preview-plan-list,
+.agent-atelier-page .preview-config-list { margin: 2px 0 0; padding-left: 1.1em; font-size: 11.5px; line-height: 17px; }
+/* ③ 档的两块证据面（本仓 plan 行 / 生效 config 行）：与兄弟块同宽，值用等宽字体
+ * 以免 JSON 里的标点被比例字体糊在一起。 */
+.agent-atelier-page .preview-plan-list li,
+.agent-atelier-page .preview-config-list li { min-width: 0; overflow-wrap: anywhere; }
+.agent-atelier-page .preview-config-list { font-family: var(--dsh-font-family-code-default); }
 .agent-atelier-page .preview-groups { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .agent-atelier-page .preview-group {
   min-width: 0;

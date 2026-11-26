@@ -461,6 +461,18 @@ describe('样式体系复用（不新建平行框架）', () => {
     }
   })
 
+  it('③ 档的 plan / config 两块有自己的样式（不靠 flex 兄弟规则碰运气）', () => {
+    /**
+     * 这两块是 t11 才加进 ③ 档的证据面：`.preview-tier` 是 `flex-wrap`，兄弟块
+     * 都带 `flex-basis:100%`。少了这两条规则，它们会和档位文案挤同一行，`<ul>`
+     * 也拿不到列表缩进——看上去像「没做样式」，实际是漏了。钉住类名，别再漏。
+     */
+    for (const selector of ['preview-plan', 'preview-plan-list', 'preview-config', 'preview-config-list']) {
+      // 边界要卡住：`.preview-plan` 不能靠 `.preview-plan-list` 的**子串**蒙过去。
+      expect(previewCss, selector).toMatch(new RegExp('\\.agent-atelier-page \\.' + selector + '(?=[ ,{])'))
+    }
+  })
+
   it('响应式只走容器查询（预览块里没有 @media），断点复用既有那一个', () => {
     expect(previewCss).not.toContain('@media')
     expect(previewCss).not.toContain('@container')

@@ -6,7 +6,7 @@
  * 2. 接缝是 type-only：运行期只有回调，没有投影函数、没有装配调用；
  * 3. 回调由主壳注入（chunk 拿不到 http-client），没有读面时如实返回 undefined。
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 
 import { describe, expect, it } from 'vitest'
 
@@ -170,17 +170,54 @@ describe('PromptPreviewView 的交接点（集成方要接的那一处）', () =
     expect((seam.match(/export type PromptPreviewHandler\b/g) ?? []).length).toBe(0)
   })
 
-  it('信封的每个字段类型都来自 contract 或原语，没有本地发明', () => {
-    // 信封的定义在契约层（集成后已上移）；字段类型只准是原语或契约自己的 DTO。
+  it('信封的字段集合固定，且每个字段类型都由契约层真的导出（没有本地发明）', () => {
+    /**
+     * 真断言，不是正则白名单（票 82 复审第二轮）：白名单里放 `readonly` / `undefined`
+     * 这种几乎人人命中的分支，等于什么都没断言。这里改钉两件会真的漂移的事实：
+     *
+     * 1. 字段名集合是契约承诺的一部分——多一个、少一个都要同步改这里；
+     * 2. 类型标注里出现的每个具名类型，必须真的由 `src/contract/` 的某个文件导出；
+     *    剩下的词只准是原语与结构关键字。写一个本地发明的类型就会红。
+     */
     const contract = sourceOf('src/contract/prompt-preview-route.ts')
     const body = contract.slice(contract.indexOf('export interface PromptPreviewView'))
     const fields = body.slice(0, body.indexOf('\n}'))
-    // 逐字段看类型标注：允许原语与已 re-export 的契约类型。
-    const annotations = [...fields.matchAll(/readonly (\w+)\??: ([^\n]+)/g)].map((m) => [m[1], m[2] ?? ''])
-    expect(annotations.length).toBeGreaterThanOrEqual(8)
-    for (const [name, type] of annotations) {
-      expect(type, String(name)).toMatch(/string|number|readonly|PromptSegmentsView|PromptPreviewDegradation|undefined/)
+    const annotations = [...fields.matchAll(/readonly (\w+)\??: ([^\n]+)/g)]
+      .map((match) => [match[1] ?? '', match[2] ?? ''] as const)
+
+    expect(annotations.map(([name]) => name)).toEqual([
+      'agentName',
+      'cwd',
+      'assembledAt',
+      'scanId',
+      'segments',
+      'degraded',
+      'plan',
+      'staticConfig',
+      'sideEffects',
+      'notes',
+    ])
+
+    const exported = new Set<string>()
+    for (const file of readdirSync(new URL('../../src/contract/', import.meta.url))) {
+      if (!file.endsWith('.ts')) continue
+      const source = readFileSync(new URL('../../src/contract/' + file, import.meta.url), 'utf8')
+      for (const match of source.matchAll(/export (?:interface|type|const) (\w+)/g)) exported.add(match[1] ?? '')
     }
+    const primitives = new Set(['string', 'number', 'boolean', 'null', 'undefined', 'readonly', 'void'])
+    let namedTypes = 0
+    for (const [name, type] of annotations) {
+      for (const match of type.matchAll(/\b[A-Z]\w*/g)) {
+        namedTypes += 1
+        expect(exported.has(match[0]), name + ' → ' + match[0]).toBe(true)
+      }
+      for (const word of type.replace(/[A-Z]\w*/g, ' ').split(/[^a-z]+/)) {
+        if (word === '') continue
+        expect(primitives.has(word), name + ' → ' + word).toBe(true)
+      }
+    }
+    // 至少真的检查到了几个契约类型（否则上面的循环可能空转）。
+    expect(namedTypes).toBeGreaterThanOrEqual(4)
   })
 
   it('接缝注释写明了交接方式（集成方改 re-export，不保留第二份定义）', () => {

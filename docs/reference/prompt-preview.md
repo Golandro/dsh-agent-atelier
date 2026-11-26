@@ -1,6 +1,6 @@
 # 系统提示词预览索引（过渡）
 
-> **状态：规格已定，实施未开工（2026-11-25）**。本文是索引页：把「概念 → 词条 → 契约符号 → 消费方 → 状态」对齐，**不复述词义、不内联签名**。
+> **状态：已实现（票 83/84/85，2026-11-26）**。本文是索引页：把「概念 → 词条 → 契约符号 → 消费方 → 状态」对齐，**不复述词义、不内联签名**。
 >
 > **权威顺序**：语义以 [GLOSSARY](../../GLOSSARY.md) 为准；数据来源裁决以 [ADR-0009](../adr/0009-prompt-preview-data-source.md) 为准；装配协议以 [assembly.ts](../../src/contract/assembly.ts) 为准；分段契约以规格 [issue #82](https://github.com/Golandro/dsh-agent-atelier/issues/82) 为准。
 >

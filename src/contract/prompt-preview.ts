@@ -136,7 +136,6 @@ export interface PromptSegmentDiagnostic {
   readonly message: string
 }
 
-/** The projection result: source groups + unattributable segments + diagnostics. */
 /**
  * 7 条一级来源的固定顺序（契约事实，不是实现细节）。
  *
@@ -154,6 +153,7 @@ export const PROMPT_SOURCE_ORDER: readonly PromptSourceId[] = Object.freeze([
   'tool-declaration',
 ])
 
+/** The projection result: source groups + unattributable segments + diagnostics. */
 export interface PromptSegmentsView {
   /** 7 groups, always in the fixed source order (empty groups kept). */
   readonly sources: readonly PromptSourceGroup[]

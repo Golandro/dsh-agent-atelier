@@ -84,4 +84,4 @@ key 是跨 bundle 的唯一集成面。宿主 patch 与测试都按字面量读�
 - **不 import 宿主**：不出现 Cordis、DSH 类型、`node:*`；宿主事实只按结构化切片进入实现域。
 - **不重复定义 DTO**：实现域不得为同一协议保留第二份副本；需要扩展时在拥有该语义的域加字段，再决定是否提升为跨域契约。
 - **不改名兼容**：服务 key 与既有读面形状冻结；破坏性变更用新 key / 新 ADR，不做静默改名。
-- **不承载实现**：没有函数、没有环境读取；字面量常量仅限服务 key、apiVersion 与 `AGENT_SOURCE_RANK` 这一张层优先级表（数据，不是逻辑）。
+- **不承载实现**：没有函数、没有环境读取；字面量常量仅限服务 key、apiVersion、`AGENT_SOURCE_RANK` 这一张层优先级表，以及预览视图的三份数据表 `PROMPT_SOURCE_ORDER` / `PROMPT_PREVIEW_TIERS` / `PROMPT_PREVIEW_SIDE_EFFECTS`（都是数据，不是逻辑：顺序、档位名、副作用声明本身就是跨域承诺，谁都不该自己抄一份）。
