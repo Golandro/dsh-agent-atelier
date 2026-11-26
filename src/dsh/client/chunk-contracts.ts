@@ -21,7 +21,11 @@
  * excludes that directory so its shell stays free of chunk-only dependencies.
  */
 
-import type { AliasRegistrySource } from '../../contract/index.ts'
+import type {
+  AliasRegistrySource,
+  PromptPreviewDegradation,
+  PromptSegmentsView,
+} from '../../contract/index.ts'
 import type { AgentChainReport, ControlSnapshot, RegistryEdit, WriteFailureCode, WriteResult } from '../../control/index.ts'
 
 /** Editable block kind the editor chunk renders (v1 ruling: no clip rows). */
@@ -212,7 +216,57 @@ export interface RegistryViewProps {
    * there is no eager preload and no second resolution path.
    */
   readonly onChainReport?: RegistryChainHandler | undefined
+  /**
+   * On-demand system-prompt preview (ticket 85): the host read face for one
+   * agent, already projected into segments. The chunk never projects, never
+   * re-merges layers, and never runs assembly itself — it renders the answer.
+   * Absent means the preview stays unread and the page says so.
+   */
+  readonly onPreviewRequest?: PromptPreviewHandler | undefined
 }
+
+/**
+ * One preview answer, already projected (ticket 82/85).
+ *
+ * The read face runs the real assembly once and projects it into segments; this
+ * shape is only the envelope the browser renders. `segments` is the projected
+ * view (contract DTOs, re-exported above), `degraded` names which of the four
+ * tiers answered (absent = full assembly), and `sideEffects` is the read face's
+ * own declaration — the UI must show it, because a preview is not free.
+ *
+ * 这份信封目前定义在这里：契约层还没有它（I1 的 route 只回原始 assembly + 账本），
+ * 而 chunk 只经本文件看宿主。等集成方把契约层的同名类型接上，这里应改成
+ * type-only re-export，不保留第二份定义。字段类型全部来自 contract，没有本地发明。
+ */
+export interface PromptPreviewView {
+  /** The agent this answer was assembled for (echo of the request). */
+  readonly agentName: string
+  /** The scan root the read face used; `null` = user-global (ADR-0007). */
+  readonly cwd: string | null
+  /** When this assembly happened (ISO 8601). Not a document mtime. */
+  readonly assembledAt: string
+  /** Per-request counter of the read face; **not** a data generation. */
+  readonly scanId: number
+  /** The projected segmented view (7 source groups in fixed order). */
+  readonly segments: PromptSegmentsView
+  /** Which degradation tier answered; absent = full assembly (tier ①). */
+  readonly degraded?: PromptPreviewDegradation | undefined
+  /** The read face's side-effect declaration; always shown by the UI. */
+  readonly sideEffects: readonly string[]
+  /** Remaining facts (freshness scope, ledger caveats). */
+  readonly notes: readonly string[]
+}
+
+/**
+ * One on-demand preview request (ticket 85), same seam discipline as
+ * {@link RegistryChainHandler}: the page wires it to the host read face, the
+ * chunk only awaits the answer. A missing handler is the only "preview not
+ * wired" signal the chunk needs.
+ */
+export type PromptPreviewHandler = (
+  agentName: string,
+  signal?: AbortSignal,
+) => Promise<PromptPreviewView>
 
 /**
  * Registry chunk exports (`lib/client.registry.js`): the two registry pages
@@ -237,6 +291,8 @@ export interface RegistryChunk {
  */
 export type {
   PromptPart,
+  PromptPreviewDegradation,
+  PromptPreviewTier,
   PromptSegment,
   PromptSegmentBase,
   PromptSegmentDiagnostic,

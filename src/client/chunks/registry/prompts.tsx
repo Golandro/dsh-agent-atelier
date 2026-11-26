@@ -17,9 +17,9 @@
  * 写反馈是页面级一次（票 79）：卡片只报告自己的写状态，`role=alert` 不该随卡片
  * 数量翻倍；回读失败时草稿保留，等下一次回读把新值带进快照再清。
  */
-import { createElement as h, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
-import type { RegistryViewProps } from '../../../dsh/client/chunk-contracts.ts'
+import type { PromptPreviewView, RegistryViewProps } from '../../../dsh/client/chunk-contracts.ts'
 import type { RegistryWriteOutcome } from '../../../dsh/client/chunk-contracts.ts'
 import { errorMessage, isAbortError } from '../../../control/index.ts'
 import type { ControlSnapshot, RegistryEdit } from '../../../control/index.ts'
@@ -27,6 +27,14 @@ import { ListPane } from './list-pane.tsx'
 import { WriteFeedback } from './model-detail.tsx'
 import { registryLayerLabel } from './registry-model.ts'
 import { sourceTagClass } from './model-links.ts'
+import {
+  INITIAL_PREVIEW_PANEL_STATE,
+  previewAgentNames,
+  previewStateLoading,
+  previewStateSettled,
+  previewStateWithAgent,
+  toggledPreviewGroup,
+} from './prompt-preview-model.ts'
 import {
   EMPTY_PROMPT_DRAFTS,
   PROMPT_HIGHLIGHT_MS,
@@ -47,6 +55,9 @@ import {
 
 import type { PromptCard, PromptDrafts } from './prompt-model.ts'
 import type { ModelWriteUi } from './model-detail.ts'
+import type { PromptPreviewPanelState } from './prompt-preview-model.ts'
+import { PromptPreviewPanel } from './prompt-preview.tsx'
+import type { PromptSourceId } from '../../../dsh/client/chunk-contracts.ts'
 
 export interface PromptsPageState {
   readonly drafts: PromptDrafts
@@ -68,6 +79,15 @@ export interface PromptsPageViewProps {
   readonly onDraft?: ((card: PromptCard, text: string) => void) | undefined
   readonly onSave?: ((card: PromptCard) => void) | undefined
   readonly onRevert?: ((card: PromptCard) => void) | undefined
+  /** 系统提示词预览（票 85）：状态由 chunk 入口持有，本视图只渲染。 */
+  readonly preview?: PromptPreviewPanelState | undefined
+  /** 可预览的 agent 名；空表时预览面板说「没有可预览的对象」。 */
+  readonly previewAgents?: readonly string[] | undefined
+  /** 没有预览读面时面板只读（按钮禁用并说明）。 */
+  readonly previewWired?: boolean | undefined
+  readonly onPreviewAgent?: ((agentName: string) => void) | undefined
+  readonly onPreviewRequest?: (() => void) | undefined
+  readonly onPreviewToggle?: ((source: PromptSourceId) => void) | undefined
 }
 
 /** 受控视图：全部状态由外部传入，SSR / 组件测试按状态直接渲染。 */
@@ -101,34 +121,45 @@ export function PromptsPageView(props: PromptsPageViewProps): ReactNode {
 }
 
 function promptsBody(props: PromptsPageViewProps, cards: readonly PromptCard[]): ReactNode {
-  if (promptsEmptyOf(props.snapshot)) {
-    return h(
-      'div',
-      { className: 'list-empty' },
-      h('div', { className: 'model-empty-title' }, '还没有任何模型条目'),
-      h('div', { className: 'dim' }, '模型条目来自 registry.yaml 的 models: 段；先在「模型关联」页新增条目，再回来调提示词。'),
-    )
-  }
   return h(
     'div',
     { className: 'prompts-body' },
+    // 预览在页首（票 85）：它是只读的宿主装配产物，与下面的 sysPrompt 调优（写面）
+    // 互不依赖，所以空模型条目时也照常可见——预览读的是 agent，不是模型条目。
+    props.preview === undefined
+      ? null
+      : h(PromptPreviewPanel, {
+          state: props.preview,
+          agents: props.previewAgents ?? [],
+          wired: props.previewWired === true,
+          onAgent: props.onPreviewAgent,
+          onRequest: props.onPreviewRequest,
+          onToggleGroup: props.onPreviewToggle,
+        }),
     // 写反馈页面级一次：一批写入只有一份结果，逐卡复制只会造出 N 条 role=alert。
     props.write === undefined ? null : h(WriteFeedback, { write: props.write }),
-    h(
-      'div',
-      { className: 'prompts-grid' },
-      cards.map((card) => h(PromptCardView, {
-        key: card.name,
-        card,
-        draft: promptTextOf(card, props.state.drafts),
-        dirty: isPromptDirty(card, props.state.drafts),
-        highlighted: props.state.highlighted === card.name,
-        writeBusy: props.writeBusy === true,
-        onDraft: props.onDraft,
-        onSave: props.onSave,
-        onRevert: props.onRevert,
-      })),
-    ),
+    promptsEmptyOf(props.snapshot)
+      ? h(
+          'div',
+          { className: 'list-empty' },
+          h('div', { className: 'model-empty-title' }, '还没有任何模型条目'),
+          h('div', { className: 'dim' }, '模型条目来自 registry.yaml 的 models: 段；先在「模型关联」页新增条目，再回来调提示词。'),
+        )
+      : h(
+          'div',
+          { className: 'prompts-grid' },
+          cards.map((card) => h(PromptCardView, {
+            key: card.name,
+            card,
+            draft: promptTextOf(card, props.state.drafts),
+            dirty: isPromptDirty(card, props.state.drafts),
+            highlighted: props.state.highlighted === card.name,
+            writeBusy: props.writeBusy === true,
+            onDraft: props.onDraft,
+            onSave: props.onSave,
+            onRevert: props.onRevert,
+          })),
+        ),
   )
 }
 
@@ -226,15 +257,52 @@ function findCardElement(root: HTMLElement | null, name: string): HTMLElement | 
     .find((element) => element.dataset.promptCard === name)
 }
 
-/** chunk 入口：草稿、写状态与高亮都在这里。 */
+/** chunk 入口：草稿、写状态、高亮与预览请求都在这里。 */
 export function PromptRegistryView(props: RegistryViewProps): ReactNode {
   const [state, setState] = useState<PromptsPageState>(INITIAL_PROMPTS_PAGE_STATE)
   const [write, setWrite] = useState<ModelWriteUi>({ status: 'idle' })
+  const [preview, setPreview] = useState<PromptPreviewPanelState>(INITIAL_PREVIEW_PANEL_STATE)
+  // 预览请求的取消器：换 agent / 卸载都中止在途请求，不让旧回答落到新面板上。
+  // 卸载清理与高亮定时器共用同一个空依赖 effect（见下面「卸载清理」一处）。
+  const previewAbort = useRef<AbortController | null>(null)
+
+  const previewAgents = useMemo(() => previewAgentNames(props.snapshot.agents), [props.snapshot.agents])
+  const previewWired = props.onPreviewRequest !== undefined
+
+  // 有 agent 但还没选：默认选第一个（只落选中，不自动请求——预览有副作用，
+  // 必须由用户点「读取预览」触发）。
+  useEffect(() => {
+    if (preview.agent !== null || previewAgents.length === 0) return
+    const first = previewAgents[0]
+    if (first === undefined) return
+    setPreview((previous) => previewStateWithAgent(previous, first))
+  }, [preview.agent, previewAgents])
+
+  const runPreview = useCallback((): void => {
+    const handler = props.onPreviewRequest
+    const agent = preview.agent
+    if (handler === undefined || agent === null) return
+    previewAbort.current?.abort()
+    const controller = new AbortController()
+    previewAbort.current = controller
+    setPreview((previous) => previewStateLoading(previous, true))
+    handler(agent, controller.signal)
+      .then((view: PromptPreviewView) => {
+        if (controller.signal.aborted) return
+        setPreview((previous) => previewStateSettled(previous, agent, { ok: true, view }))
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return
+        setPreview((previous) => previewStateSettled(previous, agent, { ok: false, error }))
+      })
+  }, [props.onPreviewRequest, preview.agent])
 
   // 高亮定时器：只在卸载时清理，绝不在「焦点被消费」引起的重跑里清（反例见文件头）。
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 卸载清理只有这一处：高亮定时器 + 在途预览请求（两者都只属于本视图生命周期）。
   useEffect(() => () => {
     if (highlightTimer.current !== null) clearTimeout(highlightTimer.current)
+    previewAbort.current?.abort()
   }, [])
 
   const changeDraft = (card: PromptCard, text: string): void => {
@@ -298,5 +366,16 @@ export function PromptRegistryView(props: RegistryViewProps): ReactNode {
     onDraft: props.onRegistryWrite === undefined ? undefined : changeDraft,
     onSave: props.onRegistryWrite === undefined ? undefined : save,
     onRevert: revertDraft,
+    preview,
+    previewAgents,
+    previewWired,
+    onPreviewAgent: (agent: string) => {
+      previewAbort.current?.abort()
+      setPreview((previous) => previewStateWithAgent(previous, agent))
+    },
+    onPreviewRequest: runPreview,
+    onPreviewToggle: (source: PromptSourceId) => {
+      setPreview((previous) => ({ ...previous, collapsed: toggledPreviewGroup(previous.collapsed, source) }))
+    },
   })
 }

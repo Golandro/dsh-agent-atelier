@@ -38,6 +38,7 @@ import { routeFocusRequest } from '../ui-core/panel-focus.ts'
 import { panelViewId } from '../ui-core/panel-types.ts'
 import { RegistryMount } from '../ui-react/registry-mount.tsx'
 import { REGISTRY_WRITE_BUSY, createRegistryWriter } from '../ui-core/registry-writes.ts'
+import { previewHandlerOf } from '../ui-core/preview-request.ts'
 import { EditorMount } from '../ui-react/editor-mount.tsx'
 import { AdvisorPanel } from './advisor.tsx'
 import { OperationHistory } from './operation-history.tsx'
@@ -55,7 +56,7 @@ import {
 } from '../ui-core/workspace-scope.ts'
 
 import type { ControlClient, ComposedAgentDocument, ControlSnapshot, DocumentEdit, RegistryEdit, WritePlan, WriteReport } from '../../control/index.ts'
-import type { AgentListViewProps, PanelFocus, RegistryDestination, RegistryWriteOutcome } from '../../dsh/client/chunk-contracts.ts'
+import type { AgentListViewProps, PanelFocus, PromptPreviewHandler, RegistryDestination, RegistryWriteOutcome } from '../../dsh/client/chunk-contracts.ts'
 import type { FocusPending } from '../ui-core/panel-focus.ts'
 import type { HistoryEntry } from './operation-history.tsx'
 import type { PanelTab, ReloadState } from '../ui-core/panel-types.ts'
@@ -258,6 +259,18 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
    */
   const handleChainReport = useCallback(
     (agentName: string, signal?: AbortSignal) => client.chainReport(agentName, { cwd, signal }),
+    [client, cwd],
+  )
+
+  /**
+   * 系统提示词预览（票 85）：宿主读面的一次按需调用，cwd 跟随当前工作空间。
+   *
+   * 面板只渲染**已经投影好的**分段视图：投影在宿主侧完成（`buildPromptSegments`
+   * 在 `src/assembly/`，主壳按 import 矩阵读不到它），这里只负责把回答递过去，
+   * 不重跑装配、不重跑层合并。
+   */
+  const handlePreviewRequest = useMemo<PromptPreviewHandler | undefined>(
+    () => previewHandlerOf(client, cwd),
     [client, cwd],
   )
 
@@ -643,6 +656,7 @@ export function AgentsWorkspace(props: AgentsWorkspaceProps): ReactNode {
           onRegistryWrite: handleRegistryWrite,
           registryWriteBusy,
           onChainReport: handleChainReport,
+          onPreviewRequest: handlePreviewRequest,
         })),
 
       h(OperationHistory, {
