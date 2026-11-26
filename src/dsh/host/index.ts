@@ -10,7 +10,7 @@
 export { apply } from './plugin.ts'
 export type { AgentManagerPluginConfig } from './plugin.ts'
 export { applyCore, optionalSelectionPolicy } from './core.ts'
-export { applyAssembly } from './assembly.ts'
+export { applyAssembly, PROMPT_LEDGER_SERVICE } from './assembly.ts'
 export { applySummon, DEFAULT_NATIVE_SUBAGENT_TOOLS, SUMMON_TOOL_NAME } from './summon.ts'
 export type { SummonPluginConfig } from './summon.ts'
 export { mountFailureLedger } from './failures.ts'
@@ -19,6 +19,10 @@ export type { AssemblyPluginConfig } from './assembly.ts'
 export { applyProviders, BUNDLED_AGENTS_DIR, PROJECT_AGENTS_RANK, PROJECT_DSH_RANK, USER_AGENTS_RANK, USER_DSH_RANK, BUNDLED_AGENT_RANK, inject as providerRowInject } from './providers.ts'
 export { applyUiHost, handleControlRequest } from './ui-host.ts'
 export type { HostWebServer } from './ui-host.ts'
+export { createPromptPreview } from './prompt-preview.ts'
+export type { PromptPreview, PromptPreviewRequest } from './prompt-preview.ts'
+export { AGENT_LIVE_AGENTS_SERVICE, createLiveAgents } from './live-agents.ts'
+export type { HostLiveAgent, HostModelSelection, LiveAgents } from './live-agents.ts'
 export {
   CLIENT_MARKER_HEADER,
   CLIENT_MARKER_VALUE,

@@ -1,5 +1,5 @@
 /**
- * The host side of ticket 12: one plugin row owns the six exact routes on
+ * The host side of ticket 12: one plugin row owns the exact routes on
  * `ctx.webServer`, applies the host connection's origin/host fence, bounds and
  * parses the request body, and hands the rest to the pure wire dispatcher.
  *
@@ -12,11 +12,13 @@ import { Buffer } from 'node:buffer'
 
 import { AGENT_CONTROL_SERVICE } from '../../contract/index.ts'
 import { errorMessage, isAbortError } from '../../control/index.ts'
+import { createPromptPreview } from './prompt-preview.ts'
 import { CONTROL_ROUTE_PATHS, MAX_BODY_BYTES, dispatchControlRequest } from './wire.ts'
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ControlCore } from '../../control/index.ts'
+import type { PromptPreview } from './prompt-preview.ts'
 
 /** The structural slice of `ctx.webServer` this row registers on. */
 interface HostWebRoute {
@@ -39,6 +41,8 @@ interface RouteDependencies {
   readonly control: ControlCore
   readonly connection: HostConnection | undefined
   readonly nextScanId: () => number
+  /** Ticket 83's read face; built here because it needs this row's context. */
+  readonly preview: PromptPreview
 }
 
 /**
@@ -63,6 +67,7 @@ export function applyUiHost(ctx: Context): void {
       scanId += 1
       return scanId
     },
+    preview: createPromptPreview(ctx),
   }
   for (const path of CONTROL_ROUTE_PATHS) {
     ctx.effect(() =>
@@ -116,6 +121,7 @@ export async function handleControlRequest(
       bodyText: body.text,
       signal: controller.signal,
       scanId: dependencies.nextScanId(),
+      preview: dependencies.preview,
     })
     sendJson(res, result.status, result.body)
   } catch (error) {

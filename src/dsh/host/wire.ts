@@ -12,6 +12,7 @@
  *   POST /agent-atelier/commit {edits[]}   → { cwd, report } | 400 {error, rejections}
  *   POST /agent-atelier/registry {edit}    → { cwd, report }
  *   POST /agent-atelier/invalidate         → { ok: true, scanId }
+ *   POST /agent-atelier/prompt-preview {agentName} → { cwd, assembly, ledger, plan, degraded?, sideEffects, notes } (票 83)
  *
  * Workspace scope is a soft boundary (ticket 37 / ADR-0007): `cwd` is a scan
  * starting point, not an identity. A missing, malformed (non-absolute, empty,
@@ -24,6 +25,16 @@
  * Every mutation requires `content-type: application/json` and the
  * `x-dsh-agent-atelier: 1` marker header; the transport also applies the
  * host connection's origin/host fence before dispatch.
+ *
+ * `/prompt-preview` (ticket 83) is the one route that is read-only in the
+ * narrow sense — it changes no document, no registry entry and no session — but
+ * it is **not** side-effect free: it runs the real
+ * `system-prompt/assemble` waterfall, so every handler any plugin registered is
+ * executed, with whatever IO or cache writes that handler does. The route says
+ * so in its own body (`sideEffects`), because the caller is a browser panel that
+ * cannot read this comment. Its degradation tiers are the read face's own
+ * answer (a 200 carrying `degraded`), so this handler maps exactly one failure
+ * of its own: an unknown agent is a 404, like every other route.
  */
 import { Buffer } from 'node:buffer'
 import { isAbsolute } from 'node:path'
@@ -42,6 +53,7 @@ import {
 import { FRONTMATTER_FIELD_KEYS, isFrontmatterField } from '../../yaml/index.ts'
 
 import type { ControlCore, DocumentEdit, RegistryEdit, WriteReport } from '../../control/index.ts'
+import type { PromptPreview } from './prompt-preview.ts'
 
 /** Root of the plugin's exact route namespace. */
 export const CONTROL_BASE_PATH = '/agent-atelier'
@@ -55,6 +67,7 @@ export const CONTROL_ROUTE_PATHS = [
   `${CONTROL_BASE_PATH}/commit`,
   `${CONTROL_BASE_PATH}/registry`,
   `${CONTROL_BASE_PATH}/invalidate`,
+  `${CONTROL_BASE_PATH}/prompt-preview`,
 ] as const
 
 /** Largest JSON request body accepted (bytes). */
@@ -79,7 +92,7 @@ export const MAX_CWD_LENGTH = 4096
  */
 export { CLIENT_MARKER_HEADER, CLIENT_MARKER_VALUE }
 
-type RouteName = 'state' | 'compose' | 'chain' | 'plan' | 'commit' | 'registry' | 'invalidate'
+type RouteName = 'state' | 'compose' | 'chain' | 'plan' | 'commit' | 'registry' | 'invalidate' | 'prompt-preview'
 
 const ROUTES: Readonly<Record<string, { readonly name: RouteName; readonly methods: readonly string[] }>> = {
   [`${CONTROL_BASE_PATH}/state`]: { name: 'state', methods: ['GET'] },
@@ -89,6 +102,7 @@ const ROUTES: Readonly<Record<string, { readonly name: RouteName; readonly metho
   [`${CONTROL_BASE_PATH}/commit`]: { name: 'commit', methods: ['POST'] },
   [`${CONTROL_BASE_PATH}/registry`]: { name: 'registry', methods: ['POST'] },
   [`${CONTROL_BASE_PATH}/invalidate`]: { name: 'invalidate', methods: ['POST'] },
+  [`${CONTROL_BASE_PATH}/prompt-preview`]: { name: 'prompt-preview', methods: ['POST'] },
 }
 
 /** Everything the route handler hands the pure dispatcher. */
@@ -102,6 +116,12 @@ export interface ControlDispatchInput {
   readonly signal?: AbortSignal | undefined
   /** Monotonic per-route scan token, echoed to the client to reject stale reads. */
   readonly scanId: number
+  /**
+   * The prompt-preview read face (ticket 83). It needs a live context to reach
+   * the host services, so it is built by the ui-host row and handed in; a
+   * dispatcher without it answers 503 rather than pretending the route works.
+   */
+  readonly preview?: PromptPreview | undefined
 }
 
 /** Status + JSON body the transport writes; the dispatcher never touches `res`. */
@@ -151,10 +171,45 @@ export async function dispatchControlRequest(input: ControlDispatchInput): Promi
       case 'invalidate':
         input.control.invalidate()
         return { status: 200, body: { ok: true, scanId: input.scanId } }
+      case 'prompt-preview':
+        return await handlePromptPreview(input)
     }
   } catch (error) {
     if (isAbortError(error)) return fail(499, 'aborted', 'request cancelled')
     return fail(500, 'internal', errorMessage(error))
+  }
+}
+
+/**
+ * `POST /prompt-preview` (ticket 83): the host read face.
+ *
+ * The degradation tiers are the face's own answer (a 200 with `degraded`), so
+ * this handler adds no policy of its own: an unknown agent is the only thing it
+ * maps, because "that name does not exist" is the caller's mistake, not a
+ * missing capability.
+ */
+async function handlePromptPreview(input: ControlDispatchInput): Promise<ControlDispatchResult> {
+  const parsed = parseJsonObject(input.bodyText)
+  if (!parsed.ok) return fail(400, 'invalid-request', parsed.message)
+  const agentName = readAgentName(parsed.value.agentName)
+  if (!agentName.ok) return fail(400, 'invalid-request', agentName.message)
+  const cwd = readCwdValue(parsed.value.cwd)
+  if (!cwd.ok) return fail(400, 'invalid-request', cwd.message)
+  const preview = input.preview
+  if (preview === undefined) {
+    return fail(503, 'unavailable', 'the prompt preview read face is not mounted on this host row')
+  }
+  try {
+    const body = await preview.preview({
+      agentName: agentName.value,
+      cwd: cwd.value,
+      scanId: input.scanId,
+      signal: input.signal,
+    })
+    return { status: 200, body }
+  } catch (error) {
+    if (isUnknownAgent(error)) return fail(404, 'not-found', errorMessage(error))
+    throw error
   }
 }
 
