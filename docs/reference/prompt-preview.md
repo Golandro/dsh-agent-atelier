@@ -25,7 +25,7 @@
 | 段内块（Part） | 一个节内部的子块（工具说明打包） | `PromptPart` / `PromptSegmentParts`（`src/contract/prompt-preview.ts`）；`promptSegmentParts` | 已实现（投影侧） |
 | 分段视图 | 宿主装配产物 + 账本 → 按来源分组 | `PromptSegmentsView` / `PromptSegment` / `PromptSourceGroup`（`src/contract/prompt-preview.ts`）；`buildPromptSegments`（`src/assembly/segments.ts`） | 已实现（票 84） |
 | 注册侧账本 | 注册方自己记「注册了哪些节、每节有哪些子块」 | `PromptLedger` / `createPromptLedger`（`src/assembly/ledger.ts`）；记录形状 `PromptSectionLedgerEntry` | 已实现（票 84，只记 executable 行） |
-| 预览读面 | 只读 route，跑一次真实 `assemble()` | `PromptPreviewResponse`（`src/contract/prompt-preview-route.ts`）；`preview()`（`src/dsh/host/prompt-preview.ts`） | 已实现（票 83） |
+| 预览读面 | 只读 route，跑一次真实 `assemble()` | `PromptPreviewResponse`（`src/contract/prompt-preview-route.ts`）；`createPromptPreview()`（`src/dsh/host/prompt-preview.ts:119`） | 已实现（票 83） |
 | 降级矩阵 | 4 档：完整 / 链耗尽 / 静态回退 / 空态 | `PromptPreviewTier` / `PromptPreviewDegradation`；`previewTierOf`（`src/client/chunks/registry/prompt-preview-model.ts`） | 已实现（票 83/85） |
 | 渲染信封 | 客户端只渲染已投影好的分段 | `PromptPreviewView` / `PromptPreviewHandler`（`src/contract/prompt-preview-route.ts`） | 已实现（票 85） |
 
@@ -36,7 +36,7 @@
 - 装配（写侧）：规划器 → sink 注册 → 宿主装配。见 [agent-assembly.md](./agent-assembly.md)。
 - 预览（读侧）：宿主装配产物 → 分段投影 → UI。
 
-两者共用同一套来源词汇与同一份 `PromptAssembly` 形状；预览**不重跑装配逻辑**，只读宿主产物。
+两者共用同一套来源词汇与同一份装配产物形状：线上传输用 `PromptPreviewAssembly`，投影入参用它的结构镜像 `HostPromptAssembly`（名字带 `Host` 前缀，表示这是宿主形状的镜像而非契约）。预览**不重跑装配逻辑**，只读宿主产物。
 
 ## 4. 不变量
 

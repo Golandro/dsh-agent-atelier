@@ -15,7 +15,7 @@ Map #74 裁决（#75 / #77）。系统提示词预览要展示「这段是谁加
 
 **预览的数据来源 = 宿主 `assemble()` 的产物优先，静态 config 回退。**
 
-1. **优先**：新增只读 route，在目标 agent 的 scope 上真实跑一次 `assemble()`（含 `tools.resolve()`），拿 `PromptAssembly`。
+1. **优先**：新增只读 route，在目标 agent 的 scope 上真实跑一次 `assemble()`（含 `tools.resolve()`），拿宿主装配产物（线上以 `PromptPreviewAssembly` 传输，投影侧镜像为 `HostPromptAssembly`）。
 2. **归因**：来源由**注册侧账本**提供（注册方自己记「我注册了哪些节、每节有哪些子块」），不由装配产物反推。
 3. **回退**：宿主面不可用时，退成「补丁合成后的原始 `system-prompt` 行 config + 本仓 `AssemblyPlan`」，并显式标注「非宿主装配结果」。
 

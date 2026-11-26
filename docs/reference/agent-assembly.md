@@ -243,6 +243,6 @@
 
 ## 9. 预览读面
 
-系统提示词预览是同一装配面的**读侧**：装配产物 `PromptAssembly` → 分段投影 → UI。分段契约、7 条一级来源、双模数据来源与降级矩阵见 [prompt-preview.md](./prompt-preview.md)；数据来源裁决见 [ADR-0009](../adr/0009-prompt-preview-data-source.md)。
+系统提示词预览是同一装配面的**读侧**：宿主装配产物（线上按 `PromptPreviewAssembly` 传输，投影入参是它的结构镜像 `HostPromptAssembly`）→ 分段投影 → UI。分段契约、7 条一级来源、双模数据来源与降级矩阵见 [prompt-preview.md](./prompt-preview.md)；数据来源裁决见 [ADR-0009](../adr/0009-prompt-preview-data-source.md)。
 
 预览不重跑装配逻辑，只读宿主产物；被 waterfall 改写的段必须标注，遮蔽关系不可见时必须说「不可见」。
