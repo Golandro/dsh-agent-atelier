@@ -35,6 +35,9 @@ import {
   summonRestriction,
 } from '../../control/index.ts'
 import { mountFailureLedger } from './failures.ts'
+import { AGENT_LIVE_AGENTS_SERVICE, createLiveAgents } from './live-agents.ts'
+
+import type { HostLiveAgent, LiveAgents } from './live-agents.ts'
 
 import type { ComposedAgentSession, FailureRecorder } from '../../control/index.ts'
 import type { AgentAssembly, AssemblyScope, AssemblySession, ChainObservations } from '../../contract/index.ts'
@@ -186,6 +189,11 @@ declare module '@deepseek-ai/cordis' {
      * type-only externally vendored and never imported (ADR-0001).
      */
     'agent/created'(this: unknown, payload: { readonly agent: HostAgent }): undefined | Promise<undefined>
+    /**
+     * The host's disposal event; the live-agent table drops the entry here so a
+     * disposed Agent can never be assembled again (ticket 83).
+     */
+    'agent/disposed'(this: unknown, payload: { readonly agent: HostAgent }): void
   }
 }
 
@@ -212,6 +220,12 @@ export function applySummon(ctx: Context, config: SummonPluginConfig = {}): void
   const clock = (): number => Date.now()
   const failures = createFailureRecorder()
   ctx.effect(() => mountFailureLedger(ctx, failures, { now: clock }))
+  // Ticket 83's read face needs `agentName` → live Agent, and this row is the
+  // only writer (see ./live-agents.ts). The table is provided here, next to its
+  // writer, and one row-level listener drops entries on disposal.
+  const liveAgents = createLiveAgents()
+  ctx.effect(() => ctx.provide(AGENT_LIVE_AGENTS_SERVICE, liveAgents))
+  ctx.effect(() => ctx.on('agent/disposed', (payload) => { liveAgents.forget(payload.agent as unknown as HostLiveAgent) }))
   ctx.inject(['tools', 'subagents', 'agents'], (scope) => {
     const tools = scope.get('tools') as unknown as HostTools | undefined
     const agents = scope.get('agents') as unknown as HostAgents | undefined
@@ -397,6 +411,12 @@ async function installRestrictions(
   const reserved = pending.get(agent.id)
   pending.delete(agent.id)
   if (reserved !== undefined) {
+    // The only place both halves of the read face's key are in hand at once:
+    // the atelier name (from the composed session) and the live host Agent.
+    // Ticket 83's preview resolves `agentName` through this table; nowhere
+    // else may guess it, because a session header carries the host's own name.
+    const live = scope.get(AGENT_LIVE_AGENTS_SERVICE) as unknown as LiveAgents | undefined
+    live?.record(reserved.session.agent.agentName, agent as unknown as HostLiveAgent)
     const assembly = scope.get('agentAssembly') as unknown as AgentAssembly | undefined
     if (assembly === undefined) {
       scope.logger.warn('summon_agent: the assembly service is unavailable; the summoned agent runs without its assembly sections')

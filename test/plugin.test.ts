@@ -15,6 +15,7 @@ import {
 import { createAgentProviders } from '../src/providers/registry.ts'
 import { apply as providerRowApply, applyProviders } from '../src/dsh/host/providers.ts'
 import { applyAssembly } from '../src/dsh/host/assembly.ts'
+import { CONTROL_ROUTE_PATHS } from '../src/dsh/host/wire.ts'
 import { SERVICE_API_VERSION } from '../src/contract/index.ts'
 import { scratchDir } from './support/fs.ts'
 import type { AgentAssembly, AgentRegistry, AliasRegistry } from '../src/contract/index.ts'
@@ -112,7 +113,7 @@ describe('agent-atelier plugin', () => {
 
     apply(ctx, { role: 'ui-host' })
 
-    expect(routes).toHaveLength(7)
+    expect(routes).toHaveLength(CONTROL_ROUTE_PATHS.length)
     // The ui-host row must not mount the registries a second time.
     expect(ctx.get(AGENT_REGISTRY_SERVICE)).toBeUndefined()
   })
