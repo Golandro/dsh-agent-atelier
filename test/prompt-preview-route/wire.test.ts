@@ -29,6 +29,7 @@ import type {
   HostPromptAssembly,
   PromptSectionLedgerEntry,
 } from '../../src/assembly/index.ts'
+import { emptyPromptSegments } from '../../src/assembly/index.ts'
 import type {
   PromptPreviewAssembly,
   PromptPreviewLedgerEntry,
@@ -47,6 +48,7 @@ function response(): PromptPreviewResponse {
     scanId: 7,
     assembledAt: '2026-01-01T00:00:00.000Z',
     ledger: [],
+    segments: emptyPromptSegments(),
     sideEffects: PROMPT_PREVIEW_SIDE_EFFECTS,
     notes: [],
   }
@@ -257,4 +259,3 @@ describe('prompt-preview 的装配收尾', () => {
     expect(seen).toEqual([controller.signal, controller.signal])
   })
 })
-

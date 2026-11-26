@@ -10,7 +10,8 @@
  */
 import { abortError, CLIENT_MARKER_HEADER, CLIENT_MARKER_VALUE, ControlClientError } from './client-errors.ts'
 
-import type { ControlClient, ControlClientOptions } from './client.ts'
+import type { ControlClientOptions } from './client.ts'
+import type { PreviewCapableControlClient } from './preview.ts'
 import type { AgentChainReport } from './session.ts'
 import type {
   ComposedAgentDocument,
@@ -21,7 +22,8 @@ import type {
   WriteRejection,
   WriteReport,
 } from './types.ts'
-import type { ChainResolutionReport } from '../contract/index.ts'
+import type { ChainResolutionReport, PromptPreviewResponse } from '../contract/index.ts'
+import { previewViewOf } from './preview.ts'
 
 /** Route namespace registered by `src/dsh/host/ui-host.ts`. */
 const DEFAULT_BASE_URL = 'agent-atelier'
@@ -41,7 +43,7 @@ export interface HttpControlClientOptions {
 type JsonRecord = Record<string, unknown>
 
 /** The HTTP adapter: one `ControlClient` over the seven exact routes. */
-export function createHttpControlClient(options: HttpControlClientOptions = {}): ControlClient {
+export function createHttpControlClient(options: HttpControlClientOptions = {}): PreviewCapableControlClient {
   const baseUrl = trimTrailingSlash(options.baseUrl ?? DEFAULT_BASE_URL)
   const fetchImpl = options.fetchImpl ?? globalThis.fetch
 
@@ -124,6 +126,16 @@ export function createHttpControlClient(options: HttpControlClientOptions = {}):
     async applyRegistryEdit(edit: RegistryEdit, call) {
       const body = await request('registry', 'POST', { edit }, call)
       return readField<WriteReport>(body, 'report')
+    },
+
+    /**
+     * One on-demand preview (ticket 85): the wire route answers the read face's
+     * own body, which is turned into the rendering envelope here. The route is
+     * POST because the request carries a body; the answer is still read-only.
+     */
+    async promptPreview(agentName, call) {
+      const body = await request('prompt-preview', 'POST', { agentName }, call)
+      return previewViewOf(body as unknown as PromptPreviewResponse, agentName)
     },
 
     async invalidate(call) {

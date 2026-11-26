@@ -23,7 +23,7 @@
  */
 import type { ChainResolutionReport } from './types.ts'
 import type { AssemblyPlan } from './assembly.ts'
-import type { PromptPart, PromptShadow, PromptSourceId } from './prompt-preview.ts'
+import type { PromptPart, PromptSegmentsView, PromptShadow, PromptSourceId } from './prompt-preview.ts'
 
 /** 线上装配产物里的一节：宿主 `AssembledSection` 的 JSON 形状。 */
 export interface PromptPreviewSection {
@@ -166,6 +166,20 @@ export interface PromptPreviewResponse {
   readonly assembledAt: string
   /** 宿主 `assemble()` 的产物；档位 ②③④ 缺席。 */
   readonly assembly?: PromptPreviewAssembly | undefined
+  /**
+   * 已投影的分段视图：**每次回答都有**，但含义分两档。
+   *
+   * - 档位 ①：宿主拿到 `assembly` + `ledger` 之后立刻投影（`buildPromptSegments`）。
+   *   投影必须在宿主侧发生——浏览器 chunk 按 import 矩阵读不到装配层。
+   * - 档位 ②③④：装配没有发生，这里是**空骨架**（7 条来源、组内无段）。
+   *
+   * 空骨架不等于「装配了但 7 条来源都没贡献」：那种事实由 `degraded` 的**缺席**
+   * 表达。UI 的口径是「降级档不摆来源组」，所以空骨架不会被渲染成 7 个空组
+   * （规格 §9 第 1 条）。给空骨架而不是省略字段，是因为消费方（UI 的
+   * `previewSegmentCount` 等）按「视图总是存在」写；让形状恒定，降级判断就只剩
+   * `degraded` 一个来源，不需要每处都写 `?.segments ?? 空`。
+   */
+  readonly segments: PromptSegmentsView
   /** 注册侧账本；档位 ②③④ 为空表（不是「没有节」，是「这次没装配」）。 */
   readonly ledger: readonly PromptPreviewLedgerEntry[]
   /** 本仓的装配规划；档位 ①②③ 都在（纯函数，不依赖宿主）。 */
@@ -186,3 +200,44 @@ export const PROMPT_PREVIEW_SIDE_EFFECTS: readonly string[] = [
   '只读指的是不改 agent 文档、不改 registry、不写会话；不是「无副作用」。',
   '装配产物是「此刻这一次调用」的结果，不等于任何真实回合：handler 可以按自己的状态返回不同文本，工具声明也只是本次解析的可见集。',
 ]
+/**
+ * 渲染信封：客户端拿到的那一份回答（票 82 / 85）。
+ *
+ * 与 {@link PromptPreviewResponse} 的分工是本文件最重要的一条边界：
+ * - `PromptPreviewResponse` 是**线上回答**：装配产物、账本、规划、降级说明，
+ *   凡是宿主知道的都如实带出（含调试需要的原始数据）。
+ * - `PromptPreviewView` 是**渲染信封**：只装 UI 要摆的东西，且 `segments` 必填——
+ *   UI 只渲染已经投影好的分段，它没有、也不该有投影能力（chunk 读不到装配层）。
+ *
+ * 为什么信封里 `segments` 必填而线缆上可选：降级档 ②③④ 没有装配产物，就没有
+ * 分段可言。那种情况下读面**不**回这个信封（它回带 `degraded` 的线上回答），
+ * 由客户端的控制端口把「没有 segments」如实翻成降级态——所以能构造出
+ * `PromptPreviewView` 这件事本身，就等价于「这一次真的装配了」。
+ */
+export interface PromptPreviewView {
+  /** 本次回答对应的 agent 名（请求原样回显）。 */
+  readonly agentName: string
+  /** 读面用的扫描起点；`null` 表示用户全局（ADR-0007 的软边界）。 */
+  readonly cwd: string | null
+  /** 装配时刻（ISO 8601）。**不是**文档 mtime。 */
+  readonly assembledAt: string
+  /** 本次请求的计数器；**不是**数据代次。 */
+  readonly scanId: number
+  /** 已投影的分段视图（7 条来源固定顺序）。 */
+  readonly segments: PromptSegmentsView
+  /** 哪一档回答的；缺席 = 完整装配（档位 ①）。 */
+  readonly degraded?: PromptPreviewDegradation | undefined
+  /** 读面自己的副作用声明；UI 必须展示，因为预览不是免费的。 */
+  readonly sideEffects: readonly string[]
+  /** 其余事实（新鲜度口径、账本注意事项）。 */
+  readonly notes: readonly string[]
+}
+
+/**
+ * 一次按需预览请求（票 85），与 `RegistryChainHandler` 同一条接缝纪律：
+ * 页面把它接到宿主读面，chunk 只等回答。没有回调就是「预览没接线」的唯一信号。
+ */
+export type PromptPreviewHandler = (
+  agentName: string,
+  signal?: AbortSignal,
+) => Promise<PromptPreviewView>

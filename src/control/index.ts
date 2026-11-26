@@ -38,6 +38,8 @@ export type { AgentChainReport, ChainReportOptions, ComposeSessionOptions, Compo
 export { createMemoryControlClient } from './client.ts'
 export type { ControlClient, ControlClientOptions, MemoryControlClientOptions } from './client.ts'
 export { createHttpControlClient } from './http-client.ts'
+export { previewViewOf } from './preview.ts'
+export type { PreviewCapableControlClient, PromptPreviewPort } from './preview.ts'
 export type { HttpControlClientOptions } from './http-client.ts'
 export {
   abortError,

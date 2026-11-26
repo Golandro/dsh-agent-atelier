@@ -20,6 +20,7 @@
  * 而 chunk 只准读 contract 与 control，读不到 `src/assembly/`——形状放这里就够不着
  * 自己的消费者。本模块只保留宿主结构的**镜像**与投影函数。
  */
+import { PROMPT_SOURCE_ORDER } from '../contract/index.ts'
 import type {
   PromptPart,
   PromptSegment,
@@ -33,16 +34,14 @@ import type {
   UnattributedPromptSegment,
 } from '../contract/index.ts'
 
-/** 固定组序：与规格 §2 的编号一致，空组也保留（UI 要如实说「本来源无贡献」）。 */
-export const PROMPT_SOURCE_ORDER: readonly PromptSourceId[] = Object.freeze([
-  'harness-identity',
-  'deployment-persona',
-  'preset-persona',
-  'atelier-section',
-  'tool-guidance',
-  'runtime-context',
-  'tool-declaration',
-])
+/**
+ * 固定组序：契约层拥有唯一一份（`src/contract/prompt-preview.ts`）。
+ *
+ * 顺序是视图契约的一部分（「组按固定顺序给齐、空组也保留」），消费方横跨宿主
+ * 与浏览器 chunk，所以不能留在这里——chunk 读不到装配层。本模块只 re-export
+ * 给既有读者，不保留第二份定义。
+ */
+export { PROMPT_SOURCE_ORDER } from '../contract/index.ts'
 
 /** 宿主 `AssembledSection` 的结构镜像：装配产物里的一节（已解析文本，未插值）。 */
 export interface AssembledSection {
@@ -104,6 +103,21 @@ export interface PromptSectionLedgerEntry {
    * （兼容模式下宿主 `assemble()` 丢弃扩展字段，见规格 §3）。
    */
   readonly parts?: readonly PromptPart[] | undefined
+}
+
+/**
+ * 空骨架：7 条来源固定顺序、组内无段、无不可归因段、无诊断。
+ *
+ * 只给**降级档**用（②③④ 装配没有发生，没有分段可言）。它让信封的形状成立，
+ * 本身不是「装配发生了」的声明——那个声明由 `degraded` 的**缺席**表达；UI 的
+ * 既有口径（降级档不摆来源组）保证它不会被读成「7 条来源这次都没贡献」。
+ */
+export function emptyPromptSegments(): PromptSegmentsView {
+  return {
+    sources: PROMPT_SOURCE_ORDER.map((source) => ({ source, segments: [] })),
+    unattributed: [],
+    diagnostics: [],
+  }
 }
 
 /**

@@ -19,7 +19,7 @@ export { createAssemblyService } from './sink.ts'
 export type { AssemblyServiceOptions } from './sink.ts'
 export { createPromptLedger } from './ledger.ts'
 export type { PromptLedger } from './ledger.ts'
-export { PROMPT_SOURCE_ORDER, buildPromptSegments, promptSegmentParts, promptShadowLabel } from './segments.ts'
+export { PROMPT_SOURCE_ORDER, buildPromptSegments, emptyPromptSegments, promptSegmentParts, promptShadowLabel } from './segments.ts'
 export type {
   AssembledContext,
   AssembledSection,

@@ -25,7 +25,7 @@
  *    原样抛出，不折成降级。
  */
 import { AGENT_CONTROL_SERVICE, PROMPT_PREVIEW_SIDE_EFFECTS } from '../../contract/index.ts'
-import { planAssembly } from '../../assembly/index.ts'
+import { buildPromptSegments, emptyPromptSegments, planAssembly } from '../../assembly/index.ts'
 import {
   ChainExhaustedError,
   UnknownAgentError,
@@ -49,6 +49,7 @@ import type {
   PromptPreviewResponse,
   PromptPreviewStaticRow,
 } from '../../contract/index.ts'
+import type { PromptSectionLedgerEntry } from '../../assembly/index.ts'
 import type { ComposedAgentSession } from '../../control/index.ts'
 import type { HostLiveAgent, HostModelSelection, LiveAgents } from './live-agents.ts'
 
@@ -190,6 +191,11 @@ async function previewOnce(ctx: Context, request: PromptPreviewRequest): Promise
     assembledAt: new Date().toISOString(),
     assembly,
     ledger,
+    // 投影在宿主侧发生（票 82/85）：投影函数在装配层，浏览器 chunk 按 import 矩阵
+    // 读不到它，所以由这里把产物 + 账本折成分段视图，随回答一起送出。
+    // 档位 ②③④ 走各自的降级构造函数，那里**没有** segments —— 没装配就没有分段，
+    // 不拿「7 个空组」冒充「装配了但这次没贡献」（那是另一种事实）。
+    segments: buildPromptSegments(assembly, ledger as readonly PromptSectionLedgerEntry[]),
     plan,
     sideEffects: PROMPT_PREVIEW_SIDE_EFFECTS,
     notes: [
@@ -215,6 +221,8 @@ function chainExhausted(request: PromptPreviewRequest, error: ChainExhaustedErro
     scanId: request.scanId,
     assembledAt: new Date().toISOString(),
     ledger: [],
+    // ② 装配没有发生：给空骨架，让形状恒定（不是「7 条来源都没贡献」）。
+    segments: emptyPromptSegments(),
     degraded: degradation,
     sideEffects: PROMPT_PREVIEW_SIDE_EFFECTS,
     notes: [freshnessNote(), '档位 ②：装配没有发生，因此没有 assembly；report 是链解析引擎的原样输出。'],
@@ -228,6 +236,7 @@ function emptyState(request: PromptPreviewRequest, error: unknown): PromptPrevie
     scanId: request.scanId,
     assembledAt: new Date().toISOString(),
     ledger: [],
+    segments: emptyPromptSegments(),
     degraded: {
       tier: 'empty',
       reason: errorMessage(error),
@@ -262,6 +271,7 @@ function staticFallback(
     assembledAt: new Date().toISOString(),
     ...staticConfig === undefined ? {} : { staticConfig },
     ledger: [],
+    segments: emptyPromptSegments(),
     ...plan === undefined ? {} : { plan },
     degraded: {
       tier: 'static',

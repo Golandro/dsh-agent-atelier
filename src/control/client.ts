@@ -14,6 +14,8 @@ import { planDirtyEdits, type ControlCore } from './core.ts'
 import { composeError, ControlClientError, reportOrThrow, throwIfAborted } from './client-errors.ts'
 
 import type { AgentChainReport } from './session.ts'
+import type { PromptPreviewView } from '../contract/index.ts'
+import type { PreviewCapableControlClient, PromptPreviewPort } from './preview.ts'
 import type {
   ComposedAgentDocument,
   ControlSnapshot,
@@ -52,13 +54,22 @@ export interface ControlClient {
 export interface MemoryControlClientOptions {
   /** Workspace root used when a call names none; absent means user-global. */
   readonly cwd?: string | undefined
+  /**
+   * The host preview read face (ticket 85), injected because this adapter has no
+   * host behind it: a preview means running a real `assemble()`, which the pure
+   * control core cannot do. Absent is honest — the method then refuses with the
+   * same 503 'unavailable' the wire answers when no read face is mounted.
+   */
+  readonly preview?: PromptPreviewPort['promptPreview'] | undefined
 }
 
 /** The in-memory adapter: the control core behind the client port. */
-export function createMemoryControlClient(core: ControlCore, options: MemoryControlClientOptions = {}): ControlClient {
+export function createMemoryControlClient(core: ControlCore, options: MemoryControlClientOptions = {}): PreviewCapableControlClient {
   // The port's absent `cwd` means user-global (ticket 37) — the same thing the
   // HTTP adapter gets by omitting the field, so both adapters agree.
   const scopeOf = (call: ControlClientOptions | undefined) => ({ cwd: call?.cwd ?? options.cwd ?? null })
+  // Injected host read face (ticket 85); absent is honest, see MemoryControlClientOptions.
+  const injectedPreview = options.preview
 
   return {
     async snapshot(options) {
@@ -116,5 +127,22 @@ export function createMemoryControlClient(core: ControlCore, options: MemoryCont
       throwIfAborted(options?.signal)
       core.invalidate()
     },
+
+    async promptPreview(agentName, options) {
+      throwIfAborted(options?.signal)
+      return await previewOf(agentName, options)
+    },
+  }
+
+  async function previewOf(agentName: string, options?: ControlClientOptions): Promise<PromptPreviewView> {
+    const handler = injectedPreview
+    if (handler === undefined) {
+      throw new ControlClientError(
+        503,
+        'unavailable',
+        'this in-memory control client has no host preview read face: a preview means running a real assemble(), which the pure control core cannot do',
+      )
+    }
+    return await handler(agentName, { cwd: options?.cwd, signal: options?.signal })
   }
 }

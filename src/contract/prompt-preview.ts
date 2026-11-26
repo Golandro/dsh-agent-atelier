@@ -137,6 +137,23 @@ export interface PromptSegmentDiagnostic {
 }
 
 /** The projection result: source groups + unattributable segments + diagnostics. */
+/**
+ * 7 条一级来源的固定顺序（契约事实，不是实现细节）。
+ *
+ * 视图契约本身承诺「组按固定顺序给齐、空组也保留」，所以顺序属于契约：任何
+ * 消费方（宿主读面、降级档的占位视图、UI 排序）都必须按同一顺序读，且谁都不
+ * 该自己再抄一份。装配层的投影函数从这里 import，不再本地定义。
+ */
+export const PROMPT_SOURCE_ORDER: readonly PromptSourceId[] = Object.freeze([
+  'harness-identity',
+  'deployment-persona',
+  'preset-persona',
+  'atelier-section',
+  'tool-guidance',
+  'runtime-context',
+  'tool-declaration',
+])
+
 export interface PromptSegmentsView {
   /** 7 groups, always in the fixed source order (empty groups kept). */
   readonly sources: readonly PromptSourceGroup[]

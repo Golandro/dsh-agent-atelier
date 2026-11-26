@@ -115,6 +115,9 @@ const modules = CLIENT_DIRS.flatMap(({ dir, prefix }) => collectClientModules(di
 // import matrix allows; everything else (types) is erased by the transpile.
 modules.push({ path: 'src/control/client-errors.ts', id: 'client-errors' })
 modules.push({ path: 'src/control/http-client.ts', id: 'http-client' })
+// Ticket 85: the preview port + wire-to-envelope mapping is a runtime module the
+// HTTP adapter needs (types alone would be erased).
+modules.push({ path: 'src/control/preview.ts', id: 'preview' })
 for (const module of modules) {
   module.path = relative(ROOT, resolve(ROOT, module.path))
 }

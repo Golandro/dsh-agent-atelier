@@ -28,8 +28,9 @@ describe('chunk-contracts 的预览接缝', () => {
   const seam = sourceOf('src/dsh/client/chunk-contracts.ts')
 
   it('预览 DTO 与处理器类型都在接缝里，且从 contract 读视图类型', () => {
-    expect(seam).toContain('export interface PromptPreviewView')
-    expect(seam).toContain('export type PromptPreviewHandler')
+    // 信封与处理器的**定义**在契约层；接缝只 re-export（集成后已上移，见本文件末组）。
+    expect(seam).toMatch(/export type \{[\s\S]*?PromptPreviewView[\s\S]*?\} from '..\/..\/contract\/index.ts'/)
+    expect(seam).toMatch(/export type \{[\s\S]*?PromptPreviewHandler[\s\S]*?\} from '..\/..\/contract\/index.ts'/)
     expect(seam).toContain('onPreviewRequest?: PromptPreviewHandler')
     // 视图 DTO 的唯一定义在契约层：接缝只 re-export（第二份定义就是漂移源）。
     expect(seam).toMatch(/export type \{[\s\S]*?PromptSegmentsView[\s\S]*?\} from '..\/..\/contract\/index.ts'/)
@@ -123,21 +124,24 @@ describe('主壳注入预览回调（chunk 拿不到 http-client）', () => {
   })
 })
 describe('PromptPreviewView 的交接点（集成方要接的那一处）', () => {
-  it('信封只在 chunk-contracts 定义一次：契约层没有同名类型时不另起一份', () => {
+  it('信封在契约层定义一次，接缝只 re-export（不保留第二份定义）', () => {
     const contract = sourceOf('src/contract/prompt-preview-route.ts')
     const contractIndex = sourceOf('src/contract/index.ts')
     const seam = sourceOf('src/dsh/client/chunk-contracts.ts')
-    // 契约层今天回的是原始 assembly + 账本，没有投影后的信封。
     expect(contract).toContain('export interface PromptPreviewResponse')
     expect(contractIndex).toContain("export * from './prompt-preview-route.ts'")
-    // 信封在接缝里只有一份定义（不是 re-export + 本地定义两份并存）。
-    expect((seam.match(/export interface PromptPreviewView/g) ?? []).length).toBe(1)
-    expect(seam).not.toContain('export interface PromptPreviewViewView')
+    // 定义只有契约层一份。
+    expect((contract.match(/export interface PromptPreviewView\b/g) ?? []).length).toBe(1)
+    expect((contract.match(/export type PromptPreviewHandler\b/g) ?? []).length).toBe(1)
+    // 接缝里一份定义都没有：只有 re-export，否则就是两份并存的漂移源。
+    expect((seam.match(/export interface PromptPreviewView\b/g) ?? []).length).toBe(0)
+    expect((seam.match(/export type PromptPreviewHandler\b/g) ?? []).length).toBe(0)
   })
 
   it('信封的每个字段类型都来自 contract 或原语，没有本地发明', () => {
-    const seam = sourceOf('src/dsh/client/chunk-contracts.ts')
-    const body = seam.slice(seam.indexOf('export interface PromptPreviewView'))
+    // 信封的定义在契约层（集成后已上移）；字段类型只准是原语或契约自己的 DTO。
+    const contract = sourceOf('src/contract/prompt-preview-route.ts')
+    const body = contract.slice(contract.indexOf('export interface PromptPreviewView'))
     const fields = body.slice(0, body.indexOf('\n}'))
     // 逐字段看类型标注：允许原语与已 re-export 的契约类型。
     const annotations = [...fields.matchAll(/readonly (\w+)\??: ([^\n]+)/g)].map((m) => [m[1], m[2] ?? ''])

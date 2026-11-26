@@ -170,6 +170,34 @@ describe('prompt-preview ①：宿主面可用 + agent 可解析', () => {
     expect(response.plan?.sections.length).toBeGreaterThan(0)
   })
 
+  it('① 档带上已投影的分段：投影在宿主侧发生，chunk 拿到的就是成品', async () => {
+    const mounted = await mountHost()
+    mounted.ctx.provide(AGENT_CONTROL_SERVICE, controlOf(async () => composed()))
+
+    const response = await preview(mounted)
+
+    // 段视图必须有：浏览器 chunk 读不到装配层，投影只能在这里做。
+    expect(response.segments).toBeDefined()
+    const segments = response.segments!
+    // 7 条来源固定顺序，空组也保留（与契约的 PROMPT_SOURCE_ORDER 同口径）。
+    expect(segments.sources.map((group) => group.source)).toEqual([
+      'harness-identity',
+      'deployment-persona',
+      'preset-persona',
+      'atelier-section',
+      'tool-guidance',
+      'runtime-context',
+      'tool-declaration',
+    ])
+    // 真宿主节与 atelier 节都进了各自的组——不是一份空壳投影。
+    const bySource = new Map(segments.sources.map((group) => [group.source, group.segments]))
+    expect(bySource.get('harness-identity')?.map((s) => s.name)).toContain('harness:identity')
+    expect(bySource.get('atelier-section')?.map((s) => s.name)).toContain('atelier:model-sys')
+    // 账本条目带出的标注落到了对应段上（注册者自己记的，不是从产物反推）。
+    const atelier = bySource.get('atelier-section')?.find((s) => s.name === 'atelier:model-sys')
+    expect(atelier?.source).toBe('atelier-section')
+  })
+
   it('把副作用写进返回值，而不是只写在文档里', async () => {
     const mounted = await mountHost()
     mounted.ctx.provide(AGENT_CONTROL_SERVICE, controlOf(async () => composed()))
@@ -336,6 +364,59 @@ describe('prompt-preview 在真 agent 上跑通一次（票 83 验收）', () =>
   })
 })
 
+describe('降级档不伪造分段（②③④ 装配没发生，骨架必须是空的）', () => {
+  /**
+   * 这条守卫钉的是「不撒谎」。信封的 `segments` 形状恒定（消费方按它总是存在写），
+   * 但降级档给的是**空骨架**：7 条来源、组内无段。它与档位 ① 的「真装配了但这次
+   * 都没贡献」在数据上都是 0 段，区别只由 `degraded` 的在场表达——UI 的口径是
+   * 「降级档不摆来源组」，所以空骨架不会被渲染成 7 个空组。
+   *
+   * 这里同时钉住「骨架真的空」：若哪天有人给降级档塞了段，那就是伪造装配产物。
+   */
+  const expectEmptySkeleton = (segments: PromptPreviewResponse['segments']): void => {
+    expect(segments.sources).toHaveLength(7)
+    expect(segments.sources.every((group) => group.segments.length === 0)).toBe(true)
+    expect(segments.unattributed).toEqual([])
+    expect(segments.diagnostics).toEqual([])
+  }
+
+  it('② 链耗尽：空骨架 + degraded', async () => {
+    const mounted = await mountHost()
+    const failure = new ChainExhaustedError({
+      ok: false,
+      code: 'chain-exhausted',
+      message: 'chain exhausted: smart -> fast',
+      report: { aliasChain: [], rawFallbackUsed: false, candidates: [], selectedBy: 'none', effortSource: 'none' },
+    }, false)
+    mounted.ctx.provide(AGENT_CONTROL_SERVICE, controlOf(async () => { throw failure }))
+
+    const response = await preview(mounted)
+
+    expect(response.degraded?.tier).toBe('chain-exhausted')
+    expectEmptySkeleton(response.segments)
+  })
+
+  it('③ 静态回退：空骨架 + degraded', async () => {
+    const mounted = await mountHost({ withAgent: false })
+    mounted.ctx.provide(AGENT_CONTROL_SERVICE, controlOf(async () => composed()))
+
+    const response = await preview(mounted)
+
+    expect(response.degraded?.tier).toBe('static')
+    expectEmptySkeleton(response.segments)
+  })
+
+  it('④ 空态：空骨架 + degraded', async () => {
+    const mounted = await mountHost()
+    mounted.ctx.provide(AGENT_CONTROL_SERVICE, controlOf(async () => { throw new Error('registry 读不到：ENOENT registry.yaml') }))
+
+    const response = await preview(mounted)
+
+    expect(response.degraded?.tier).toBe('empty')
+    expectEmptySkeleton(response.segments)
+  })
+})
+
 describe('prompt-preview ③ 的有效 config 口径', () => {
   it('只认 fiber.effectiveConfig：未求值的 options.config 不算生效值', async () => {
     const mounted = await mountHost({ withAgent: false })
@@ -377,4 +458,3 @@ describe('prompt-preview ③ 的有效 config 口径', () => {
     expect(response.degraded?.missing.map((item: { item: string }) => item.item)).not.toContain('host-config')
   })
 })
-
