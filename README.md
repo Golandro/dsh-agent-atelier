@@ -53,6 +53,10 @@ pnpm run check      # static guardrail + typecheck + tests (also the pre-commit 
 node scripts/vendor-worktree.mjs --dry-run   # show what the DSH source checkout would do
 ```
 
+`pnpm run check` is the whole verification: it runs the static guard, `tsc --noEmit`,
+and vitest in one pass. The pre-commit hook runs the same three, so a green
+`check` needs no hand re-run and no extra pass before committing.
+
 Commit messages are checked by `.githooks/commit-msg`: no AI-brand attribution
 trailers (`Co-Authored-By` / `Generated with`); AI models and tools are not
 responsible parties.
@@ -65,32 +69,55 @@ buffers vitest: one line on success, the full log on failure.
 ## Reading the DSH source (vendor checkout)
 
 The LSP host resolves every queried path through `realpath` and rejects anything
-outside the session workspace, so a `.vendor/deepseek-harness` **symlink** to an
-outside checkout fails every query. Keep the canonical checkout outside the
-workspace anyway — several working directories can share it, it stays read-only
-by default, and it is reusable for secondary development — and materialize a
-`git worktree` inside the workspace instead. A worktree shares that checkout's
-object store, so it is a checkout, not a second clone.
+outside the session workspace. Separately, git >= 2.46 refuses to run `status` at
+all when a submodule path is a **symlink**, wherever it points, and upstream ships
+no switch for it. So `.vendor/deepseek-harness` must be a **real directory in every
+workspace** that runs either one. It does not have to be a git checkout: git only
+inspects the path type, not the contents.
+
+Keep the canonical checkout outside the workspace — several working directories
+can share it, it stays read-only by default, and it is reusable for secondary
+development. Materialize the in-workspace copy with the script:
 
 ```bash
-node scripts/vendor-worktree.mjs --dry-run   # probe only; never touches anything
-node scripts/vendor-worktree.mjs             # create or repair the worktree
+node scripts/vendor-worktree.mjs --dry-run           # probe only; touches nothing
+node scripts/vendor-worktree.mjs                     # create or repair this workspace
+node scripts/vendor-worktree.mjs --root <worktree>   # repair another worktree
 ```
+
+### Three tiers, cheapest first
+
+| Tier | Command | Disk | When |
+|---|---|---|---|
+| Hardlink farm | *(default)* | **0** — shared inodes, ~2 s | Reading DSH source, LSP |
+| No checkout | *(do nothing)* | 0 | Only `check` / API contract — anchors fall back to `$DSH_SOURCE` |
+| Independent copy | `--copy` | ~198 MB | Editing DSH source (disk cost) |
+
+A linked worktree usually needs the farm, not its own clone. The farm drops the
+`.git` pointer: two checkouts sharing one git directory would share one index and
+fight over lock files, and nothing here reads the vendor git dir. Writes through a
+farm reach the canonical checkout (hardlinks share content until rewritten), so
+treat vendor as read-only source — use `--copy` to modify it.
 
 The script probes before it acts and is safe to re-run:
 
 - an existing checkout is **reused**, never cloned again — `--source`, `$DSH_SOURCE`,
   this project's managed clone under `$DSH_HOME/.$ProjectName/vendor/`, then the
   historical `~/repo/deepseek-harness`;
-- an already-correct worktree is reported and left untouched;
-- a legacy symlink is replaced (only the link is removed);
+- an already-correct farm or checkout is reported and left untouched;
+- a legacy symlink is replaced by a real directory (only the link is removed);
 - the empty directory git creates for a fresh clone is filled in place;
 - a directory holding unrelated files is refused, not overwritten;
+- nothing is deleted without `--rebuild`, which `--dry-run` reports first;
 - only `--clone` reaches the network, and it clones **outside** the workspace.
 
 It also links the source's `node_modules` into the worktree, because a worktree
 holds only version-controlled files. LSP needs the checkout to be a project root
 (the directory holding `tsconfig.json`), not an ancestor of one.
+
+On Windows the farm is built from per-file links, because NTFS has no directory
+hardlinks; a reparse point is symlink-shaped and still fails both gates.
+Cross-volume links fail with `EXDEV` — use `--copy` there.
 
 ### The pin is tracked; the content is not
 
@@ -107,10 +134,12 @@ never rewritten under a running session. `ignore = untracked` keeps `git status`
 clean despite the `node_modules` link inside.
 
 A fresh clone therefore gets an **empty** `.vendor/deepseek-harness` directory.
-Run the script: it reads the pinned commit from the index and checks it out from
-whatever local checkout it finds. `--ref` overrides the pin. If the local
-checkout does not contain the pinned commit (a newer pin than your checkout),
-the script says so and falls back to that checkout's `HEAD` rather than failing.
+Run the script: it reads the pinned commit from the index and materializes it from
+whatever local checkout it finds — hardlinked from the main worktree's copy when
+there is one, otherwise a `git worktree` of the outside checkout. `--ref`
+overrides the pin. If the local checkout does not contain the pinned commit (a
+newer pin than your checkout), the script says so and falls back to that
+checkout's `HEAD` rather than failing.
 
 Because `.gitignore` ignores `.vendor/*` and un-ignores this one path, bumping
 the pin is an ordinary `git add .vendor/deepseek-harness` after checking out the

@@ -19,6 +19,7 @@ worktrees
 prototype/settings-ui/dist/
 
 lessons
+.agent-teams
 
 AGENTS.local.md
 .agents/settings.json
@@ -30,3 +31,4 @@ AGENTS.local.md
 .codex
 .trae
 .zcode
+.specs/scratchpad/

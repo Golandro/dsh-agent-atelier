@@ -11,48 +11,80 @@
  * a `git worktree` INSIDE the workspace. A worktree shares the outside
  * repository's object store: it is a checkout, not a second clone.
  *
+ * A SYMLINK at that path is rejected twice over, by two unrelated gates:
+ * `git status` exits 128 ("expected submodule path … not to be a symbolic link",
+ * git >= 2.46 hardening with no config switch) and `fs.contains` fails every LSP
+ * query. Neither accepts a link, wherever it points, so the path must be a real
+ * directory in every workspace that runs either.
+ *
+ * Three tiers, cheapest first:
+ *
+ *   1. **hardlink farm** (default in a linked worktree) — link every file of the
+ *      main worktree's checkout to the same inode and drop the `.git` pointer.
+ *      It costs no disk; the pointer is dropped because two checkouts must not
+ *      share one git directory and index. Writes through the farm reach the
+ *      canonical checkout, which is acceptable for read-only reference source.
+ *   2. **no checkout** — static guards fall back to `$DSH_SOURCE`, so a
+ *      worktree that only reads the API contract needs no `.vendor` at all.
+ *   3. **independent copy** (`--copy`) — correct but costs the full tree.
+ *
  * The script is idempotent and probes before it acts:
  *
  *   1. an existing checkout is reused — `--source`, `$DSH_SOURCE`, this
  *      project's managed clone, then the historical `~/repo/deepseek-harness`;
- *   2. an already-correct worktree is reported and left untouched;
- *   3. a legacy symlink is replaced by a worktree (only the link is removed);
+ *   2. an already-correct worktree or farm is reported and left untouched;
+ *   3. a legacy symlink is replaced by a real directory (only the link is removed);
  *   4. a directory holding unrelated files is never touched;
- *   5. `--clone` is the only path that reaches the network, and it clones the
+ *   5. nothing is deleted without `--rebuild`, and `--dry-run` reports it first;
+ *   6. `--clone` is the only path that reaches the network, and it clones the
  *      canonical copy OUTSIDE the workspace under `$DSH_HOME`.
  *
  * Usage:
- *   node scripts/vendor-worktree.mjs [--source <path>] [--ref <ref>] [--dry-run] [--clone]
+ *   node scripts/vendor-worktree.mjs [--root <worktree>] [--source <path>] [--ref <ref>]
+ *                                    [--dry-run] [--copy] [--rebuild] [--clone]
  */
 import { execFileSync } from 'node:child_process'
 import {
   existsSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-/** Repository root: two levels above this file, so callers cannot skew it. */
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-/** This package's name, used for the per-project harness directory. */
-const PROJECT = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).name
-/** Where the LSP-visible checkout must appear. */
-const TARGET = join(ROOT, '.vendor', 'deepseek-harness')
+/** Where this script lives: two levels above it, so callers cannot skew the default. */
+const SCRIPT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 /** Upstream used only when `--clone` is requested and no checkout exists. */
 const REPO_URL = 'https://github.com/deepseek-ai/deepseek-harness.git'
 
 const args = process.argv.slice(2)
 const dryRun = args.includes('--dry-run')
 const wantClone = args.includes('--clone')
+const wantCopy = args.includes('--copy')
+const wantRebuild = args.includes('--rebuild')
 const explicitSource = flagValue('--source')
 const explicitRef = flagValue('--ref')
+const explicitRoot = flagValue('--root')
+
+/**
+ * The workspace this run acts on. Defaults to the tree holding this script; a
+ * linked worktree carries its own older copy of the script, so repairing one
+ * from the main checkout passes `--root` instead of shipping the fix first.
+ */
+const ROOT = explicitRoot === undefined ? SCRIPT_ROOT : resolve(explicitRoot)
+/** This package's name, used for the per-project harness directory. */
+const PROJECT = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).name
+/** Where the LSP-visible checkout must appear. */
+const TARGET = join(ROOT, '.vendor', 'deepseek-harness')
 const ref = explicitRef ?? pinnedRef() ?? 'HEAD'
 
 /** Read a `--flag value` pair, or `undefined` when absent. */
@@ -170,6 +202,45 @@ function isRegisteredWorktree(source) {
 }
 
 /**
+ * Whether `path` holds the DSH tree without its own `.git` pointer, i.e. a
+ * materialization that git only sees as a plain directory.
+ */
+function isBareDshTree(path) {
+  return !isLink(path) && existsSync(join(path, 'packages')) && !existsSync(join(path, '.git'))
+}
+
+/**
+ * Whether `path`'s files share inodes with another copy. A hardlink farm keeps
+ * `nlink > 1`; an independent copy was written through and has `nlink === 1`.
+ * Probes a file that every DSH checkout has, so the answer does not depend on
+ * which optional packages are present.
+ */
+function sharesInodes(path) {
+  try {
+    return statSync(join(path, 'package.json')).nlink > 1
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The main worktree's materialized checkout: the cheapest source for a farm,
+ * because it is the copy that gets refreshed when DSH is bumped.
+ */
+function mainWorktreeVendor() {
+  try {
+    const first = git(ROOT, ['worktree', 'list', '--porcelain'])
+      .split('\n')
+      .find((line) => line.startsWith('worktree '))
+    if (first === undefined) return undefined
+    const candidate = join(resolve(first.slice('worktree '.length)), '.vendor', 'deepseek-harness')
+    return isDshCheckout(candidate) || isBareDshTree(candidate) ? candidate : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Classify what currently occupies `TARGET`.
  *
  * `empty-directory` is not an accident: a fresh clone of a repository that
@@ -177,11 +248,15 @@ function isRegisteredWorktree(source) {
  * (the submodule placeholder). Treating that as `unrelated-directory` would
  * refuse the very first run on every clean checkout, so it is filled in place.
  * `git worktree add` accepts an existing empty directory.
+ *
+ * `farm` and `copy` both lack a `.git` pointer; they differ only in whether the
+ * bytes are shared, which decides whether a refresh is free or expensive.
  */
 function targetState() {
   if (!existsSync(TARGET) && !isLink(TARGET)) return 'missing'
   if (isLink(TARGET)) return 'symlink'
   if (isGitCheckout(TARGET)) return 'checkout'
+  if (isBareDshTree(TARGET)) return sharesInodes(TARGET) ? 'farm' : 'copy'
   if (isEmptyDirectory(TARGET)) return 'empty-directory'
   return 'unrelated-directory'
 }
@@ -259,6 +334,79 @@ function resolveRef(source) {
   return fallback
 }
 
+/**
+ * Recreate `from` at `to` with every regular file hardlinked.
+ *
+ * Written as an explicit walk rather than `cp -al` because the shell tool is not
+ * portable: NTFS has no directory hardlinks, so a farm there must be built from
+ * per-file links (which `fs.linkSync` creates on both POSIX and NTFS). Symlinks
+ * are recreated as symlinks; linking a link would hardlink the link inode itself.
+ *
+ * @param from - source tree that already exists.
+ * @param to - destination path, created here.
+ */
+function linkTree(from, to) {
+  const entry = lstatSync(from)
+  if (entry.isSymbolicLink()) {
+    symlinkSync(readlinkSync(from), to)
+    return
+  }
+  if (entry.isDirectory()) {
+    mkdirSync(to, { recursive: true })
+    for (const child of readdirSync(from)) linkTree(join(from, child), join(to, child))
+    return
+  }
+  try {
+    linkSync(from, to)
+  } catch (error) {
+    const code = error.code
+    if (code === 'EXDEV' || code === 'EPERM') {
+      fail(`cannot hardlink ${from} -> ${to} (${code}): a hardlink needs one filesystem. Use --copy instead.`)
+    }
+    throw error
+  }
+}
+
+/**
+ * Materialize `TARGET` as a hardlink farm over `source`.
+ *
+ * Hardlinking shares every inode, so the tree costs directory entries and nothing
+ * else, and it runs in about a second for a 200 MB checkout. The `.git` pointer
+ * is dropped afterwards: two checkouts must not share one git directory and one
+ * index, or concurrent git runs fight over the same lock files. Dropping it is
+ * also what keeps `git status` working — git only refuses a SYMLINK at a
+ * gitlink path, and a plain directory is accepted whatever it contains.
+ */
+function linkFarm(source) {
+  if (dryRun) {
+    say(`[dry-run] would hardlink ${source} -> ${TARGET} and drop its .git pointer`)
+    return
+  }
+  mkdirSync(dirname(TARGET), { recursive: true })
+  linkTree(source, TARGET)
+  rmSync(join(TARGET, '.git'), { force: true })
+  say(`hardlinked ${source} -> ${TARGET} (shared inodes; .git pointer dropped)`)
+}
+
+/**
+ * Materialize `TARGET` as an independent copy. Correct and isolated, but it
+ * duplicates the whole checkout, so it is opt-in rather than the default.
+ */
+function copyCheckout(source) {
+  if (dryRun) {
+    say(`[dry-run] would copy ${source} -> ${TARGET} and drop its .git pointer`)
+    return
+  }
+  mkdirSync(dirname(TARGET), { recursive: true })
+  try {
+    execFileSync('cp', ['-a', source, TARGET], { stdio: 'inherit' })
+  } catch {
+    fail(`cp could not copy ${source} to ${TARGET}`)
+  }
+  rmSync(join(TARGET, '.git'), { force: true })
+  say(`copied ${source} -> ${TARGET} (independent copy; .git pointer dropped)`)
+}
+
 /** Create the in-workspace worktree from `source`. */
 function addWorktree(source) {
   const rev = resolveRef(source)
@@ -304,14 +452,32 @@ function main() {
     say(`reusing existing checkout ${existing}`)
   }
 
-  // An existing real checkout is the desired end state: never re-create it.
-  if (state === 'checkout') {
-    if (existing !== undefined && !isRegisteredWorktree(existing)) {
-      say(`${TARGET} is a checkout but not a worktree of ${existing}; leaving it as-is`)
+  // A farm or copy already satisfies both gates: never re-create it.
+  if (state === 'farm' || state === 'copy') {
+    if (wantRebuild) {
+      say(`--rebuild: replacing the existing ${state} at ${TARGET}`)
+      if (!dryRun) rmSync(TARGET, { recursive: true, force: true })
+    } else {
+      linkNodeModules(existing ?? TARGET)
+      say(`done (no-op: ${state} already materialized)`)
+      return
     }
-    linkNodeModules(existing ?? TARGET)
-    say('done (no-op)')
-    return
+  }
+
+  // An existing real checkout is a valid end state; only `--rebuild` replaces it,
+  // and only when it is not the main worktree's own checkout (that is the farm source).
+  if (state === 'checkout') {
+    const isMainVendor = resolve(mainWorktreeVendor() ?? '') === resolve(TARGET)
+    if (!wantRebuild || isMainVendor) {
+      if (existing !== undefined && !isRegisteredWorktree(existing)) {
+        say(`${TARGET} is a checkout but not a worktree of ${existing}; leaving it as-is`)
+      }
+      linkNodeModules(existing ?? TARGET)
+      say('done (no-op)')
+      return
+    }
+    say('--rebuild: replacing the existing checkout with a hardlink farm')
+    if (!dryRun) rmSync(TARGET, { recursive: true, force: true })
   }
 
   const source = existing ?? (wantClone ? cloneCanonical() : undefined)
@@ -323,7 +489,7 @@ function main() {
   }
 
   if (state === 'symlink') {
-    say('replacing the legacy symlink with a real worktree')
+    say('replacing the legacy symlink with a real directory (git and the LSP host both reject it)')
     if (!dryRun) rmSync(TARGET, { force: true })
   }
 
@@ -331,7 +497,17 @@ function main() {
     say('filling the empty submodule placeholder git created for a fresh clone')
   }
 
-  addWorktree(source)
+  // The main worktree's checkout is the copy that gets refreshed on a DSH bump,
+  // so prefer it as the farm source; an outside checkout only has the objects.
+  const farmSource = mainWorktreeVendor()
+  if (wantCopy) {
+    copyCheckout(source)
+  } else if (farmSource !== undefined && resolve(farmSource) !== resolve(TARGET)) {
+    linkFarm(farmSource)
+  } else {
+    say('no in-workspace checkout to hardlink from; falling back to a git worktree')
+    addWorktree(source)
+  }
   linkNodeModules(source)
   say('done')
 }

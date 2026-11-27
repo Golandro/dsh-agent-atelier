@@ -33,18 +33,22 @@ multi-context (`GLOSSARY-MAP.md` at the root pointing at per-context `GLOSSARY.m
 - **Interfaces live in source**: interface signatures and inline docs land in the
   contract layer; specs and tickets carry the decision summary and a module
   pointer, never a second copy of the signatures.
-- **Fact-check primary sources first**: read `docs/agents/harness-facts.md`
-  before host-API, patch, or subagent fact-checks. Delegate with exact paths and
-  a report template; an Explore snippet list is not a fact report, and repeating
-  the dispatch is not progress.
-- **External sources stay external**: host source such as DSH is checked out with
-  `git worktree` under `$ProjectRoot/.vendor/`, not vendored into the tree or
-  committed, but remains searchable. It must be a **real checkout**, never a
-  symlink: the LSP host resolves paths through `realpath`, so a link pointing
-  outside `$ProjectRoot` fails every query. The path is a **submodule gitlink**
-  that records only the commit (with `update = none`, so no `submodule update`
-  and no clone); materialize it with `node scripts/vendor-worktree.mjs`. See
-  `.agents/rules/agent-lsp-userguide.md`.
+- **Fact-check primary sources first**: consult `docs/agents/harness-facts.md`
+  before host-API, patch, or subagent fact-checks. It is a reference: grep the
+  heading and read that section, never the whole file. A full read is reserved
+  for deep-debugging a harness failure. Delegate with exact paths and a report
+  template; an Explore snippet list is not a fact report, and repeating the
+  dispatch is not progress.
+- **Verify once**: `pnpm run check` runs the static guard, `tsc --noEmit`, and
+  `vitest` in one pass; the pre-commit hook repeats the same three on commit.
+  Do not re-run any of them by hand after a green `check` or before committing.
+- **External sources stay external**: host source such as DSH lives under
+  `$ProjectRoot/.vendor/` as a **real directory, never a symlink**, and is not
+  committed. In a linked worktree, hardlink the main worktree's checkout, or
+  omit `.vendor` when only the API contract matters. The path is a submodule
+  gitlink (`update = none`: never run `submodule update`); materialize it with
+  `node scripts/vendor-worktree.mjs [--root <worktree>]`. Constraints and
+  platform differences: `docs/agents/harness-facts.md`.
 - **Explicit waivers win**: when the user says not to re-check state, skip
   `git status` / `git log`; stage the named paths and proceed.
 - **Attribution**: AI models and tools are not the responsible party. Commits
@@ -63,5 +67,6 @@ multi-context (`GLOSSARY-MAP.md` at the root pointing at per-context `GLOSSARY.m
   product consensus; new issues are tracked on GitHub.
 - **Harness facts** → `docs/agents/harness-facts.md` — reach before host-API
   fact-checks, patch mechanics, subagent dispatch, or external DSH source reads.
+  Select the section; do not read the file end to end.
 - **Working agreements** → `README.md` — commands, the `pnpm run check`
   guardrail, install via `plugin_manager install_bundle` only.

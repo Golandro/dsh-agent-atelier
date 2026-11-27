@@ -1,9 +1,18 @@
 ---
-description: Agent LSP 技能族使用规则（符号优先 / 影响先行 / 预览后落盘 / 三层验证 / 外部参考）
+description: Agent LSP 技能族使用规则（外部源码检索顺序 / 符号优先 / 影响先行 / 预览后落盘 / 三层验证）
 enabled: true
 alwaysApply: true
 ---
 # Agent LSP 使用规则
+
+## 外部源码（DSH）的检索顺序
+
+- **语义检索只走文档层**：`README.md`、`AGENTS.md` 及其引用到的文件，外加 `docs/`。
+  文档是唯一允许用文本检索做语义发现的地方。
+- **代码检索是文档检索的下位替代，且必须用 LSP**：`lsp_symbols` 取文件大纲或按名找符号，
+  再用 `read` 读命中行。在 `packages/` 里 grep 符号名属违规——不知道符号在哪就先读文档。
+- 顺序固定：文档 → 文档指向的 `path:line` → LSP 定位符号 → 读源码。
+- 例外只有一种：文档已给出确切 `path:line` 时直接 `read` 核对，不必再走 LSP。
 
 **如果工作环境在dsh中，没有Agent LSP（而是有一个替代性的核心子集）就请忽略。否则请建议用户提供LSP入口点。**
 **一句话：符号 → 影响 → 预览 → 落盘 → 三层验证。没有 LSP 工具就明说，不静默退回全文搜索。**
@@ -14,14 +23,13 @@ alwaysApply: true
   找不到回退 cwd）。没有 `add_workspace_folder` / `list_workspace_folders` /
   `start_lsp` / `detect_lsp_servers` 这些工具——当前 profile 一个都没装，别再
   照名字找。
-- **外部参考（如 DSH 源码）必须真实落在 `$ProjectRoot` 之下。** 宿主用
-  `realpath` 做包含性判定（`fs.contains`），软链会被解开到链接目标：指向
-  工作区外的软链**必然**以 `source "<path>" resolves outside the workspace` 失败。
-  用 `git worktree` 在工作区内检出真实文件（`.vendor/<name>/`），并补一条
-  `node_modules` 软链给它（依赖解析沿软链正常生效）。
+- **外部参考（如 DSH 源码）的路径必须解析到 `$ProjectRoot` 之内。** 指向工作区外
+  的软链以 `source "<path>" resolves outside the workspace` 失败。用
+  `git worktree` 在工作区内检出真实文件（`.vendor/<name>/`），并补一条
+  `node_modules` 软链给它。
 - `.vendor/deepseek-harness` 在本仓索引里是 **submodule gitlink**（只记 commit，
   不含内容），`.gitmodules` 里 `update = none` ⇒ **不要**跑 `git submodule
-  update --init`，那是空操作，也别手工克隆。新克隆里它是空目录，跑
+  update --init`，也别手工克隆。新克隆里它是空目录，跑
   `node scripts/vendor-worktree.mjs` 即按 pin 检出。
 - 查询文档必须是工作区内真实文件；被查询文件的 import 由语言服务器自行解析，
   不受该包含性检查约束。
@@ -101,10 +109,9 @@ alwaysApply: true
 
 ## 10. 本仓特化
 
-- TypeScript LSP 根：`$ProjectRoot`（本仓根）。DSH 宿主源码以 `git worktree`
-  检出到 `$ProjectRoot/.vendor/deepseek-harness/`，**真实文件**而非软链——软链会
-  被 `realpath` 判到工作区外，全部 LSP 调用直接失败。
+- TypeScript LSP 根：`$ProjectRoot`（本仓根）。DSH 宿主源码位于
+  `$ProjectRoot/.vendor/deepseek-harness/`，**真实文件**而非软链。
 - 只读引用外部源码时，可临时把会话工作区指向该仓库本身（此时本仓文件反过来
   不可用）；两者无法在同一根下同时索引。
 - 验证以 `pnpm run check` 为准（静态守卫 + typecheck + vitest）；LSP 诊断只作
-  补充。
+  补充。一次 `check` 已含三项，提交时 pre-commit 会再跑一遍，不要手工重复。
